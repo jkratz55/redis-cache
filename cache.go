@@ -18,6 +18,7 @@ var (
 
 type redisClient interface {
 	Get(ctx context.Context, key string) *redis.StringCmd
+	MGet(ctx context.Context, keys ...string) *redis.SliceCmd
 	Set(ctx context.Context, key string, val any, ttl time.Duration) *redis.StatusCmd
 	Del(ctx context.Context, keys ...string) *redis.IntCmd
 }
@@ -98,6 +99,31 @@ func (c *Cache) Get(ctx context.Context, key string, v any) error {
 	return nil
 }
 
+// MGet retrieves multiple entries from the cache for the given keys.
+//
+// Because Go doesn't support type parameters on methods there is no way to handle
+// unmarshalling into the destination type. For this reason each value returned from
+// Redis will be passed to a callback as []byte along with they key and Unmarshaller
+// func. The caller can unmarshall the result from Redis and process the results as
+// they wish.
+//
+// It is recommended to use the MGet function instead unless there is a specific need
+// to handle building the results on your own.
+func (c *Cache) MGet(ctx context.Context, keys []string, callback func(key string, val []byte, um Unmarshaller)) error {
+	results, err := c.redis.MGet(ctx, keys...).Result()
+	if err != nil {
+		return fmt.Errorf("error fetching multiple keys from Redis: %w", err)
+	}
+	for i, val := range results {
+		str, ok := val.(string)
+		if !ok {
+			return fmt.Errorf("invalid Redis response")
+		}
+		callback(keys[i], []byte(str), c.unmarshaller)
+	}
+	return nil
+}
+
 // Set adds an entry into the cache, or overwrites an entry if the key already
 // existed. The entry is set without an expiration.
 func (c *Cache) Set(ctx context.Context, key string, v any) error {
@@ -134,4 +160,64 @@ func DefaultUnmarshaller() Unmarshaller {
 	return func(b []byte, v any) error {
 		return msgpack.Unmarshal(b, v)
 	}
+}
+
+// MultiResult is a type representing returning multiple entries from the Cache.
+type MultiResult[T any] map[string]T
+
+// Keys returns all the keys found.
+func (mr MultiResult[T]) Keys() []string {
+	keys := make([]string, 0, len(mr))
+	for key, _ := range mr {
+		keys = append(keys, key)
+	}
+	return keys
+}
+
+// Values returns all the values found.
+func (mr MultiResult[T]) Values() []T {
+	values := make([]T, 0, len(mr))
+	for _, val := range mr {
+		values = append(values, val)
+	}
+	return values
+}
+
+// Get returns the value and a boolean indicating if the key exists. If the key
+// doesn't exist the value will be the default zero value.
+func (mr MultiResult[T]) Get(key string) (T, bool) {
+	val, ok := mr[key]
+	return val, ok
+}
+
+// IsEmpty returns a boolean indicating if the results are empty.
+func (mr MultiResult[T]) IsEmpty() bool {
+	return len(mr) == 0
+}
+
+// MGet uses the provided Cache to retrieve multiple keys from Redis and returns
+// a MultiResult.
+//
+// The Cache type has a MGet method but because Go doesn't support type parameters
+// on methods it relies on callbacks for the caller to unmarshall into the destination
+// type. For that reason it is highly recommended to use this variant of MGet over the
+// method on the Cache type.
+func MGet[R any](ctx context.Context, c *Cache, keys ...string) (MultiResult[R], error) {
+	results, err := c.redis.MGet(ctx, keys...).Result()
+	if err != nil {
+		return nil, fmt.Errorf("error retriving entries from Redis: %w", err)
+	}
+	resultMap := make(map[string]R, 0)
+	for i, res := range results {
+		str, ok := res.(string)
+		if !ok {
+			return nil, fmt.Errorf("invalid Redis response")
+		}
+		var val R
+		if err := c.unmarshaller([]byte(str), &val); err != nil {
+			return nil, fmt.Errorf("error unmarshalling result to type %T: %w", val, err)
+		}
+		resultMap[keys[i]] = val
+	}
+	return resultMap, nil
 }
