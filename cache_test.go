@@ -142,13 +142,13 @@ func TestCache_Set(t *testing.T) {
 	assert.Equal(t, "value123", s)
 }
 
-func TestCache_SetWithTTL(t *testing.T) {
+func TestCache_SetTTL(t *testing.T) {
 	setup()
 	defer tearDown()
 
 	cache := NewCache(client)
 
-	err := cache.SetWithTTL(context.Background(), "key123", "value123", time.Second*1)
+	err := cache.SetTTL(context.Background(), "key123", "value123", time.Second*1)
 	assert.NoError(t, err)
 
 	count, err := client.Exists(context.Background(), "key123").Result()
@@ -158,6 +158,55 @@ func TestCache_SetWithTTL(t *testing.T) {
 	dur, err := client.TTL(context.Background(), "key123").Result()
 	assert.NoError(t, err)
 	assert.Equal(t, time.Second*1, dur)
+}
+
+func TestCache_SetIfAbsent(t *testing.T) {
+	setup()
+	defer tearDown()
+
+	cache := NewCache(client)
+
+	ok, err := cache.SetIfAbsent(context.Background(), "key123", "value123", 0)
+	assert.NoError(t, err)
+	assert.True(t, ok)
+
+	ok, err = cache.SetIfAbsent(context.Background(), "key123", "value123", 0)
+	assert.NoError(t, err)
+	assert.False(t, ok)
+
+	b, err := client.Get(context.Background(), "key123").Bytes()
+	assert.NoError(t, err)
+
+	var s string
+	err = msgpack.Unmarshal(b, &s)
+	assert.NoError(t, err)
+	assert.Equal(t, "value123", s)
+}
+
+func TestCache_SetIfPresent(t *testing.T) {
+	setup()
+	defer tearDown()
+
+	cache := NewCache(client)
+
+	ok, err := cache.SetIfPresent(context.Background(), "key123", "value123", 0)
+	assert.NoError(t, err)
+	assert.False(t, ok)
+
+	err = cache.Set(context.Background(), "key123", "value123")
+	assert.NoError(t, err)
+
+	ok, err = cache.SetIfPresent(context.Background(), "key123", "value123", 0)
+	assert.NoError(t, err)
+	assert.True(t, ok)
+
+	b, err := client.Get(context.Background(), "key123").Bytes()
+	assert.NoError(t, err)
+
+	var s string
+	err = msgpack.Unmarshal(b, &s)
+	assert.NoError(t, err)
+	assert.Equal(t, "value123", s)
 }
 
 func TestCache_Delete(t *testing.T) {

@@ -16,10 +16,14 @@ var (
 	ErrKeyNotFound = errors.New("key not found")
 )
 
-type redisClient interface {
+// RedisClient is an interface type that defines the Redis functionality this
+// package requires to use Redis as a cache.
+type RedisClient interface {
 	Get(ctx context.Context, key string) *redis.StringCmd
 	MGet(ctx context.Context, keys ...string) *redis.SliceCmd
 	Set(ctx context.Context, key string, val any, ttl time.Duration) *redis.StatusCmd
+	SetNX(ctx context.Context, key string, value interface{}, expiration time.Duration) *redis.BoolCmd
+	SetXX(ctx context.Context, key string, value interface{}, expiration time.Duration) *redis.BoolCmd
 	Del(ctx context.Context, keys ...string) *redis.IntCmd
 }
 
@@ -55,7 +59,7 @@ func Serialization(mar Marshaller, unmar Unmarshaller) Option {
 // The zero-value is not usable, and this type should be instantiated using the
 // NewCache function.
 type Cache struct {
-	redis        redisClient
+	redis        RedisClient
 	marshaller   Marshaller
 	unmarshaller Unmarshaller
 }
@@ -64,7 +68,7 @@ type Cache struct {
 //
 // By default, msgpack is used for marshalling and unmarshalling the entry values.
 // The behavior of Cache can be configured by passing Options.
-func NewCache(redis redisClient, opts ...Option) *Cache {
+func NewCache(redis RedisClient, opts ...Option) *Cache {
 	if redis == nil {
 		panic(fmt.Errorf("a valid redis client is required, illegal use of api"))
 	}
@@ -127,18 +131,34 @@ func (c *Cache) MGet(ctx context.Context, keys []string, callback func(key strin
 // Set adds an entry into the cache, or overwrites an entry if the key already
 // existed. The entry is set without an expiration.
 func (c *Cache) Set(ctx context.Context, key string, v any) error {
-	return c.SetWithTTL(ctx, key, v, 0)
+	return c.SetTTL(ctx, key, v, 0)
 }
 
-// SetWithTTL adds an entry into the cache, or overwrites an entry if the key
+// SetTTL adds an entry into the cache, or overwrites an entry if the key
 // already existed. The entry is set with the provided TTL and automatically
 // removed from the cache once the TTL is expired.
-func (c *Cache) SetWithTTL(ctx context.Context, key string, v any, ttl time.Duration) error {
+func (c *Cache) SetTTL(ctx context.Context, key string, v any, ttl time.Duration) error {
 	data, err := c.marshaller(v)
 	if err != nil {
 		return fmt.Errorf("error marshalling value: %w", err)
 	}
 	return c.redis.Set(ctx, key, data, ttl).Err()
+}
+
+func (c *Cache) SetIfAbsent(ctx context.Context, key string, v any, ttl time.Duration) (bool, error) {
+	data, err := c.marshaller(v)
+	if err != nil {
+		return false, fmt.Errorf("error marshalling value: %w", err)
+	}
+	return c.redis.SetNX(ctx, key, data, ttl).Result()
+}
+
+func (c *Cache) SetIfPresent(ctx context.Context, key string, v any, ttl time.Duration) (bool, error) {
+	data, err := c.marshaller(v)
+	if err != nil {
+		return false, fmt.Errorf("error marshalling value: %w", err)
+	}
+	return c.redis.SetXX(ctx, key, data, ttl).Result()
 }
 
 // Delete removes entries from the cache for a given set of keys.
