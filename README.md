@@ -5,7 +5,7 @@ Redis Cache is a very simple abstraction over Redis for basic caching functional
 ## Requirements
 
 * Go 1.18+ (might work on older versions of Go but untested)
-* Redis 7
+* Redis 6
 * go-redis/redis (this is the backing Redis library/client)
 
 ## Getting Redis Cache
@@ -16,13 +16,16 @@ go get github.com/jkratz/redis-cache
 
 ## Usage
 
-Under the hood Redis Cache was designed to be used with [https://github.com/go-redis/redis](https://github.com/go-redis/redis). However, it can work with anytime that implements the `redisClient` interface.
+Under the hood Redis Cache was designed to be used with [https://github.com/go-redis/redis](https://github.com/go-redis/redis). However, it can work with any type that implements the `RedisClient` interface.
 
 ```go
-type redisClient interface {
-	Get(ctx context.Context, key string) *redis.StringCmd
-	Set(ctx context.Context, key string, val any, ttl time.Duration) *redis.StatusCmd
-	Del(ctx context.Context, keys ...string) *redis.IntCmd
+type RedisClient interface {
+    Get(ctx context.Context, key string) *redis.StringCmd
+    MGet(ctx context.Context, keys ...string) *redis.SliceCmd
+    Set(ctx context.Context, key string, val any, ttl time.Duration) *redis.StatusCmd
+    SetNX(ctx context.Context, key string, value interface{}, expiration time.Duration) *redis.BoolCmd
+    SetXX(ctx context.Context, key string, value interface{}, expiration time.Duration) *redis.BoolCmd
+    Del(ctx context.Context, keys ...string) *redis.IntCmd
 }
 ```
 
