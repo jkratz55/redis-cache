@@ -119,9 +119,14 @@ func (c *Cache) MGet(ctx context.Context, keys []string, callback func(key strin
 		return fmt.Errorf("error fetching multiple keys from Redis: %w", err)
 	}
 	for i, val := range results {
+		if val == nil || val == redis.Nil {
+			// Some or all of the requested keys may not exist. Skip iterations
+			// where the key wasn't found
+			continue
+		}
 		str, ok := val.(string)
 		if !ok {
-			return fmt.Errorf("invalid Redis response")
+			return fmt.Errorf("unexpected value from Redis: %v", val)
 		}
 		callback(keys[i], []byte(str), c.unmarshaller)
 	}
@@ -229,9 +234,14 @@ func MGet[R any](ctx context.Context, c *Cache, keys ...string) (MultiResult[R],
 	}
 	resultMap := make(map[string]R, 0)
 	for i, res := range results {
+		if res == nil || res == redis.Nil {
+			// Some or all of the requested keys may not exist. Skip iterations
+			// where the key wasn't found
+			continue
+		}
 		str, ok := res.(string)
 		if !ok {
-			return nil, fmt.Errorf("invalid Redis response")
+			return nil, fmt.Errorf("unexpected value from Redis: %v", res)
 		}
 		var val R
 		if err := c.unmarshaller([]byte(str), &val); err != nil {
