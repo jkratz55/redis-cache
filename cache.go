@@ -25,6 +25,7 @@ type RedisClient interface {
 	SetNX(ctx context.Context, key string, value interface{}, expiration time.Duration) *redis.BoolCmd
 	SetXX(ctx context.Context, key string, value interface{}, expiration time.Duration) *redis.BoolCmd
 	Del(ctx context.Context, keys ...string) *redis.IntCmd
+	Watch(ctx context.Context, fn func(*redis.Tx) error, keys ...string) error
 }
 
 // Marshaller is a function type that marshals the value of a cache entry for
@@ -250,4 +251,109 @@ func MGet[R any](ctx context.Context, c *Cache, keys ...string) (MultiResult[R],
 		resultMap[keys[i]] = val
 	}
 	return resultMap, nil
+}
+
+// UpsertCallback is a callback function that is invoked by Upsert. An UpsertCallback
+// is passed if a key was found, the old value (or zero-value if the key wasn't found)
+// and the new value. An UpsertCallback is responsible for determining what value should
+// be set for a given key in the cache. The value returned from UpsertCallback is the
+// value set.
+type UpsertCallback[T any] func(found bool, oldValue T, newValue T) T
+
+// Upsert retrieves the existing value for a given key and invokes the UpsertCallback.
+// The UpsertCallback function is responsible for determining the value to be stored.
+// The value returned from the UpsertCallback is what is set in Redis.
+//
+// Upsert allows for atomic updates of existing records, or simply inserting new
+// entries when the key doesn't exist.
+//
+// Redis uses an optimistic locking model. If the key changes during the transaction
+// Redis will fail the transaction and return an error. However, these errors are
+// retryable. To determine if the error is retryable use the IsRetryable function
+// with the returned error.
+//
+//	cb := rcache.UpsertCallback[Person](func(found bool, oldValue Person, newValue Person) Person {
+//		fmt.Println(found)
+//		fmt.Println(oldValue)
+//		fmt.Println(newValue)
+//		return newValue
+//	})
+//	retries := 3
+//	for i := 0; i < retries; i++ {
+//		err := rcache.Upsert[Person](context.Background(), c, "BillyBob", p, cb)
+//		if rcache.IsRetryable(err) {
+//			continue
+//		}
+//		// do something useful ...
+//		break
+//	}
+func Upsert[T any](ctx context.Context, c *Cache, key string, val T, cb UpsertCallback[T]) error {
+	return UpsertTTL(ctx, c, key, val, cb, 0)
+}
+
+// UpsertTTL retrieves the existing value for a given key and invokes the UpsertCallback.
+// The UpsertCallback function is responsible for determining the value to be stored.
+// The value returned from the UpsertCallback is what is set in Redis.
+//
+// Upsert allows for atomic updates of existing records, or simply inserting new
+// entries when the key doesn't exist.
+//
+// Redis uses an optimistic locking model. If the key changes during the transaction
+// Redis will fail the transaction and return an error. However, these errors are
+// retryable. To determine if the error is retryable use the IsRetryable function
+// with the returned error.
+//
+//	cb := rcache.UpsertCallback[Person](func(found bool, oldValue Person, newValue Person) Person {
+//		fmt.Println(found)
+//		fmt.Println(oldValue)
+//		fmt.Println(newValue)
+//		return newValue
+//	})
+//	retries := 3
+//	for i := 0; i < retries; i++ {
+//		err := rcache.UpsertTTL[Person](context.Background(), c, "BillyBob", p, cb, time.Minute * 1)
+//		if rcache.IsRetryable(err) {
+//			continue
+//		}
+//		// do something useful ...
+//		break
+//	}
+func UpsertTTL[T any](ctx context.Context, c *Cache, key string, val T, cb UpsertCallback[T], ttl time.Duration) error {
+
+	// Builds Redis transaction where the value is fetched from Redis, unmarshalled,
+	// and then passed to the UpsertCallback. The returned value from the UpsertCallback
+	// is the value set for the given key.
+	tx := func(tx *redis.Tx) error {
+		found := false
+		var oldVal T
+		err := c.Get(ctx, key, &oldVal)
+		if err != nil && !errors.Is(err, ErrKeyNotFound) {
+			return fmt.Errorf("error fetching key %s: %w", key, err)
+		}
+		if err == nil {
+			found = true
+		}
+		newVal := cb(found, oldVal, val)
+		_, err = tx.TxPipelined(ctx, func(pipe redis.Pipeliner) error {
+			binaryValue, err := c.marshaller(newVal)
+			if err != nil {
+				return fmt.Errorf("failed to marshal value: %w", err)
+			}
+			return pipe.Set(ctx, key, binaryValue, ttl).Err()
+		})
+		return err
+	}
+
+	err := c.redis.Watch(ctx, tx, key)
+
+	// Since Redis uses optimistic locking the key might have been modified during
+	// the transaction. In such cases the operation will fail from Redis but the
+	// operation can be retried, so we return a RetryableError.
+	if errors.Is(err, redis.TxFailedErr) {
+		return RetryableError{
+			retryable: true,
+			cause:     err,
+		}
+	}
+	return err
 }

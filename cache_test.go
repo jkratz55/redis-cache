@@ -312,3 +312,42 @@ func TestMGet(t *testing.T) {
 		},
 	}, map[string]name(results))
 }
+
+func TestUpsertTTL(t *testing.T) {
+	setup()
+	defer tearDown()
+
+	type name struct {
+		First  string
+		Middle string
+		Last   string
+	}
+
+	arg := name{
+		First:  "Billy",
+		Middle: "Joel",
+		Last:   "Bob",
+	}
+
+	called := 0
+	cb := UpsertCallback[name](func(found bool, oldValue, newValue name) name {
+		called++
+		assert.False(t, found)
+		assert.Equal(t, name{}, oldValue)
+		assert.Equal(t, arg, newValue)
+		return newValue
+	})
+
+	cache := NewCache(client)
+	err := UpsertTTL[name](context.Background(), cache, "BillyBob", arg, cb, 0)
+	assert.NoError(t, err)
+	assert.Equal(t, 1, called)
+
+	raw, err := client.Get(context.Background(), "BillyBob").Result()
+	assert.NoError(t, err)
+	var actual name
+	err = msgpack.Unmarshal([]byte(raw), &actual)
+	assert.NoError(t, err)
+
+	assert.Equal(t, arg, actual)
+}
