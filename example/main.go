@@ -60,4 +60,9 @@ func main() {
 		break
 	}
 
+	keys, err := c.Keys(context.Background())
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println(keys)
 }

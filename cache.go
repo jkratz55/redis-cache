@@ -26,6 +26,9 @@ type RedisClient interface {
 	SetXX(ctx context.Context, key string, value interface{}, expiration time.Duration) *redis.BoolCmd
 	Del(ctx context.Context, keys ...string) *redis.IntCmd
 	Watch(ctx context.Context, fn func(*redis.Tx) error, keys ...string) error
+	Scan(ctx context.Context, cursor uint64, match string, count int64) *redis.ScanCmd
+	FlushDB(ctx context.Context) *redis.StatusCmd
+	FlushDBAsync(ctx context.Context) *redis.StatusCmd
 }
 
 // Marshaller is a function type that marshals the value of a cache entry for
@@ -134,6 +137,19 @@ func (c *Cache) MGet(ctx context.Context, keys []string, callback func(key strin
 	return nil
 }
 
+// Keys retrieves all the keys in Redis/Cache
+func (c *Cache) Keys(ctx context.Context) ([]string, error) {
+	keys := make([]string, 0)
+	iter := c.redis.Scan(ctx, 0, "*", 0).Iterator()
+	for iter.Next(ctx) {
+		keys = append(keys, iter.Val())
+	}
+	if err := iter.Err(); err != nil {
+		return nil, err
+	}
+	return keys, nil
+}
+
 // Set adds an entry into the cache, or overwrites an entry if the key already
 // existed. The entry is set without an expiration.
 func (c *Cache) Set(ctx context.Context, key string, v any) error {
@@ -170,6 +186,18 @@ func (c *Cache) SetIfPresent(ctx context.Context, key string, v any, ttl time.Du
 // Delete removes entries from the cache for a given set of keys.
 func (c *Cache) Delete(ctx context.Context, keys ...string) error {
 	return c.redis.Del(ctx, keys...).Err()
+}
+
+// Flush flushes the cache deleting all keys/entries.
+func (c *Cache) Flush(ctx context.Context) {
+	c.redis.FlushDB(ctx)
+}
+
+// FlushAsync flushes the cache deleting all keys/entries asynchronously. Only keys
+// that were present when FLUSH ASYNC command was received by Redis will be deleted.
+// Any keys created during asynchronous flush will be unaffected.
+func (c *Cache) FlushAsync(ctx context.Context) {
+	c.redis.FlushDBAsync(ctx)
 }
 
 // DefaultMarshaller returns a Marshaller using msgpack to marshall

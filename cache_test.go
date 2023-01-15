@@ -4,10 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/gob"
+	"fmt"
 	"testing"
 	"time"
 
-	"github.com/alicebob/miniredis"
+	"github.com/alicebob/miniredis/v2"
 	"github.com/go-redis/redis/v9"
 	"github.com/stretchr/testify/assert"
 	"github.com/vmihailenco/msgpack/v5"
@@ -350,4 +351,28 @@ func TestUpsertTTL(t *testing.T) {
 	assert.NoError(t, err)
 
 	assert.Equal(t, arg, actual)
+}
+
+func TestCache_Keys(t *testing.T) {
+	setup()
+	defer tearDown()
+
+	rdb := NewCache(client)
+
+	for i := 0; i < 10; i++ {
+		key := fmt.Sprintf("%d", i)
+		err := rdb.Set(context.Background(), key, key)
+		assert.NoError(t, err)
+	}
+
+	var x string
+	if err := rdb.Get(context.Background(), "0", &x); err != nil {
+		panic(err)
+	}
+	fmt.Println(x)
+
+	expected := []string{"0", "1", "2", "3", "4", "5", "6", "7", "8", "9"}
+	actual, err := rdb.Keys(context.Background())
+	assert.NoError(t, err)
+	assert.ElementsMatch(t, expected, actual)
 }
