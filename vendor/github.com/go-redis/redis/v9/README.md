@@ -8,7 +8,10 @@
 > go-redis is brought to you by :star: [**uptrace/uptrace**](https://github.com/uptrace/uptrace).
 > Uptrace is an open-source APM tool that supports distributed tracing, metrics, and logs. You can
 > use it to monitor applications and set up automatic alerts to receive notifications via email,
-> Slack, Telegram, and others. Star it as well!
+> Slack, Telegram, and others.
+>
+> See [OpenTelemetry](example/otel) example which demonstrates how you can use Uptrace to monitor
+> go-redis.
 
 ## Resources
 
