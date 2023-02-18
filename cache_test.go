@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/alicebob/miniredis/v2"
-	"github.com/go-redis/redis/v9"
+	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
 	"github.com/vmihailenco/msgpack/v5"
 )
@@ -69,57 +69,6 @@ func TestCache_Get(t *testing.T) {
 
 	err = cache.Get(context.Background(), "random", &s)
 	assert.ErrorIs(t, err, ErrKeyNotFound)
-}
-
-func TestCache_MGet(t *testing.T) {
-	setup()
-	defer tearDown()
-
-	type name struct {
-		First  string
-		Middle string
-		Last   string
-	}
-
-	val, _ := msgpack.Marshal(name{
-		First:  "Billy",
-		Middle: "Joel",
-		Last:   "Bob",
-	})
-	if err := client.Set(context.Background(), "key123", val, 0).Err(); err != nil {
-		t.Errorf("failed to setup data in Redis")
-	}
-	val, _ = msgpack.Marshal(name{
-		First:  "Shelly",
-		Middle: "Jane",
-		Last:   "Bob",
-	})
-	if err := client.Set(context.Background(), "key456", val, 0).Err(); err != nil {
-		t.Errorf("failed to setup data in Redis")
-	}
-
-	cache := NewCache(client)
-	results := make(map[string]name, 0)
-	err := cache.MGet(context.Background(), []string{"key123", "key456"}, func(key string, val []byte, un Unmarshaller) {
-		var s name
-		if err := un(val, &s); err != nil {
-			panic(err)
-		}
-		results[key] = s
-	})
-	assert.NoError(t, err)
-	assert.Equal(t, map[string]name{
-		"key123": name{
-			First:  "Billy",
-			Middle: "Joel",
-			Last:   "Bob",
-		},
-		"key456": name{
-			First:  "Shelly",
-			Middle: "Jane",
-			Last:   "Bob",
-		},
-	}, results)
 }
 
 func TestCache_Set(t *testing.T) {

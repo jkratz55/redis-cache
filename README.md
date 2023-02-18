@@ -1,12 +1,11 @@
 # Redis Cache
 
-Redis Cache is a very simple abstraction over Redis for basic caching functionality. It can be thought of as a simple Cache backed by Redis. Redis Cache provides the following functionality: Set, Get, and Delete. In addition, there is a SetWithTTL method to set entries that will automatically be removed once the TTL has expired.
+Redis Cache is a cache library backed by Redis. It is useful for storing any structure that can be marshaled and unmarshalled to/from bytes. Because the cache works with bytes under the hood it is very flexible and versatile compared to Redis built-in hash(maps). By default, this library uses msgpack to handle serialization, but the Cache can be configured to use Json, Gob, Protobuf, etc.
 
 ## Requirements
 
-* Go 1.18+ (might work on older versions of Go but untested)
+* Go 1.19+ 
 * Redis 6
-* go-redis/redis (this is the backing Redis library/client)
 
 ## Getting Redis Cache
 
@@ -16,7 +15,7 @@ go get github.com/jkratz/redis-cache
 
 ## Usage
 
-Under the hood Redis Cache was designed to be used with [https://github.com/go-redis/redis](https://github.com/go-redis/redis). However, it can work with any type that implements the `RedisClient` interface.
+Under the hood Redis Cache was designed to be used with [go-redis](https://github.com/redis/go-redis). However, it can work with any type that implements the `RedisClient` interface.
 
 ```go
 type RedisClient interface {
@@ -26,10 +25,15 @@ type RedisClient interface {
     SetNX(ctx context.Context, key string, value interface{}, expiration time.Duration) *redis.BoolCmd
     SetXX(ctx context.Context, key string, value interface{}, expiration time.Duration) *redis.BoolCmd
     Del(ctx context.Context, keys ...string) *redis.IntCmd
+    Watch(ctx context.Context, fn func(*redis.Tx) error, keys ...string) error
+    Scan(ctx context.Context, cursor uint64, match string, count int64) *redis.ScanCmd
+    FlushDB(ctx context.Context) *redis.StatusCmd
+    FlushDBAsync(ctx context.Context) *redis.StatusCmd
+}
 }
 ```
 
-This means that `Cache` type can work with the following types.
+This means that the `Cache` type can work with the following types.
 
 * redis.Client
 * redis.ClusterClient
@@ -46,7 +50,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/go-redis/redis/v9"
+	"github.com/redis/go-redis/v9"
 
 	rcache "github.com/jkratz55/redis-cache"
 )

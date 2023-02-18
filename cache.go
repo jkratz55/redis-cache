@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/go-redis/redis/v9"
+	"github.com/redis/go-redis/v9"
 	"github.com/vmihailenco/msgpack/v5"
 )
 
@@ -103,36 +103,6 @@ func (c *Cache) Get(ctx context.Context, key string, v any) error {
 	}
 	if err := c.unmarshaller(data, v); err != nil {
 		return fmt.Errorf("error unmarshalling value for key %s: %w", key, err)
-	}
-	return nil
-}
-
-// MGet retrieves multiple entries from the cache for the given keys.
-//
-// Because Go doesn't support type parameters on methods there is no way to handle
-// unmarshalling into the destination type. For this reason each value returned from
-// Redis will be passed to a callback as []byte along with they key and Unmarshaller
-// func. The caller can unmarshall the result from Redis and process the results as
-// they wish.
-//
-// It is recommended to use the MGet function instead unless there is a specific need
-// to handle building the results on your own.
-func (c *Cache) MGet(ctx context.Context, keys []string, callback func(key string, val []byte, um Unmarshaller)) error {
-	results, err := c.redis.MGet(ctx, keys...).Result()
-	if err != nil {
-		return fmt.Errorf("error fetching multiple keys from Redis: %w", err)
-	}
-	for i, val := range results {
-		if val == nil || val == redis.Nil {
-			// Some or all of the requested keys may not exist. Skip iterations
-			// where the key wasn't found
-			continue
-		}
-		str, ok := val.(string)
-		if !ok {
-			return fmt.Errorf("unexpected value from Redis: %v", val)
-		}
-		callback(keys[i], []byte(str), c.unmarshaller)
 	}
 	return nil
 }
@@ -251,11 +221,6 @@ func (mr MultiResult[T]) IsEmpty() bool {
 
 // MGet uses the provided Cache to retrieve multiple keys from Redis and returns
 // a MultiResult.
-//
-// The Cache type has a MGet method but because Go doesn't support type parameters
-// on methods it relies on callbacks for the caller to unmarshall into the destination
-// type. For that reason it is highly recommended to use this variant of MGet over the
-// method on the Cache type.
 func MGet[R any](ctx context.Context, c *Cache, keys ...string) (MultiResult[R], error) {
 	results, err := c.redis.MGet(ctx, keys...).Result()
 	if err != nil {
