@@ -137,6 +137,9 @@ func (c *Cache) SetTTL(ctx context.Context, key string, v any, ttl time.Duration
 	return c.redis.Set(ctx, key, data, ttl).Err()
 }
 
+// SetIfAbsent adds an entry into the cache only if the key doesn't already exist.
+// The entry is set with the provided TTL and automatically removed from the cache
+// once the TTL is expired.
 func (c *Cache) SetIfAbsent(ctx context.Context, key string, v any, ttl time.Duration) (bool, error) {
 	data, err := c.marshaller(v)
 	if err != nil {
@@ -145,6 +148,9 @@ func (c *Cache) SetIfAbsent(ctx context.Context, key string, v any, ttl time.Dur
 	return c.redis.SetNX(ctx, key, data, ttl).Result()
 }
 
+// SetIfPresent updates an entry into the cache if they key already exists in the
+// cache. The entry is set with the provided TTL and automatically removed from the
+// cache once the TTL is expired.
 func (c *Cache) SetIfPresent(ctx context.Context, key string, v any, ttl time.Duration) (bool, error) {
 	data, err := c.marshaller(v)
 	if err != nil {
@@ -192,7 +198,7 @@ type MultiResult[T any] map[string]T
 // Keys returns all the keys found.
 func (mr MultiResult[T]) Keys() []string {
 	keys := make([]string, 0, len(mr))
-	for key, _ := range mr {
+	for key := range mr {
 		keys = append(keys, key)
 	}
 	return keys

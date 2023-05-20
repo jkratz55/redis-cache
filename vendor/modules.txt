@@ -20,8 +20,8 @@ github.com/dgryski/go-rendezvous
 # github.com/pmezard/go-difflib v1.0.0
 ## explicit
 github.com/pmezard/go-difflib/difflib
-# github.com/redis/go-redis/v9 v9.0.2
-## explicit; go 1.17
+# github.com/redis/go-redis/v9 v9.0.4
+## explicit; go 1.18
 github.com/redis/go-redis/v9
 github.com/redis/go-redis/v9/internal
 github.com/redis/go-redis/v9/internal/hashtag

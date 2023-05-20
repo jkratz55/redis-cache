@@ -1,16 +1,17 @@
 # Redis Cache
 
-Redis Cache is a cache library backed by Redis. It is useful for storing any structure that can be marshaled and unmarshalled to/from bytes. Because the cache works with bytes under the hood it is very flexible and versatile compared to Redis built-in hash(maps). By default, this library uses msgpack to handle serialization, but the Cache can be configured to use Json, Gob, Protobuf, etc.
+Redis Cache is a library for caching any data structure in Redis. Redis Cache is meant to be used with the official Redis Go client and works by unmarshalling and marshaling data structures from/to bytes automatically. By default, Redis Cache will use msgpack to marshal/unmarshal data, but you can customize the behavior by providing your own `Marshaller` and `Unmarshaller` using the `Serialization` option with the `NewCache` function.
 
 ## Requirements
 
 * Go 1.19+ 
-* Redis 6
+* Redis 6+
+
 
 ## Getting Redis Cache
 
 ```shell
-go get github.com/jkratz/redis-cache
+go get github.com/jkratz55/redis-cache
 ```
 
 ## Usage
@@ -30,18 +31,15 @@ type RedisClient interface {
     FlushDB(ctx context.Context) *redis.StatusCmd
     FlushDBAsync(ctx context.Context) *redis.StatusCmd
 }
-}
 ```
 
-This means that the `Cache` type can work with the following types.
+This means that the `Cache` type can work with the following types in the go-redis client library.
 
-* redis.Client
-* redis.ClusterClient
-* redis.Ring
+* `redis.Client`
+* `redis.ClusterClient`
+* `redis.Ring`
 
-You'll need to choose the right type based on your particular use cases. More information can be found [here](https://github.com/go-redis/redis)
-
-For the example below we are going to assume a single standalone Redis node and use Client. Out of the box Cache uses msgpack to marshall and unmarshall the value. However, if you want to use a different serialization method you can provide it as an option when creating a Cache instance using NewCache.
+The following example shows the basic usage of the Redis Cache library.
 
 ```go
 package main
@@ -91,3 +89,19 @@ func main() {
 	}
 }
 ```
+
+If you wanted to use json instead of msgpack you could have customized the `Cache` like the example below.
+
+```go
+marshaller := func(v any) ([]byte, error) {
+    return json.Marshal(v)
+}
+unmarshaller := func(data []byte, v any) error {
+    return json.Unmarshal(data, v)
+}
+rdb := rcache.NewCache(client, rcache.Serialization(marshaller, unmarshaller))
+```
+
+Because of limitations in GO's implementation of generics MGet is a function instead of a method on the `Cache` type. The `MGet` function accepts the `Cache` type as an argument to leverage the same marshaller and unmarshaller.
+
+This library also supports atomic updates of existing keys by using the `Upsert` and `UpsertTTL` functions. If the key was modified while the upsert is in progress it will return `RetryableError` signaling the operation can be retried and the `UpsertCallback` can decide how to handle merging the changes.
