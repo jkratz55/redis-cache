@@ -57,6 +57,17 @@ func Serialization(mar Marshaller, unmar Unmarshaller) Option {
 	}
 }
 
+// Compression allows for the values to be flated and deflated to conserve bandwidth
+// and memory at the cost of higher CPU time.
+func Compression(codec Codec) Option {
+	if codec == nil {
+		panic(fmt.Errorf("nil Codec not permitted, illegal use of API"))
+	}
+	return func(c *Cache) {
+		c.codec = codec
+	}
+}
+
 // Cache is a simple type that provides basic caching functionality: store, retrieve,
 // and delete. It is backed by Redis and supports storing entries with a TTL.
 //
@@ -66,6 +77,7 @@ type Cache struct {
 	redis        RedisClient
 	marshaller   Marshaller
 	unmarshaller Unmarshaller
+	codec        Codec
 }
 
 // NewCache creates and initializes a new Cache instance.
@@ -80,6 +92,7 @@ func NewCache(redis RedisClient, opts ...Option) *Cache {
 		redis:        redis,
 		marshaller:   DefaultMarshaller(),
 		unmarshaller: DefaultUnmarshaller(),
+		codec:        nopCodec{},
 	}
 	for _, opt := range opts {
 		opt(cache)
@@ -100,6 +113,10 @@ func (c *Cache) Get(ctx context.Context, key string, v any) error {
 			return ErrKeyNotFound
 		}
 		return fmt.Errorf("error fetching key %s from Redis: %w", key, err)
+	}
+	data, err = c.codec.Deflate(data)
+	if err != nil {
+		return fmt.Errorf("error deflating value for key %s: %w", key, err)
 	}
 	if err := c.unmarshaller(data, v); err != nil {
 		return fmt.Errorf("error unmarshalling value for key %s: %w", key, err)
@@ -134,6 +151,10 @@ func (c *Cache) SetTTL(ctx context.Context, key string, v any, ttl time.Duration
 	if err != nil {
 		return fmt.Errorf("error marshalling value: %w", err)
 	}
+	data, err = c.codec.Flate(data)
+	if err != nil {
+		return fmt.Errorf("error compressing value: %w", err)
+	}
 	return c.redis.Set(ctx, key, data, ttl).Err()
 }
 
@@ -145,6 +166,10 @@ func (c *Cache) SetIfAbsent(ctx context.Context, key string, v any, ttl time.Dur
 	if err != nil {
 		return false, fmt.Errorf("error marshalling value: %w", err)
 	}
+	data, err = c.codec.Flate(data)
+	if err != nil {
+		return false, fmt.Errorf("error compressing value: %w", err)
+	}
 	return c.redis.SetNX(ctx, key, data, ttl).Result()
 }
 
@@ -155,6 +180,10 @@ func (c *Cache) SetIfPresent(ctx context.Context, key string, v any, ttl time.Du
 	data, err := c.marshaller(v)
 	if err != nil {
 		return false, fmt.Errorf("error marshalling value: %w", err)
+	}
+	data, err = c.codec.Flate(data)
+	if err != nil {
+		return false, fmt.Errorf("error compressing value: %w", err)
 	}
 	return c.redis.SetXX(ctx, key, data, ttl).Result()
 }
@@ -243,8 +272,12 @@ func MGet[R any](ctx context.Context, c *Cache, keys ...string) (MultiResult[R],
 		if !ok {
 			return nil, fmt.Errorf("unexpected value from Redis: %v", res)
 		}
+		data, err := c.codec.Deflate([]byte(str))
+		if err != nil {
+			return nil, fmt.Errorf("error deflating value: %w", err)
+		}
 		var val R
-		if err := c.unmarshaller([]byte(str), &val); err != nil {
+		if err := c.unmarshaller(data, &val); err != nil {
 			return nil, fmt.Errorf("error unmarshalling result to type %T: %w", val, err)
 		}
 		resultMap[keys[i]] = val
