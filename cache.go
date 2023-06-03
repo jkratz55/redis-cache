@@ -194,15 +194,15 @@ func (c *Cache) Delete(ctx context.Context, keys ...string) error {
 }
 
 // Flush flushes the cache deleting all keys/entries.
-func (c *Cache) Flush(ctx context.Context) {
-	c.redis.FlushDB(ctx)
+func (c *Cache) Flush(ctx context.Context) error {
+	return c.redis.FlushDB(ctx).Err()
 }
 
 // FlushAsync flushes the cache deleting all keys/entries asynchronously. Only keys
 // that were present when FLUSH ASYNC command was received by Redis will be deleted.
 // Any keys created during asynchronous flush will be unaffected.
-func (c *Cache) FlushAsync(ctx context.Context) {
-	c.redis.FlushDBAsync(ctx)
+func (c *Cache) FlushAsync(ctx context.Context) error {
+	return c.redis.FlushDBAsync(ctx).Err()
 }
 
 // DefaultMarshaller returns a Marshaller using msgpack to marshall
@@ -213,7 +213,7 @@ func DefaultMarshaller() Marshaller {
 	}
 }
 
-// DefaultUnmarshaller returns a Unmarshaller using msgpack to unmarshall
+// DefaultUnmarshaller returns an Unmarshaller using msgpack to unmarshall
 // values.
 func DefaultUnmarshaller() Unmarshaller {
 	return func(b []byte, v any) error {
