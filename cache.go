@@ -79,10 +79,6 @@ type Cache struct {
 	marshaller   Marshaller
 	unmarshaller Unmarshaller
 	codec        Codec
-
-	hits   int64
-	misses int64
-	errors int64
 }
 
 // NewCache creates and initializes a new Cache instance.
