@@ -10,6 +10,12 @@ import (
 	"github.com/vmihailenco/msgpack/v5"
 )
 
+const (
+	// InfiniteTTL indicates a key will never expire and will live until it is
+	// explicitly deleted.
+	InfiniteTTL time.Duration = 0
+)
+
 var (
 	// ErrKeyNotFound is an error value that signals the key requested does not
 	// exist in the cache.
@@ -22,13 +28,14 @@ type RedisClient interface {
 	Get(ctx context.Context, key string) *redis.StringCmd
 	MGet(ctx context.Context, keys ...string) *redis.SliceCmd
 	Set(ctx context.Context, key string, val any, ttl time.Duration) *redis.StatusCmd
-	SetNX(ctx context.Context, key string, value interface{}, expiration time.Duration) *redis.BoolCmd
-	SetXX(ctx context.Context, key string, value interface{}, expiration time.Duration) *redis.BoolCmd
+	SetNX(ctx context.Context, key string, value any, expiration time.Duration) *redis.BoolCmd
+	SetXX(ctx context.Context, key string, value any, expiration time.Duration) *redis.BoolCmd
 	Del(ctx context.Context, keys ...string) *redis.IntCmd
 	Watch(ctx context.Context, fn func(*redis.Tx) error, keys ...string) error
 	Scan(ctx context.Context, cursor uint64, match string, count int64) *redis.ScanCmd
 	FlushDB(ctx context.Context) *redis.StatusCmd
 	FlushDBAsync(ctx context.Context) *redis.StatusCmd
+	Ping(ctx context.Context) *redis.StatusCmd
 }
 
 // Marshaller is a function type that marshals the value of a cache entry for
@@ -72,24 +79,25 @@ func Compression(codec Codec) Option {
 // and delete. It is backed by Redis and supports storing entries with a TTL.
 //
 // The zero-value is not usable, and this type should be instantiated using the
-// NewCache function.
+// New function.
 type Cache struct {
 	redis        RedisClient
 	marshaller   Marshaller
 	unmarshaller Unmarshaller
 	codec        Codec
+	hooksMixin
 }
 
-// NewCache creates and initializes a new Cache instance.
+// New creates and initializes a new Cache instance.
 //
 // By default, msgpack is used for marshalling and unmarshalling the entry values.
 // The behavior of Cache can be configured by passing Options.
-func NewCache(redis RedisClient, opts ...Option) *Cache {
-	if redis == nil {
+func New(client RedisClient, opts ...Option) *Cache {
+	if client == nil {
 		panic(fmt.Errorf("a valid redis client is required, illegal use of api"))
 	}
 	cache := &Cache{
-		redis:        redis,
+		redis:        client,
 		marshaller:   DefaultMarshaller(),
 		unmarshaller: DefaultUnmarshaller(),
 		codec:        nopCodec{},
@@ -97,7 +105,29 @@ func NewCache(redis RedisClient, opts ...Option) *Cache {
 	for _, opt := range opts {
 		opt(cache)
 	}
+
+	cache.hooksMixin = hooksMixin{
+		initial: hooks{
+			marshal:    cache.marshaller,
+			unmarshall: cache.unmarshaller,
+			compress:   cache.codec.Flate,
+			decompress: cache.codec.Deflate,
+		},
+	}
+	cache.chain()
+
 	return cache
+}
+
+// NewCache creates and initializes a new Cache instance.
+//
+// By default, msgpack is used for marshalling and unmarshalling the entry values.
+// The behavior of Cache can be configured by passing Options.
+//
+// DEPRECATED: NewCache has been deprecated in favor of New and subject to being
+// removed in future versions.
+func NewCache(client RedisClient, opts ...Option) *Cache {
+	return New(client, opts...)
 }
 
 // Get retrieves an entry from the Cache for the given key, and if found will
@@ -114,11 +144,11 @@ func (c *Cache) Get(ctx context.Context, key string, v any) error {
 		}
 		return fmt.Errorf("error fetching key %s from Redis: %w", key, err)
 	}
-	data, err = c.codec.Deflate(data)
+	data, err = c.hooksMixin.current.decompress(data) // c.codec.Deflate(data)
 	if err != nil {
 		return fmt.Errorf("error deflating value for key %s: %w", key, err)
 	}
-	if err := c.unmarshaller(data, v); err != nil {
+	if err := c.hooksMixin.current.unmarshall(data, v); err != nil {
 		return fmt.Errorf("error unmarshalling value for key %s: %w", key, err)
 	}
 	return nil
@@ -140,18 +170,18 @@ func (c *Cache) Keys(ctx context.Context) ([]string, error) {
 // Set adds an entry into the cache, or overwrites an entry if the key already
 // existed. The entry is set without an expiration.
 func (c *Cache) Set(ctx context.Context, key string, v any) error {
-	return c.SetTTL(ctx, key, v, 0)
+	return c.SetTTL(ctx, key, v, InfiniteTTL)
 }
 
 // SetTTL adds an entry into the cache, or overwrites an entry if the key
 // already existed. The entry is set with the provided TTL and automatically
 // removed from the cache once the TTL is expired.
 func (c *Cache) SetTTL(ctx context.Context, key string, v any, ttl time.Duration) error {
-	data, err := c.marshaller(v)
+	data, err := c.hooksMixin.current.marshal(v)
 	if err != nil {
 		return fmt.Errorf("error marshalling value: %w", err)
 	}
-	data, err = c.codec.Flate(data)
+	data, err = c.hooksMixin.current.compress(data)
 	if err != nil {
 		return fmt.Errorf("error compressing value: %w", err)
 	}
@@ -162,11 +192,11 @@ func (c *Cache) SetTTL(ctx context.Context, key string, v any, ttl time.Duration
 // The entry is set with the provided TTL and automatically removed from the cache
 // once the TTL is expired.
 func (c *Cache) SetIfAbsent(ctx context.Context, key string, v any, ttl time.Duration) (bool, error) {
-	data, err := c.marshaller(v)
+	data, err := c.hooksMixin.current.marshal(v)
 	if err != nil {
 		return false, fmt.Errorf("error marshalling value: %w", err)
 	}
-	data, err = c.codec.Flate(data)
+	data, err = c.hooksMixin.current.compress(data)
 	if err != nil {
 		return false, fmt.Errorf("error compressing value: %w", err)
 	}
@@ -177,11 +207,11 @@ func (c *Cache) SetIfAbsent(ctx context.Context, key string, v any, ttl time.Dur
 // cache. The entry is set with the provided TTL and automatically removed from the
 // cache once the TTL is expired.
 func (c *Cache) SetIfPresent(ctx context.Context, key string, v any, ttl time.Duration) (bool, error) {
-	data, err := c.marshaller(v)
+	data, err := c.hooksMixin.current.marshal(v)
 	if err != nil {
 		return false, fmt.Errorf("error marshalling value: %w", err)
 	}
-	data, err = c.codec.Flate(data)
+	data, err = c.hooksMixin.current.compress(data)
 	if err != nil {
 		return false, fmt.Errorf("error compressing value: %w", err)
 	}
@@ -203,6 +233,12 @@ func (c *Cache) Flush(ctx context.Context) error {
 // Any keys created during asynchronous flush will be unaffected.
 func (c *Cache) FlushAsync(ctx context.Context) error {
 	return c.redis.FlushDBAsync(ctx).Err()
+}
+
+// Healthy pings Redis to ensure it is reachable and responding. Healthy returns
+// true if Redis successfully responds to the ping, otherwise false.
+func (c *Cache) Healthy(ctx context.Context) bool {
+	return c.redis.Ping(ctx).Err() == nil
 }
 
 // DefaultMarshaller returns a Marshaller using msgpack to marshall
@@ -272,12 +308,12 @@ func MGet[R any](ctx context.Context, c *Cache, keys ...string) (MultiResult[R],
 		if !ok {
 			return nil, fmt.Errorf("unexpected value from Redis: %v", res)
 		}
-		data, err := c.codec.Deflate([]byte(str))
+		data, err := c.hooksMixin.current.decompress([]byte(str))
 		if err != nil {
 			return nil, fmt.Errorf("error deflating value: %w", err)
 		}
 		var val R
-		if err := c.unmarshaller(data, &val); err != nil {
+		if err := c.hooksMixin.current.unmarshall(data, &val); err != nil {
 			return nil, fmt.Errorf("error unmarshalling result to type %T: %w", val, err)
 		}
 		resultMap[keys[i]] = val
@@ -320,7 +356,7 @@ type UpsertCallback[T any] func(found bool, oldValue T, newValue T) T
 //		break
 //	}
 func Upsert[T any](ctx context.Context, c *Cache, key string, val T, cb UpsertCallback[T]) error {
-	return UpsertTTL(ctx, c, key, val, cb, 0)
+	return UpsertTTL(ctx, c, key, val, cb, InfiniteTTL)
 }
 
 // UpsertTTL retrieves the existing value for a given key and invokes the UpsertCallback.
@@ -367,11 +403,15 @@ func UpsertTTL[T any](ctx context.Context, c *Cache, key string, val T, cb Upser
 		}
 		newVal := cb(found, oldVal, val)
 		_, err = tx.TxPipelined(ctx, func(pipe redis.Pipeliner) error {
-			binaryValue, err := c.marshaller(newVal)
+			binaryValue, err := c.hooksMixin.current.marshal(newVal)
 			if err != nil {
 				return fmt.Errorf("failed to marshal value: %w", err)
 			}
-			return pipe.Set(ctx, key, binaryValue, ttl).Err()
+			data, err := c.hooksMixin.current.compress(binaryValue)
+			if err != nil {
+				return fmt.Errorf("error compressing value: %w", err)
+			}
+			return pipe.Set(ctx, key, data, ttl).Err()
 		})
 		return err
 	}

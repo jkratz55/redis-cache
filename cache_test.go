@@ -39,7 +39,7 @@ func mockRedis() *miniredis.Miniredis {
 
 func TestNewCache(t *testing.T) {
 	assert.NotPanics(t, func() {
-		NewCache(client)
+		New(client)
 	})
 }
 
@@ -56,7 +56,7 @@ func TestCache_Get(t *testing.T) {
 		t.Errorf("failed to setup data in Redis")
 	}
 
-	cache := NewCache(client)
+	cache := New(client)
 
 	var s string
 	err := cache.Get(context.Background(), "key123", &s)
@@ -75,7 +75,7 @@ func TestCache_Set(t *testing.T) {
 	setup()
 	defer tearDown()
 
-	cache := NewCache(client)
+	cache := New(client)
 
 	err := cache.Set(context.Background(), "key123", "value123")
 	assert.NoError(t, err)
@@ -96,7 +96,7 @@ func TestCache_SetTTL(t *testing.T) {
 	setup()
 	defer tearDown()
 
-	cache := NewCache(client)
+	cache := New(client)
 
 	err := cache.SetTTL(context.Background(), "key123", "value123", time.Second*1)
 	assert.NoError(t, err)
@@ -114,7 +114,7 @@ func TestCache_SetIfAbsent(t *testing.T) {
 	setup()
 	defer tearDown()
 
-	cache := NewCache(client)
+	cache := New(client)
 
 	ok, err := cache.SetIfAbsent(context.Background(), "key123", "value123", 0)
 	assert.NoError(t, err)
@@ -137,7 +137,7 @@ func TestCache_SetIfPresent(t *testing.T) {
 	setup()
 	defer tearDown()
 
-	cache := NewCache(client)
+	cache := New(client)
 
 	ok, err := cache.SetIfPresent(context.Background(), "key123", "value123", 0)
 	assert.NoError(t, err)
@@ -166,7 +166,7 @@ func TestCache_Delete(t *testing.T) {
 	client.Set(context.Background(), "key123", "value123", 0)
 	client.Set(context.Background(), "key456", "value456", 0)
 
-	cache := NewCache(client)
+	cache := New(client)
 	err := cache.Delete(context.Background(), "key123", "key456")
 	assert.NoError(t, err)
 
@@ -199,7 +199,7 @@ func TestNewCache_CustomSerialization(t *testing.T) {
 		Age        int
 	}
 
-	cache := NewCache(client, Serialization(marshaller, unmarshaller))
+	cache := New(client, Serialization(marshaller, unmarshaller))
 	err := cache.Set(context.Background(), "person1", Person{
 		FirstName:  "Billy",
 		MiddleName: "Joel",
@@ -246,7 +246,7 @@ func TestMGet(t *testing.T) {
 		t.Errorf("failed to setup data in Redis")
 	}
 
-	cache := NewCache(client)
+	cache := New(client)
 	results, err := MGet[name](context.Background(), cache, "key123", "key456")
 	assert.NoError(t, err)
 	assert.Equal(t, map[string]name{
@@ -288,7 +288,7 @@ func TestUpsertTTL(t *testing.T) {
 		return newValue
 	})
 
-	cache := NewCache(client)
+	cache := New(client)
 	err := UpsertTTL[name](context.Background(), cache, "BillyBob", arg, cb, 0)
 	assert.NoError(t, err)
 	assert.Equal(t, 1, called)
@@ -306,7 +306,7 @@ func TestCache_Keys(t *testing.T) {
 	setup()
 	defer tearDown()
 
-	rdb := NewCache(client)
+	rdb := New(client)
 
 	for i := 0; i < 10; i++ {
 		key := fmt.Sprintf("%d", i)

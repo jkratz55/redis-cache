@@ -35,6 +35,10 @@ func (c *Codec) Flate(data []byte) ([]byte, error) {
 		return nil, err
 	}
 
+	defer func() {
+		c.writerPool.Put(writer)
+	}()
+
 	if _, err = writer.Write(data); err != nil {
 		return nil, err
 	}
