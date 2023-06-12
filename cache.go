@@ -29,6 +29,7 @@ type RedisClient interface {
 	Scan(ctx context.Context, cursor uint64, match string, count int64) *redis.ScanCmd
 	FlushDB(ctx context.Context) *redis.StatusCmd
 	FlushDBAsync(ctx context.Context) *redis.StatusCmd
+	Ping(ctx context.Context) *redis.StatusCmd
 }
 
 // Marshaller is a function type that marshals the value of a cache entry for
@@ -78,6 +79,10 @@ type Cache struct {
 	marshaller   Marshaller
 	unmarshaller Unmarshaller
 	codec        Codec
+
+	hits   int64
+	misses int64
+	errors int64
 }
 
 // NewCache creates and initializes a new Cache instance.
@@ -203,6 +208,12 @@ func (c *Cache) Flush(ctx context.Context) error {
 // Any keys created during asynchronous flush will be unaffected.
 func (c *Cache) FlushAsync(ctx context.Context) error {
 	return c.redis.FlushDBAsync(ctx).Err()
+}
+
+// Healthy pings Redis to ensure it is reachable and responding. Healthy returns
+// true if Redis successfully responds to the ping, otherwise false.
+func (c *Cache) Healthy(ctx context.Context) bool {
+	return c.redis.Ping(ctx).Err() == nil
 }
 
 // DefaultMarshaller returns a Marshaller using msgpack to marshall
