@@ -7,11 +7,12 @@ import (
 )
 
 type (
-	ProcessHook    func(ctx context.Context, cmd redis.Cmder) error
-	CompressHook   func(c Codec) ([]byte, error)
-	DecompressHook func(c Codec) ([]byte, error)
-	MarshalHook    func(m Marshaller) ([]byte, error)
-	UnmarshalHook  func(um Unmarshaller) error
+	CompressionFunc func(in []byte) ([]byte, error)
+	ProcessHook     func(ctx context.Context, cmd redis.Cmder) error
+	CompressHook    CompressionFunc
+	DecompressHook  CompressionFunc
+	MarshalHook     func(m Marshaller) ([]byte, error)
+	UnmarshalHook   func(um Unmarshaller) error
 )
 
 type Hook interface {
