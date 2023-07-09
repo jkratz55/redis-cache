@@ -55,7 +55,7 @@ func (m *metricsHook) ProcessHook(next cache.ProcessHook) cache.ProcessHook {
 		}
 
 		if errors.Is(err, context.Canceled) {
-			m.cancels.Add(ctx, 1)
+			m.cancels.Add(ctx, 1, metric.WithAttributes(attrs...))
 		}
 
 		if !ignoreError(err) {
@@ -79,7 +79,7 @@ func (m *metricsHook) CompressHook(next cache.CompressHook) cache.CompressHook {
 		attrs = append(attrs, attribute.String("operation", "compress"))
 
 		m.compressionTime.Record(context.TODO(), dur, metric.WithAttributes(attrs...))
-		m.bytesWritten.Add(context.TODO(), int64(len(data)))
+		m.bytesWritten.Add(context.TODO(), int64(len(data)), metric.WithAttributes(attrs...))
 
 		if err != nil {
 			m.compressionErrors.Add(context.TODO(), 1, metric.WithAttributes(attrs...))
@@ -102,7 +102,7 @@ func (m *metricsHook) DecompressHook(next cache.DecompressHook) cache.Decompress
 		attrs = append(attrs, attribute.String("operation", "decompress"))
 
 		m.compressionTime.Record(context.TODO(), dur, metric.WithAttributes(attrs...))
-		m.bytesRead.Add(context.TODO(), int64(len(in)))
+		m.bytesRead.Add(context.TODO(), int64(len(in)), metric.WithAttributes(attrs...))
 
 		if err != nil {
 			m.compressionErrors.Add(context.TODO(), 1, metric.WithAttributes(attrs...))

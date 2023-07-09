@@ -30,3 +30,5 @@ func newConfig() *config {
 
 	return conf
 }
+
+// todo: need to better understand how OTEL was implemented in Redis driver
