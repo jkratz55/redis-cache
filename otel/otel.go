@@ -1,14 +1,17 @@
 package otel
 
 import (
+	"strings"
+
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
-
-	cache "github.com/jkratz55/redis-cache"
 )
 
-const name = "github.com/jkratz55/redis-cache/otel"
+const (
+	name          = "github.com/jkratz55/redis-cache"
+	defaultSystem = "db.redis"
+)
 
 type config struct {
 	system        string
@@ -19,16 +22,38 @@ type config struct {
 
 func newConfig() *config {
 	conf := &config{
-		system:        "redis",
+		system:        defaultSystem,
 		attrs:         []attribute.KeyValue{},
 		meterProvider: otel.GetMeterProvider(),
 	}
 
-	// todo: this needs to be late initialized
-	conf.meter = conf.meterProvider.Meter(name,
-		metric.WithInstrumentationVersion("semver:"+cache.Version()))
-
 	return conf
 }
 
-// todo: need to better understand how OTEL was implemented in Redis driver
+type Option func(c *config)
+
+var nopOption = func(c *config) {}
+
+func WithAttributes(attrs []attribute.KeyValue) Option {
+	return func(c *config) {
+		c.attrs = attrs
+	}
+}
+
+func WithMeterProvider(mp metric.MeterProvider) Option {
+	if mp == nil {
+		return nopOption
+	}
+	return func(c *config) {
+		c.meterProvider = mp
+	}
+}
+
+func WithSystem(system string) Option {
+	if strings.TrimSpace(system) == "" {
+		return nopOption
+	}
+	return func(c *config) {
+		c.system = system
+	}
+}

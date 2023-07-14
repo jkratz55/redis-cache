@@ -8,6 +8,10 @@ import (
 
 	"github.com/redis/go-redis/v9"
 	"github.com/vmihailenco/msgpack/v5"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
+
+	"github.com/jkratz55/redis-cache/internal/otel"
 )
 
 var (
@@ -22,8 +26,8 @@ type RedisClient interface {
 	Get(ctx context.Context, key string) *redis.StringCmd
 	MGet(ctx context.Context, keys ...string) *redis.SliceCmd
 	Set(ctx context.Context, key string, val any, ttl time.Duration) *redis.StatusCmd
-	SetNX(ctx context.Context, key string, value interface{}, expiration time.Duration) *redis.BoolCmd
-	SetXX(ctx context.Context, key string, value interface{}, expiration time.Duration) *redis.BoolCmd
+	SetNX(ctx context.Context, key string, value any, expiration time.Duration) *redis.BoolCmd
+	SetXX(ctx context.Context, key string, value any, expiration time.Duration) *redis.BoolCmd
 	Del(ctx context.Context, keys ...string) *redis.IntCmd
 	Watch(ctx context.Context, fn func(*redis.Tx) error, keys ...string) error
 	Scan(ctx context.Context, cursor uint64, match string, count int64) *redis.ScanCmd
@@ -69,6 +73,30 @@ func Compression(codec Codec) Option {
 	}
 }
 
+// EnableMetrics enables instrumentation and metrics of the Redis client and the
+// Cache type using OpenTelemetry.
+func EnableMetrics(mp metric.MeterProvider, attrs ...attribute.KeyValue) Option {
+	if mp == nil {
+		panic("nil MetricProvider not permitted, misuse of API")
+	}
+
+	meter := mp.Meter("github.com/jkratz55/redis-cache",
+		metric.WithInstrumentationVersion("semver:"+Version()))
+
+	clientHook := otel.NewClientMetricsHook(meter, attrs)
+
+	return func(c *Cache) {
+		switch r := c.redis.(type) {
+		case redis.UniversalClient:
+			r.AddHook(clientHook)
+		default:
+			panic(fmt.Errorf("type %T is not supported", c.redis))
+		}
+
+		c.metrics = true
+	}
+}
+
 // Cache is a simple type that provides basic caching functionality: store, retrieve,
 // and delete. It is backed by Redis and supports storing entries with a TTL.
 //
@@ -79,6 +107,13 @@ type Cache struct {
 	marshaller   Marshaller
 	unmarshaller Unmarshaller
 	codec        Codec
+
+	metrics             bool
+	meter               metric.Meter
+	serializationTime   metric.Float64Histogram
+	compressionTime     metric.Float64Histogram
+	serializationErrors metric.Int64Counter
+	compressionErrors   metric.Int64Counter
 }
 
 // NewCache creates and initializes a new Cache instance.
@@ -98,6 +133,18 @@ func NewCache(redis RedisClient, opts ...Option) *Cache {
 	for _, opt := range opts {
 		opt(cache)
 	}
+
+	if cache.metrics {
+		serializationTime, _ := cache.meter.Float64Histogram("redis.cache.serialization_time",
+			metric.WithDescription("Time to marshal/unmarshall data to/from Redis"),
+			metric.WithUnit("s"))
+
+		cache.marshaller = func(v any) ([]byte, error) {
+			start := time.Now()
+
+		}
+	}
+
 	return cache
 }
 
