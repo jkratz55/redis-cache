@@ -7,7 +7,8 @@ import (
 )
 
 type config struct {
-	atts          []attribute.KeyValue
+	dbSystem      string
+	attrs         []attribute.KeyValue
 	meterProvider metric.MeterProvider
 	meter         metric.Meter
 	poolName      string
@@ -15,7 +16,8 @@ type config struct {
 
 func newConfig(opts ...baseOption) *config {
 	conf := &config{
-		atts:          []attribute.KeyValue{},
+		dbSystem:      "redis",
+		attrs:         []attribute.KeyValue{},
 		meterProvider: otel.GetMeterProvider(),
 	}
 
@@ -23,6 +25,7 @@ func newConfig(opts ...baseOption) *config {
 		opt.apply(conf)
 	}
 
+	conf.attrs = append(conf.attrs, attribute.String("db.system", conf.dbSystem))
 	return conf
 }
 
@@ -45,7 +48,13 @@ func (fn option) metrics() {}
 
 func WithAtributes(atts ...attribute.KeyValue) Option {
 	return option(func(conf *config) {
-		conf.atts = atts
+		conf.attrs = atts
+	})
+}
+
+func WithDBSystem(system string) Option {
+	return option(func(conf *config) {
+		conf.dbSystem = system
 	})
 }
 
