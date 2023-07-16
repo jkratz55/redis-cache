@@ -337,7 +337,7 @@ func (c *clientMetricsHook) ProcessHook(next redis.ProcessHook) redis.ProcessHoo
 
 		if strings.ToLower(cmd.Name()) == "get" {
 			if strCmd, ok := cmd.(*redis.StringCmd); ok {
-				if strCmd.Err() == redis.Nil {
+				if strCmd.Err() == redis.Nil || strCmd.Val() == "" {
 					c.misses.Add(ctx, 1, metric.WithAttributes(attrs...))
 				}
 				if strCmd.Err() == nil {
