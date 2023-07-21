@@ -3,6 +3,7 @@ package prometheus
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"strings"
 	"time"
@@ -199,6 +200,92 @@ func InstrumentClientMetrics(rdb redis.UniversalClient, opts ...Option) error {
 		opt(conf)
 	}
 
+	processTime := prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		Namespace:   conf.namespace,
+		Subsystem:   conf.subSystem,
+		Name:        "process_time",
+		Help:        "Duration in seconds to execute operations against Redis",
+		ConstLabels: conf.globalLabels,
+		Buckets:     conf.buckets,
+	}, []string{"operation"})
+	dialTime := prometheus.NewHistogram(prometheus.HistogramOpts{
+		Namespace:   conf.namespace,
+		Subsystem:   conf.subSystem,
+		Name:        "dial_time",
+		Help:        "Duration in seconds to create a new connection",
+		ConstLabels: conf.globalLabels,
+		Buckets:     conf.buckets,
+	})
+	hits := prometheus.NewCounter(prometheus.CounterOpts{
+		Namespace:   conf.namespace,
+		Subsystem:   conf.subSystem,
+		Name:        "hits",
+		Help:        "Number of times a key lookup existed in Redis",
+		ConstLabels: conf.globalLabels,
+	})
+	misses := prometheus.NewCounter(prometheus.CounterOpts{
+		Namespace:   conf.namespace,
+		Subsystem:   conf.subSystem,
+		Name:        "misses",
+		Help:        "Number of times a key lookup did not exist in Redis",
+		ConstLabels: conf.globalLabels,
+	})
+	errs := prometheus.NewCounterVec(prometheus.CounterOpts{
+		Namespace:   conf.namespace,
+		Subsystem:   conf.subSystem,
+		Name:        "errors",
+		Help:        "Number of errors returned by Redis",
+		ConstLabels: conf.globalLabels,
+	}, []string{"operation"})
+	cancels := prometheus.NewCounterVec(prometheus.CounterOpts{
+		Namespace:   conf.namespace,
+		Subsystem:   conf.subSystem,
+		Name:        "canceled_ops",
+		Help:        "Number of operations cancelled in flight",
+		ConstLabels: conf.globalLabels,
+	}, []string{"operation"})
+
+	err := multierr.Combine(
+		prometheus.Register(processTime),
+		prometheus.Register(dialTime),
+		prometheus.Register(hits),
+		prometheus.Register(misses),
+		prometheus.Register(errs),
+		prometheus.Register(cancels))
+	if err != nil {
+		return fmt.Errorf("failed to register prometheus collectors: %w", err)
+	}
+
+	hook := &clientMetricsHook{
+		processTime: processTime,
+		dialTime:    dialTime,
+		hits:        hits,
+		misses:      misses,
+		errors:      errs,
+		cancels:     cancels,
+	}
+	rdb.AddHook(hook)
+
+	switch client := rdb.(type) {
+	case *redis.Client:
+		poolReporter := newConnPoolStatsCollector(conf, client)
+		prometheus.MustRegister(poolReporter)
+		return nil
+	case *redis.ClusterClient:
+		client.OnNewNode(func(c *redis.Client) {
+			poolReporter := newConnPoolStatsCollector(conf, client)
+			prometheus.MustRegister(poolReporter)
+		})
+		return nil
+	case *redis.Ring:
+		client.OnNewNode(func(c *redis.Client) {
+			poolReporter := newConnPoolStatsCollector(conf, client)
+			prometheus.MustRegister(poolReporter)
+		})
+		return nil
+	default:
+		return fmt.Errorf("type %T is not supported", rdb)
+	}
 }
 
 type clientMetricsHook struct {
@@ -247,7 +334,7 @@ func (c *clientMetricsHook) ProcessHook(next redis.ProcessHook) redis.ProcessHoo
 				if strCmd.Err() == redis.Nil || strCmd.Val() == "" {
 					c.misses.Inc()
 				}
-				if strCmd.Err() != nil {
+				if strCmd.Err() == nil {
 					c.hits.Inc()
 				}
 			}
@@ -305,3 +392,5 @@ func ignoreError(err error) bool {
 
 	return false
 }
+
+// todo: Implement collector to get connection pool metrics
