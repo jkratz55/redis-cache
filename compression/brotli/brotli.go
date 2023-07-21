@@ -1,10 +1,11 @@
-package gzip
+package brotli
 
 import (
 	"bytes"
-	"compress/gzip"
 	"io"
 	"sync"
+
+	"github.com/andybalholm/brotli"
 )
 
 type Codec struct {
@@ -13,9 +14,9 @@ type Codec struct {
 	writerPool sync.Pool
 }
 
-func NewCodec(level int) *Codec {
+func NewCodec(lvl int) *Codec {
 	return &Codec{
-		level:      level,
+		level:      lvl,
 		readerPool: sync.Pool{},
 		writerPool: sync.Pool{},
 	}
@@ -24,11 +25,11 @@ func NewCodec(level int) *Codec {
 func (c *Codec) Flate(data []byte) ([]byte, error) {
 	var b bytes.Buffer
 	var err error
-	writer, _ := c.writerPool.Get().(*gzip.Writer)
+	writer, _ := c.writerPool.Get().(*brotli.Writer)
 	if writer != nil {
 		writer.Reset(&b)
 	} else {
-		writer, err = gzip.NewWriterLevel(&b, c.level)
+		writer = brotli.NewWriterLevel(&b, c.level)
 	}
 
 	if err != nil {
@@ -51,11 +52,11 @@ func (c *Codec) Flate(data []byte) ([]byte, error) {
 func (c *Codec) Deflate(data []byte) ([]byte, error) {
 	var err error
 	reader := bytes.NewReader(data)
-	gzipReader, _ := c.readerPool.Get().(*gzip.Reader)
-	if gzipReader != nil {
-		err = gzipReader.Reset(reader)
+	brotliReader, _ := c.readerPool.Get().(*brotli.Reader)
+	if brotliReader != nil {
+		err = brotliReader.Reset(reader)
 	} else {
-		gzipReader, err = gzip.NewReader(reader)
+		brotliReader = brotli.NewReader(reader)
 	}
 
 	if err != nil {
@@ -63,10 +64,10 @@ func (c *Codec) Deflate(data []byte) ([]byte, error) {
 	}
 
 	defer func() {
-		c.readerPool.Put(gzipReader)
+		c.readerPool.Put(reader)
 	}()
 
 	var buffer bytes.Buffer
-	_, err = io.Copy(&buffer, gzipReader)
-	return buffer.Bytes(), err
+	_, err = io.Copy(&buffer, brotliReader)
+	return buffer.Bytes(), nil
 }
