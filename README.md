@@ -23,13 +23,14 @@ type RedisClient interface {
     Get(ctx context.Context, key string) *redis.StringCmd
     MGet(ctx context.Context, keys ...string) *redis.SliceCmd
     Set(ctx context.Context, key string, val any, ttl time.Duration) *redis.StatusCmd
-    SetNX(ctx context.Context, key string, value interface{}, expiration time.Duration) *redis.BoolCmd
-    SetXX(ctx context.Context, key string, value interface{}, expiration time.Duration) *redis.BoolCmd
+    SetNX(ctx context.Context, key string, value any, expiration time.Duration) *redis.BoolCmd
+    SetXX(ctx context.Context, key string, value any, expiration time.Duration) *redis.BoolCmd
     Del(ctx context.Context, keys ...string) *redis.IntCmd
     Watch(ctx context.Context, fn func(*redis.Tx) error, keys ...string) error
     Scan(ctx context.Context, cursor uint64, match string, count int64) *redis.ScanCmd
     FlushDB(ctx context.Context) *redis.StatusCmd
     FlushDBAsync(ctx context.Context) *redis.StatusCmd
+    Ping(ctx context.Context) *redis.StatusCmd
 }
 ```
 
