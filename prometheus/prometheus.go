@@ -266,21 +266,21 @@ func InstrumentClientMetrics(rdb redis.UniversalClient, opts ...Option) error {
 	}
 	rdb.AddHook(hook)
 
+	poolReporter := newConnPoolStatsCollector(conf)
+	prometheus.MustRegister(poolReporter)
+
 	switch client := rdb.(type) {
 	case *redis.Client:
-		poolReporter := newConnPoolStatsCollector(conf, client)
-		prometheus.MustRegister(poolReporter)
+		poolReporter.addPool(client)
 		return nil
 	case *redis.ClusterClient:
 		client.OnNewNode(func(c *redis.Client) {
-			poolReporter := newConnPoolStatsCollector(conf, client)
-			prometheus.MustRegister(poolReporter)
+			poolReporter.addPool(c)
 		})
 		return nil
 	case *redis.Ring:
 		client.OnNewNode(func(c *redis.Client) {
-			poolReporter := newConnPoolStatsCollector(conf, client)
-			prometheus.MustRegister(poolReporter)
+			poolReporter.addPool(c)
 		})
 		return nil
 	default:
@@ -331,7 +331,7 @@ func (c *clientMetricsHook) ProcessHook(next redis.ProcessHook) redis.ProcessHoo
 
 		if strings.ToLower(cmd.Name()) == "get" {
 			if strCmd, ok := cmd.(*redis.StringCmd); ok {
-				if strCmd.Err() == redis.Nil || strCmd.Val() == "" {
+				if errors.Is(strCmd.Err(), redis.Nil) || (strCmd.Val() == "" && strCmd.Err() == nil) {
 					c.misses.Inc()
 				}
 				if strCmd.Err() == nil {
@@ -392,5 +392,3 @@ func ignoreError(err error) bool {
 
 	return false
 }
-
-// todo: Implement collector to get connection pool metrics

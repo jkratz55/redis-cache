@@ -1,7 +1,9 @@
 package main
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -15,9 +17,17 @@ import (
 func main() {
 
 	redisClient := redis.NewClusterClient(&redis.ClusterOptions{
-		Addrs:    []string{"192.168.50.163:6379"},
-		Password: "an0slrEJ5I",
+		Addrs: []string{
+			"192.168.50.169:6379",
+		},
+		MinIdleConns: 10,
+		MaxIdleConns: 100,
+		PoolSize:     1000,
 	})
+
+	if err := redisClient.Ping(context.Background()).Err(); err != nil {
+		fmt.Println("Opps ping to Redis failed!", err)
+	}
 
 	if err := prometheus.InstrumentClientMetrics(redisClient); err != nil {
 		panic(err)
