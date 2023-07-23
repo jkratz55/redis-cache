@@ -1,7 +1,17 @@
 package cache
 
+// CompressionHook is a function type that is invoked prior to compressing or
+// decompressing data.
 type CompressionHook func(data []byte) ([]byte, error)
 
+// Hook is an interface type defining the operations that can be intercepted
+// and potentially allow for their behavior to be modified.
+//
+// The primary intention of Hook is to allow for observability: instrumentation,
+// logging, tracing, etc.
+//
+// It is important implementations of Hook call next or the execution pipeline
+// will terminate.
 type Hook interface {
 	MarshalHook(next Marshaller) Marshaller
 	UnmarshallHook(next Unmarshaller) Unmarshaller
@@ -15,6 +25,7 @@ type hooksMixin struct {
 	current hooks
 }
 
+// AddHook adds a Hook to the processing chain.
 func (hs *hooksMixin) AddHook(hook Hook) {
 	hs.hooks = append(hs.hooks, hook)
 	hs.chain()

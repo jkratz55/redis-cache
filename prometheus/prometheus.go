@@ -24,6 +24,7 @@ const (
 	operationDecompress = "decompress"
 )
 
+// InstrumentMetrics enables instrumentation of a Cache using Prometheus.
 func InstrumentMetrics(c *cache.Cache, opts ...Option) error {
 
 	conf := newConfig()
@@ -197,6 +198,8 @@ func (m *metricsHook) DecompressHook(next cache.CompressionHook) cache.Compressi
 	}
 }
 
+// InstrumentClientMetrics adds instrumentation to the official Go Redis client/driver
+// using Prometheus.
 func InstrumentClientMetrics(rdb redis.UniversalClient, opts ...Option) error {
 	conf := newConfig()
 	for _, opt := range opts {

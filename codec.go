@@ -4,12 +4,15 @@ import (
 	"compress/flate"
 	"fmt"
 
+	brot "github.com/andybalholm/brotli"
+
 	"github.com/jkratz55/redis-cache/compression/brotli"
 	iflate "github.com/jkratz55/redis-cache/compression/flate"
 	"github.com/jkratz55/redis-cache/compression/gzip"
 	"github.com/jkratz55/redis-cache/compression/lz4"
 )
 
+// CodecType represent of Codec used for compression
 type CodecType uint8
 
 const (
@@ -44,7 +47,7 @@ func NewCodec(ct CodecType) Codec {
 	case LZ4:
 		return lz4.NewCodec()
 	case Brotli:
-		return brotli.NewCodec(6)
+		return brotli.NewCodec(brot.BestCompression)
 	default:
 		panic(fmt.Errorf("invalid codec: CodecType %d is not a supported or known codec", ct))
 	}
