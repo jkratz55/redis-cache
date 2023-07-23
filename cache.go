@@ -2,6 +2,7 @@ package cache
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -62,6 +63,21 @@ func Serialization(mar Marshaller, unmar Unmarshaller) Option {
 		c.marshaller = mar
 		c.unmarshaller = unmar
 	}
+}
+
+// JSON is a convenient Option for configuring Cache to use JSON for serializing
+// data stored in the cache.
+//
+// JSON is the equivalent of using Serialization passing it a Marshaller and
+// Unmarshaller using json.
+func JSON() Option {
+	mar := func(v any) ([]byte, error) {
+		return json.Marshal(v)
+	}
+	unmar := func(data []byte, v any) error {
+		return json.Unmarshal(data, v)
+	}
+	return Serialization(mar, unmar)
 }
 
 // Compression allows for the values to be flated and deflated to conserve bandwidth
