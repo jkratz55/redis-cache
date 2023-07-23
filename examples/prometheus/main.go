@@ -16,10 +16,8 @@ import (
 
 func main() {
 
-	redisClient := redis.NewClusterClient(&redis.ClusterOptions{
-		Addrs: []string{
-			"192.168.50.169:6379",
-		},
+	redisClient := redis.NewClient(&redis.Options{
+		Addr:         "localhost:6379",
 		MinIdleConns: 10,
 		MaxIdleConns: 100,
 		PoolSize:     1000,

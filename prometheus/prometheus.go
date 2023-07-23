@@ -81,13 +81,16 @@ func InstrumentMetrics(c *cache.Cache, opts ...Option) error {
 		ConstLabels: conf.globalLabels,
 	})
 
+	statusCollector := newRedisStatusCollector(conf, c)
+
 	err := multierr.Combine(
 		prometheus.Register(serializationTime),
 		prometheus.Register(serializationErrs),
 		prometheus.Register(compressionTime),
 		prometheus.Register(compressionErrors),
 		prometheus.Register(bytesIn),
-		prometheus.Register(bytesOut))
+		prometheus.Register(bytesOut),
+		prometheus.Register(statusCollector))
 
 	if err != nil {
 		return err

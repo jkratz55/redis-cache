@@ -1,6 +1,9 @@
 package prometheus
 
 import (
+	"context"
+	"time"
+
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/redis/go-redis/v9"
 )
@@ -85,5 +88,41 @@ func (c *connPoolStatsCollector) Collect(metrics chan<- prometheus.Metric) {
 		metrics <- prometheus.MustNewConstMetric(c.total, prometheus.GaugeValue, float64(stats.TotalConns), addr)
 		metrics <- prometheus.MustNewConstMetric(c.idle, prometheus.GaugeValue, float64(stats.IdleConns), addr)
 		metrics <- prometheus.MustNewConstMetric(c.stale, prometheus.CounterValue, float64(stats.StaleConns), addr)
+	}
+}
+
+type redisHealthCheck interface {
+	Healthy(ctx context.Context) bool
+}
+
+type redisStatusCollector struct {
+	redisHealthCheck
+
+	status *prometheus.Desc
+}
+
+func newRedisStatusCollector(conf *config, pinger redisHealthCheck) *redisStatusCollector {
+	return &redisStatusCollector{
+		redisHealthCheck: pinger,
+		status: prometheus.NewDesc(
+			prometheus.BuildFQName(conf.namespace, conf.subSystem, "status"),
+			"Indicates if Redis is currently available, values of 1 means reachable while a value of 0 means Redis isn't available",
+			[]string{"status"},
+			conf.globalLabels),
+	}
+}
+
+func (r redisStatusCollector) Describe(descs chan<- *prometheus.Desc) {
+	descs <- r.status
+}
+
+func (r redisStatusCollector) Collect(metrics chan<- prometheus.Metric) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*1)
+	defer cancel()
+
+	if r.Healthy(ctx) {
+		metrics <- prometheus.MustNewConstMetric(r.status, prometheus.GaugeValue, float64(1), "UP")
+	} else {
+		metrics <- prometheus.MustNewConstMetric(r.status, prometheus.GaugeValue, float64(0), "UP")
 	}
 }

@@ -10,6 +10,12 @@ import (
 	"github.com/vmihailenco/msgpack/v5"
 )
 
+const (
+	// InfiniteTTL indicates a key will never expire and will live until it is
+	// explicitly deleted.
+	InfiniteTTL time.Duration = 0
+)
+
 var (
 	// ErrKeyNotFound is an error value that signals the key requested does not
 	// exist in the cache.
@@ -69,33 +75,11 @@ func Compression(codec Codec) Option {
 	}
 }
 
-// // EnableMetrics enables instrumentation and metrics of the Redis client and the
-// // Cache type using OpenTelemetry.
-// func EnableMetrics(mp metric.MeterProvider, attrs ...attribute.KeyValue) Option {
-// 	if mp == nil {
-// 		panic("nil MetricProvider not permitted, misuse of API")
-// 	}
-//
-// 	meter := mp.Meter("github.com/jkratz55/redis-cache",
-// 		metric.WithInstrumentationVersion("semver:"+Version()))
-//
-// 	clientHook := otel.NewClientMetricsHook(meter, attrs)
-//
-// 	return func(c *Cache) {
-// 		switch r := c.redis.(type) {
-// 		case redis.UniversalClient:
-// 			r.AddHook(clientHook)
-// 		default:
-// 			panic(fmt.Errorf("type %T is not supported", c.redis))
-// 		}
-// 	}
-// }
-
 // Cache is a simple type that provides basic caching functionality: store, retrieve,
 // and delete. It is backed by Redis and supports storing entries with a TTL.
 //
 // The zero-value is not usable, and this type should be instantiated using the
-// NewCache function.
+// New function.
 type Cache struct {
 	redis        RedisClient
 	marshaller   Marshaller
@@ -104,16 +88,16 @@ type Cache struct {
 	hooksMixin
 }
 
-// NewCache creates and initializes a new Cache instance.
+// New creates and initializes a new Cache instance.
 //
 // By default, msgpack is used for marshalling and unmarshalling the entry values.
 // The behavior of Cache can be configured by passing Options.
-func NewCache(redis RedisClient, opts ...Option) *Cache {
-	if redis == nil {
+func New(client RedisClient, opts ...Option) *Cache {
+	if client == nil {
 		panic(fmt.Errorf("a valid redis client is required, illegal use of api"))
 	}
 	cache := &Cache{
-		redis:        redis,
+		redis:        client,
 		marshaller:   DefaultMarshaller(),
 		unmarshaller: DefaultUnmarshaller(),
 		codec:        nopCodec{},
@@ -133,6 +117,17 @@ func NewCache(redis RedisClient, opts ...Option) *Cache {
 	cache.chain()
 
 	return cache
+}
+
+// NewCache creates and initializes a new Cache instance.
+//
+// By default, msgpack is used for marshalling and unmarshalling the entry values.
+// The behavior of Cache can be configured by passing Options.
+//
+// DEPRECATED: NewCache has been deprecated in favor of New and subject to being
+// removed in future versions.
+func NewCache(client RedisClient, opts ...Option) *Cache {
+	return New(client, opts...)
 }
 
 // Get retrieves an entry from the Cache for the given key, and if found will
@@ -175,7 +170,7 @@ func (c *Cache) Keys(ctx context.Context) ([]string, error) {
 // Set adds an entry into the cache, or overwrites an entry if the key already
 // existed. The entry is set without an expiration.
 func (c *Cache) Set(ctx context.Context, key string, v any) error {
-	return c.SetTTL(ctx, key, v, 0)
+	return c.SetTTL(ctx, key, v, InfiniteTTL)
 }
 
 // SetTTL adds an entry into the cache, or overwrites an entry if the key
@@ -361,7 +356,7 @@ type UpsertCallback[T any] func(found bool, oldValue T, newValue T) T
 //		break
 //	}
 func Upsert[T any](ctx context.Context, c *Cache, key string, val T, cb UpsertCallback[T]) error {
-	return UpsertTTL(ctx, c, key, val, cb, 0)
+	return UpsertTTL(ctx, c, key, val, cb, InfiniteTTL)
 }
 
 // UpsertTTL retrieves the existing value for a given key and invokes the UpsertCallback.
