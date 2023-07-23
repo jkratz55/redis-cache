@@ -69,5 +69,5 @@ func (c *Codec) Deflate(data []byte) ([]byte, error) {
 
 	var buffer bytes.Buffer
 	_, err = io.Copy(&buffer, brotliReader)
-	return buffer.Bytes(), nil
+	return buffer.Bytes(), err
 }
