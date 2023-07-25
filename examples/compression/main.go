@@ -1,14 +1,12 @@
 package main
 
 import (
-	"compress/flate"
 	"context"
 	"fmt"
 
 	"github.com/redis/go-redis/v9"
 
 	rcache "github.com/jkratz55/redis-cache"
-	"github.com/jkratz55/redis-cache/compression/gzip"
 )
 
 type Person struct {
@@ -22,7 +20,7 @@ func main() {
 		Addr: "localhost:6379",
 	})
 
-	c := rcache.NewCache(client, rcache.Compression(gzip.NewCodec(flate.BestSpeed)))
+	c := rcache.New(client, rcache.GZip())
 
 	if err := c.Set(context.Background(), "person", Person{
 		FirstName: "Biily",

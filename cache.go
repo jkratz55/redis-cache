@@ -2,7 +2,6 @@ package cache
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -46,50 +45,6 @@ type Marshaller func(v any) ([]byte, error)
 // Unmarshaller is a function type that unmarshalls the value retrieved from the
 // cache into the target type.
 type Unmarshaller func(b []byte, v any) error
-
-// Option allows for the Cache behavior/configuration to be customized.
-type Option func(c *Cache)
-
-// Serialization allows for the marshalling and unmarshalling behavior to be
-// customized for the Cache.
-//
-// A valid Marshaller and Unmarshaller must be provided. Providing nil for either
-// will immediately panic.
-func Serialization(mar Marshaller, unmar Unmarshaller) Option {
-	if mar == nil || unmar == nil {
-		panic(fmt.Errorf("nil Marshaller and/or Unmarshaller not permitted, illegal use of api"))
-	}
-	return func(c *Cache) {
-		c.marshaller = mar
-		c.unmarshaller = unmar
-	}
-}
-
-// JSON is a convenient Option for configuring Cache to use JSON for serializing
-// data stored in the cache.
-//
-// JSON is the equivalent of using Serialization passing it a Marshaller and
-// Unmarshaller using json.
-func JSON() Option {
-	mar := func(v any) ([]byte, error) {
-		return json.Marshal(v)
-	}
-	unmar := func(data []byte, v any) error {
-		return json.Unmarshal(data, v)
-	}
-	return Serialization(mar, unmar)
-}
-
-// Compression allows for the values to be flated and deflated to conserve bandwidth
-// and memory at the cost of higher CPU time.
-func Compression(codec Codec) Option {
-	if codec == nil {
-		panic(fmt.Errorf("nil Codec not permitted, illegal use of API"))
-	}
-	return func(c *Cache) {
-		c.codec = codec
-	}
-}
 
 // Cache is a simple type that provides basic caching functionality: store, retrieve,
 // and delete. It is backed by Redis and supports storing entries with a TTL.
