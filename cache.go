@@ -17,7 +17,7 @@ const (
 	// under memory pressure in accordance to the eviction policy configured.
 	InfiniteTTL time.Duration = -3
 
-	// KeepTTL indicates to keep the existing TTL on the key
+	// KeepTTL indicates to keep the existing TTL on the key on SET commands.
 	KeepTTL = redis.KeepTTL
 )
 
@@ -293,6 +293,8 @@ func (c *Cache) TTL(ctx context.Context, key string) (time.Duration, error) {
 //
 // If the key doesn't exist ErrKeyNotFound will be returned for the error value.
 // If the key already has a TTL it will be overridden with ttl value provided.
+//
+// Calling Expire with a non-positive ttl will result in the key being deleted.
 func (c *Cache) Expire(ctx context.Context, key string, ttl time.Duration) error {
 	ok, err := c.redis.Expire(ctx, key, ttl).Result()
 	if err != nil {
@@ -317,7 +319,7 @@ func (c *Cache) ExtendTTL(ctx context.Context, key string, dur time.Duration) er
 	}
 
 	// Redis returns -2 for TTL command if the key doesn't exist
-	if dur == -2 {
+	if ttl == -2 {
 		return ErrKeyNotFound
 	}
 

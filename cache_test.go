@@ -380,12 +380,73 @@ func TestCache_TTL(t *testing.T) {
 	defer tearDown()
 
 	rdb := New(client)
+
+	err := client.Set(context.Background(), "test-nottl", "test", InfiniteTTL).Err()
+	assert.NoError(t, err)
+
+	err = client.Set(context.Background(), "test-ttl", "test", time.Second*300).Err()
+	assert.NoError(t, err)
+
+	ttl, err := rdb.TTL(context.Background(), "test-nottl")
+	assert.NoError(t, err)
+	assert.Equal(t, InfiniteTTL, ttl)
+
+	ttl, err = rdb.TTL(context.Background(), "test-ttl")
+	assert.NoError(t, err)
+	assert.Equal(t, time.Second*300, ttl)
+
+	_, err = rdb.TTL(context.Background(), "random")
+	assert.ErrorIs(t, err, ErrKeyNotFound)
 }
 
 func TestCache_Expire(t *testing.T) {
+	setup()
+	defer tearDown()
 
+	rdb := New(client)
+
+	err := client.Set(context.Background(), "test-nottl", "test", InfiniteTTL).Err()
+	assert.NoError(t, err)
+
+	err = client.Set(context.Background(), "test-ttl", "test", time.Second*300).Err()
+	assert.NoError(t, err)
+
+	err = rdb.Expire(context.Background(), "test-nottl", time.Second*300)
+	assert.NoError(t, err)
+	ttl := client.TTL(context.Background(), "test-nottl").Val()
+	assert.Equal(t, time.Second*300, ttl)
+
+	err = rdb.Expire(context.Background(), "test-ttl", InfiniteTTL)
+	assert.NoError(t, err)
+	ttl = client.TTL(context.Background(), "test-ttl").Val()
+	assert.Equal(t, time.Duration(-2), ttl)
+
+	err = rdb.Expire(context.Background(), "random", time.Second*300)
+	assert.ErrorIs(t, err, ErrKeyNotFound)
 }
 
 func TestCache_ExtendTTL(t *testing.T) {
+	setup()
+	defer tearDown()
 
+	rdb := New(client)
+
+	err := client.Set(context.Background(), "test-nottl", "test", InfiniteTTL).Err()
+	assert.NoError(t, err)
+
+	err = client.Set(context.Background(), "test-ttl", "test", time.Second*300).Err()
+	assert.NoError(t, err)
+
+	err = rdb.ExtendTTL(context.Background(), "test-nottl", time.Second*60)
+	assert.NoError(t, err)
+	ttl := client.TTL(context.Background(), "test-nottl").Val()
+	assert.Equal(t, time.Second*59, ttl)
+
+	err = rdb.ExtendTTL(context.Background(), "test-ttl", time.Second*120)
+	assert.NoError(t, err)
+	ttl = client.TTL(context.Background(), "test-ttl").Val()
+	assert.Equal(t, time.Second*420, ttl)
+
+	err = rdb.ExtendTTL(context.Background(), "random", time.Hour*1)
+	assert.ErrorIs(t, err, ErrKeyNotFound)
 }
