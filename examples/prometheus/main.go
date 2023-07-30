@@ -57,7 +57,7 @@ func main() {
 		key := r.URL.Query().Get("key")
 		value := r.URL.Query().Get("value")
 
-		err := rdb.SetTTL(r.Context(), key, value, time.Minute*2)
+		err := rdb.SetWithTTL(r.Context(), key, value, time.Minute*2)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			return

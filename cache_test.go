@@ -71,6 +71,55 @@ func TestCache_Get(t *testing.T) {
 	assert.ErrorIs(t, err, ErrKeyNotFound)
 }
 
+func TestCache_GetAndExpire(t *testing.T) {
+	setup()
+	defer tearDown()
+
+	val, _ := msgpack.Marshal("value123")
+	if err := client.Set(context.Background(), "key123", val, time.Second*60).Err(); err != nil {
+		t.Errorf("failed to setup data in Redis")
+	}
+	val, _ = msgpack.Marshal("value456")
+	if err := client.Set(context.Background(), "key456", val, time.Second*60).Err(); err != nil {
+		t.Errorf("failed to setup data in Redis")
+	}
+
+	cache := New(client)
+
+	var s string
+	err := cache.GetAndExpire(context.Background(), "key123", &s, time.Second*300)
+	assert.NoError(t, err)
+	assert.Equal(t, "value123", s)
+
+	ttl, err := client.TTL(context.Background(), "key123").Result()
+	assert.NoError(t, err)
+	assert.Greater(t, ttl, time.Second*60)
+
+	err = cache.GetAndExpire(context.Background(), "random", &s, time.Second*300)
+	assert.ErrorIs(t, err, ErrKeyNotFound)
+
+	err = cache.GetAndExpire(context.Background(), "key123", &s, time.Duration(-1))
+	assert.NoError(t, err)
+	assert.Equal(t, "value123", s)
+	ttl, err = client.TTL(context.Background(), "key123").Result()
+	assert.NoError(t, err)
+	assert.LessOrEqual(t, ttl, time.Second*300)
+
+	err = cache.GetAndExpire(context.Background(), "key123", &s, InfiniteTTL)
+	assert.NoError(t, err)
+	assert.Equal(t, "value123", s)
+	ttl, err = client.TTL(context.Background(), "key123").Result()
+	assert.NoError(t, err)
+	assert.Equal(t, ttl, time.Duration(-1))
+
+	err = cache.GetAndExpire(context.Background(), "key123", &s, time.Duration(0))
+	assert.NoError(t, err)
+	assert.Equal(t, "value123", s)
+	ttl, err = client.TTL(context.Background(), "key123").Result()
+	assert.NoError(t, err)
+	assert.Equal(t, ttl, time.Duration(-1))
+}
+
 func TestCache_Set(t *testing.T) {
 	setup()
 	defer tearDown()
@@ -98,7 +147,7 @@ func TestCache_SetTTL(t *testing.T) {
 
 	cache := New(client)
 
-	err := cache.SetTTL(context.Background(), "key123", "value123", time.Second*1)
+	err := cache.SetWithTTL(context.Background(), "key123", "value123", time.Second*1)
 	assert.NoError(t, err)
 
 	count, err := client.Exists(context.Background(), "key123").Result()
@@ -324,4 +373,19 @@ func TestCache_Keys(t *testing.T) {
 	actual, err := rdb.Keys(context.Background())
 	assert.NoError(t, err)
 	assert.ElementsMatch(t, expected, actual)
+}
+
+func TestCache_TTL(t *testing.T) {
+	setup()
+	defer tearDown()
+
+	rdb := New(client)
+}
+
+func TestCache_Expire(t *testing.T) {
+
+}
+
+func TestCache_ExtendTTL(t *testing.T) {
+
 }
