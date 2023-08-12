@@ -39,7 +39,7 @@ func mockRedis() *miniredis.Miniredis {
 
 func TestNewCache(t *testing.T) {
 	assert.NotPanics(t, func() {
-		NewCache(client)
+		New(client)
 	})
 }
 
@@ -56,7 +56,7 @@ func TestCache_Get(t *testing.T) {
 		t.Errorf("failed to setup data in Redis")
 	}
 
-	cache := NewCache(client)
+	cache := New(client)
 
 	var s string
 	err := cache.Get(context.Background(), "key123", &s)
@@ -71,11 +71,60 @@ func TestCache_Get(t *testing.T) {
 	assert.ErrorIs(t, err, ErrKeyNotFound)
 }
 
+func TestCache_GetAndExpire(t *testing.T) {
+	setup()
+	defer tearDown()
+
+	val, _ := msgpack.Marshal("value123")
+	if err := client.Set(context.Background(), "key123", val, time.Second*60).Err(); err != nil {
+		t.Errorf("failed to setup data in Redis")
+	}
+	val, _ = msgpack.Marshal("value456")
+	if err := client.Set(context.Background(), "key456", val, time.Second*60).Err(); err != nil {
+		t.Errorf("failed to setup data in Redis")
+	}
+
+	cache := New(client)
+
+	var s string
+	err := cache.GetAndExpire(context.Background(), "key123", &s, time.Second*300)
+	assert.NoError(t, err)
+	assert.Equal(t, "value123", s)
+
+	ttl, err := client.TTL(context.Background(), "key123").Result()
+	assert.NoError(t, err)
+	assert.Greater(t, ttl, time.Second*60)
+
+	err = cache.GetAndExpire(context.Background(), "random", &s, time.Second*300)
+	assert.ErrorIs(t, err, ErrKeyNotFound)
+
+	err = cache.GetAndExpire(context.Background(), "key123", &s, time.Duration(-1))
+	assert.NoError(t, err)
+	assert.Equal(t, "value123", s)
+	ttl, err = client.TTL(context.Background(), "key123").Result()
+	assert.NoError(t, err)
+	assert.LessOrEqual(t, ttl, time.Second*300)
+
+	err = cache.GetAndExpire(context.Background(), "key123", &s, InfiniteTTL)
+	assert.NoError(t, err)
+	assert.Equal(t, "value123", s)
+	ttl, err = client.TTL(context.Background(), "key123").Result()
+	assert.NoError(t, err)
+	assert.Equal(t, ttl, time.Duration(-1))
+
+	err = cache.GetAndExpire(context.Background(), "key123", &s, time.Duration(0))
+	assert.NoError(t, err)
+	assert.Equal(t, "value123", s)
+	ttl, err = client.TTL(context.Background(), "key123").Result()
+	assert.NoError(t, err)
+	assert.Equal(t, ttl, time.Duration(-1))
+}
+
 func TestCache_Set(t *testing.T) {
 	setup()
 	defer tearDown()
 
-	cache := NewCache(client)
+	cache := New(client)
 
 	err := cache.Set(context.Background(), "key123", "value123")
 	assert.NoError(t, err)
@@ -96,9 +145,9 @@ func TestCache_SetTTL(t *testing.T) {
 	setup()
 	defer tearDown()
 
-	cache := NewCache(client)
+	cache := New(client)
 
-	err := cache.SetTTL(context.Background(), "key123", "value123", time.Second*1)
+	err := cache.SetWithTTL(context.Background(), "key123", "value123", time.Second*1)
 	assert.NoError(t, err)
 
 	count, err := client.Exists(context.Background(), "key123").Result()
@@ -114,7 +163,7 @@ func TestCache_SetIfAbsent(t *testing.T) {
 	setup()
 	defer tearDown()
 
-	cache := NewCache(client)
+	cache := New(client)
 
 	ok, err := cache.SetIfAbsent(context.Background(), "key123", "value123", 0)
 	assert.NoError(t, err)
@@ -137,7 +186,7 @@ func TestCache_SetIfPresent(t *testing.T) {
 	setup()
 	defer tearDown()
 
-	cache := NewCache(client)
+	cache := New(client)
 
 	ok, err := cache.SetIfPresent(context.Background(), "key123", "value123", 0)
 	assert.NoError(t, err)
@@ -166,7 +215,7 @@ func TestCache_Delete(t *testing.T) {
 	client.Set(context.Background(), "key123", "value123", 0)
 	client.Set(context.Background(), "key456", "value456", 0)
 
-	cache := NewCache(client)
+	cache := New(client)
 	err := cache.Delete(context.Background(), "key123", "key456")
 	assert.NoError(t, err)
 
@@ -199,7 +248,7 @@ func TestNewCache_CustomSerialization(t *testing.T) {
 		Age        int
 	}
 
-	cache := NewCache(client, Serialization(marshaller, unmarshaller))
+	cache := New(client, Serialization(marshaller, unmarshaller))
 	err := cache.Set(context.Background(), "person1", Person{
 		FirstName:  "Billy",
 		MiddleName: "Joel",
@@ -246,7 +295,7 @@ func TestMGet(t *testing.T) {
 		t.Errorf("failed to setup data in Redis")
 	}
 
-	cache := NewCache(client)
+	cache := New(client)
 	results, err := MGet[name](context.Background(), cache, "key123", "key456")
 	assert.NoError(t, err)
 	assert.Equal(t, map[string]name{
@@ -288,7 +337,7 @@ func TestUpsertTTL(t *testing.T) {
 		return newValue
 	})
 
-	cache := NewCache(client)
+	cache := New(client)
 	err := UpsertTTL[name](context.Background(), cache, "BillyBob", arg, cb, 0)
 	assert.NoError(t, err)
 	assert.Equal(t, 1, called)
@@ -306,7 +355,7 @@ func TestCache_Keys(t *testing.T) {
 	setup()
 	defer tearDown()
 
-	rdb := NewCache(client)
+	rdb := New(client)
 
 	for i := 0; i < 10; i++ {
 		key := fmt.Sprintf("%d", i)
@@ -324,4 +373,80 @@ func TestCache_Keys(t *testing.T) {
 	actual, err := rdb.Keys(context.Background())
 	assert.NoError(t, err)
 	assert.ElementsMatch(t, expected, actual)
+}
+
+func TestCache_TTL(t *testing.T) {
+	setup()
+	defer tearDown()
+
+	rdb := New(client)
+
+	err := client.Set(context.Background(), "test-nottl", "test", InfiniteTTL).Err()
+	assert.NoError(t, err)
+
+	err = client.Set(context.Background(), "test-ttl", "test", time.Second*300).Err()
+	assert.NoError(t, err)
+
+	ttl, err := rdb.TTL(context.Background(), "test-nottl")
+	assert.NoError(t, err)
+	assert.Equal(t, InfiniteTTL, ttl)
+
+	ttl, err = rdb.TTL(context.Background(), "test-ttl")
+	assert.NoError(t, err)
+	assert.Equal(t, time.Second*300, ttl)
+
+	_, err = rdb.TTL(context.Background(), "random")
+	assert.ErrorIs(t, err, ErrKeyNotFound)
+}
+
+func TestCache_Expire(t *testing.T) {
+	setup()
+	defer tearDown()
+
+	rdb := New(client)
+
+	err := client.Set(context.Background(), "test-nottl", "test", InfiniteTTL).Err()
+	assert.NoError(t, err)
+
+	err = client.Set(context.Background(), "test-ttl", "test", time.Second*300).Err()
+	assert.NoError(t, err)
+
+	err = rdb.Expire(context.Background(), "test-nottl", time.Second*300)
+	assert.NoError(t, err)
+	ttl := client.TTL(context.Background(), "test-nottl").Val()
+	assert.Equal(t, time.Second*300, ttl)
+
+	err = rdb.Expire(context.Background(), "test-ttl", InfiniteTTL)
+	assert.NoError(t, err)
+	ttl = client.TTL(context.Background(), "test-ttl").Val()
+	assert.Equal(t, time.Duration(-2), ttl)
+
+	err = rdb.Expire(context.Background(), "random", time.Second*300)
+	assert.ErrorIs(t, err, ErrKeyNotFound)
+}
+
+func TestCache_ExtendTTL(t *testing.T) {
+	setup()
+	defer tearDown()
+
+	rdb := New(client)
+
+	err := client.Set(context.Background(), "test-nottl", "test", InfiniteTTL).Err()
+	assert.NoError(t, err)
+
+	err = client.Set(context.Background(), "test-ttl", "test", time.Second*300).Err()
+	assert.NoError(t, err)
+
+	err = rdb.ExtendTTL(context.Background(), "test-nottl", time.Second*60)
+	assert.NoError(t, err)
+	ttl := client.TTL(context.Background(), "test-nottl").Val()
+	assert.Equal(t, time.Second*59, ttl)
+
+	err = rdb.ExtendTTL(context.Background(), "test-ttl", time.Second*120)
+	assert.NoError(t, err)
+	ttl = client.TTL(context.Background(), "test-ttl").Val()
+	assert.Equal(t, time.Second*420, ttl)
+
+	err = rdb.ExtendTTL(context.Background(), "random", time.Hour*1)
+	assert.ErrorIs(t, err, ErrKeyNotFound)
 }
