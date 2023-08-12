@@ -2,6 +2,13 @@
 
 Redis Cache is a library for caching any data structure in Redis. Redis Cache is meant to be used with the official Redis Go client and works by unmarshalling and marshaling data structures from/to bytes automatically. By default, Redis Cache will use msgpack to marshal/unmarshal data, but you can customize the behavior by providing your own `Marshaller` and `Unmarshaller` using the `Serialization` option with the `NewCache` function.
 
+## Features
+
+* Save/Load any data structure that can be represented as bytes/string
+* Marshalling/Unmarshalling 
+* Compression
+* Instrumentation/Metrics for Prometheus or OpenTelemetry
+
 ## Requirements
 
 * Go 1.19+ 
@@ -21,6 +28,7 @@ Under the hood Redis Cache was designed to be used with [go-redis](https://githu
 ```go
 type RedisClient interface {
     Get(ctx context.Context, key string) *redis.StringCmd
+    GetEx(ctx context.Context, key string, expiration time.Duration) *redis.StringCmd
     MGet(ctx context.Context, keys ...string) *redis.SliceCmd
     Set(ctx context.Context, key string, val any, ttl time.Duration) *redis.StatusCmd
     SetNX(ctx context.Context, key string, value any, expiration time.Duration) *redis.BoolCmd
@@ -31,6 +39,8 @@ type RedisClient interface {
     FlushDB(ctx context.Context) *redis.StatusCmd
     FlushDBAsync(ctx context.Context) *redis.StatusCmd
     Ping(ctx context.Context) *redis.StatusCmd
+    TTL(ctx context.Context, key string) *redis.DurationCmd
+    Expire(ctx context.Context, key string, expiration time.Duration) *redis.BoolCmd
 }
 ```
 
@@ -136,7 +146,7 @@ func main() {
 		Addr: "localhost:6379",
 	})
 
-	c := rcache.NewCache(client, rcache.Compression(rcache.NewCodec(rcache.GZip)))
+	c := rcache.NewCache(client, rcache.GZip())
 
 	if err := c.Set(context.Background(), "person", Person{
 		FirstName: "Biily",
@@ -163,58 +173,40 @@ func main() {
 
 ```
 
-In the above example `NewCodec` is used which creates a default configured flate, gzip, or lz4 codec. If you wish to configure the behavior of the codecs you can create them yourself and rather than using `NewCodec`.
+### Instrumentation
+
+This library provides out of the box instrumentation for either Prometheus or OpenTelemetry. Instrumentation is provided for both the Redis Client and the Cache with minimal code.
+
+Example for Prometheus:
 
 ```go
-package main
-
-import (
-	"compress/flate"
-	"context"
-	"fmt"
-
-	"github.com/redis/go-redis/v9"
-
-	rcache "github.com/jkratz55/redis-cache"
-	"github.com/jkratz55/redis-cache/compression/gzip"
-)
-
-type Person struct {
-	FirstName string
-	LastName  string
-	Age       int
-}
-
 func main() {
-	client := redis.NewClient(&redis.Options{
-		Addr: "localhost:6379",
+
+	redisClient := redis.NewClient(&redis.Options{
+		Addr:         "localhost:6379",
+		MinIdleConns: 10,
+		MaxIdleConns: 100,
+		PoolSize:     1000,
 	})
 
-	c := rcache.NewCache(client, rcache.Compression(gzip.NewCodec(flate.BestSpeed)))
-
-	if err := c.Set(context.Background(), "person", Person{
-		FirstName: "Biily",
-		LastName:  "Bob",
-		Age:       45,
-	}); err != nil {
-		panic("ohhhhh snap!")
+	if err := redisClient.Ping(context.Background()).Err(); err != nil {
+		fmt.Println("Opps ping to Redis failed!", err)
 	}
 
-	var p Person
-	if err := c.Get(context.Background(), "person", &p); err != nil {
-		panic("ohhhhh snap")
-	}
-	fmt.Printf("%v\n", p)
-
-	if err := c.Delete(context.Background(), "person"); err != nil {
-		panic("ohhh snap!")
+	// Enable Redis client metrics
+	if err := prometheus.InstrumentClientMetrics(redisClient); err != nil {
+		panic(err)
 	}
 
-	if err := c.Get(context.Background(), "person", &p); err != rcache.ErrKeyNotFound {
-		panic("ohhhhh snap, this key should be gone!")
+	rdb := cache.NewCache(redisClient)
+
+	// Enable Cache metrics
+	if err := prometheus.InstrumentMetrics(rdb); err != nil {
+		panic(err)
 	}
+
+	// write some useful code here ...
 }
-
 ```
 
-In the above example `gzip` codec is used but configured for best speed rather than the default best compression.
+The `InstrumentClientMetrics` and `InstrumentMetrics` functions accept `Option`s to customize the metrics configuration if needed.
