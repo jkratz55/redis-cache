@@ -247,12 +247,22 @@ func (c *Cache) SetIfPresent(ctx context.Context, key string, v any, ttl time.Du
 	return ok, err
 }
 
-// MSet performs multiple SET operations in a single trip. Any keys that already
-// exist will be overwritten. When setting a ttl value greater than 0 it is important
-// to understand that MSET and EXPIRE are NOT handled atomically for performance
-// reasons. This means its possible the MSET succeeds but the EXPIRE commands fail
-// leaving keys without a TTL.
+// MSet performs multiple SET operations. Entries are added to the cache or
+// overridden if they already exists.
+//
+// MSet performs all the SET operations with a single command which reduces the
+// round trips to Redis and significantly reduces the network overhead increasing
+// throughput. However, this comes at a cost when using TTLs. When the TTL value
+// is greater than 0 the TTL isn't set until after the MSET command successfully
+// completes. This means that the operations are not atomic. It is possible for
+// MSET operation to succeed but the EXPIRE commands to fail leaving some or all
+// keys without a TTL. This is a limitation of the Redis API/protocol.
+//
+// Despite the drawbacks when using TTLs, MSet can be significantly faster than
+// calling Set sequentially, and is faster than using pipelines.
 func (c *Cache) MSet(ctx context.Context, keyvalues map[string]any, ttl time.Duration) error {
+	// The key and values needs to be processed prior to calling MSet by marshalling
+	// and compressing the values.
 	rawData := make(map[string]any)
 	for k, v := range keyvalues {
 		val, err := c.hooksMixin.current.marshal(v)
