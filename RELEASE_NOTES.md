@@ -1,5 +1,10 @@
 # Release Notes
 
+## v1.2.0
+
+* Added support for MSET operations
+* Updated dependencies except OTEL
+
 ## v1.1.0
 
 * Added support for Brotli for compression/decompression
