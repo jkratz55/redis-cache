@@ -36,6 +36,7 @@ type RedisClient interface {
 	Set(ctx context.Context, key string, val any, ttl time.Duration) *redis.StatusCmd
 	SetNX(ctx context.Context, key string, value any, expiration time.Duration) *redis.BoolCmd
 	SetXX(ctx context.Context, key string, value any, expiration time.Duration) *redis.BoolCmd
+	MSet(ctx context.Context, values ...any) *redis.StatusCmd
 	Del(ctx context.Context, keys ...string) *redis.IntCmd
 	Watch(ctx context.Context, fn func(*redis.Tx) error, keys ...string) error
 	Scan(ctx context.Context, cursor uint64, match string, count int64) *redis.ScanCmd
@@ -44,6 +45,7 @@ type RedisClient interface {
 	Ping(ctx context.Context) *redis.StatusCmd
 	TTL(ctx context.Context, key string) *redis.DurationCmd
 	Expire(ctx context.Context, key string, expiration time.Duration) *redis.BoolCmd
+	Pipeline() redis.Pipeliner
 }
 
 // Marshaller is a function type that marshals the value of a cache entry for
@@ -243,6 +245,51 @@ func (c *Cache) SetIfPresent(ctx context.Context, key string, v any, ttl time.Du
 		err = fmt.Errorf("redis: %w", err)
 	}
 	return ok, err
+}
+
+// MSet performs multiple SET operations in a single trip. Any keys that already
+// exist will be overwritten. When setting a ttl value greater than 0 it is important
+// to understand that MSET and EXPIRE are NOT handled atomically for performance
+// reasons. This means its possible the MSET succeeds but the EXPIRE commands fail
+// leaving keys without a TTL.
+func (c *Cache) MSet(ctx context.Context, keyvalues map[string]any, ttl time.Duration) error {
+	rawData := make(map[string]any)
+	for k, v := range keyvalues {
+		val, err := c.hooksMixin.current.marshal(v)
+		if err != nil {
+			return fmt.Errorf("marshal value: %w", err)
+		}
+		val, err = c.hooksMixin.current.compress(val)
+		if err != nil {
+			return fmt.Errorf("compress value: %w", err)
+		}
+		rawData[k] = val
+	}
+
+	if err := c.redis.MSet(ctx, rawData).Err(); err != nil {
+		return fmt.Errorf("redis: %w", err)
+	}
+
+	// If a TTL was set than we need to EXPIRE each key. Redis does not provide
+	// a way to expire multiple keys in a single command, so we need to use a
+	// pipeline to try to reduce the network overhead. It is important to note
+	// that EXPIRE commands may fail and leave some, if not all keys without a
+	// TTL. This is done for performance reasons because MSET is still faster
+	// than pipelining SET commands.
+	if ttl > 0 {
+		pipe := c.redis.Pipeline()
+
+		for k := range keyvalues {
+			pipe.Expire(ctx, k, ttl)
+		}
+
+		_, err := pipe.Exec(ctx)
+		if err != nil {
+			return fmt.Errorf("error setting TTLs on keys: %w", err)
+		}
+	}
+
+	return nil
 }
 
 // Delete removes entries from the cache for a given set of keys.
