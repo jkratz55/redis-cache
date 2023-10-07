@@ -208,7 +208,69 @@ func TestCache_SetIfPresent(t *testing.T) {
 	assert.Equal(t, "value123", s)
 }
 
-func TestCache_MSet(t *testing.T) {
+// func TestCache_MSet(t *testing.T) {
+// 	setup()
+// 	defer tearDown()
+//
+// 	type person struct {
+// 		FirstName string
+// 		LastName  string
+// 		Birthdate time.Time
+// 	}
+//
+// 	data := map[string]any{
+// 		"key123": person{
+// 			FirstName: "Bob",
+// 			LastName:  "Dole",
+// 			Birthdate: time.Date(1960, 10, 28, 0, 0, 0, 0, time.Local),
+// 		},
+// 		"key 456": person{
+// 			FirstName: "Bill",
+// 			LastName:  "Clinton",
+// 			Birthdate: time.Date(1960, 10, 28, 0, 0, 0, 0, time.Local),
+// 		},
+// 		"key789": person{
+// 			FirstName: "Jimmy",
+// 			LastName:  "Dean",
+// 			Birthdate: time.Date(1960, 10, 28, 0, 0, 0, 0, time.Local),
+// 		},
+// 	}
+//
+// 	cache := New(client)
+//
+// 	err := cache.MSet(context.Background(), data, InfiniteTTL)
+// 	assert.NoError(t, err)
+//
+// 	results, err := client.MGet(context.Background(), "key123", "key456", "key789").Result()
+// 	assert.NoError(t, err)
+// 	assert.Equal(t, 3, len(results))
+//
+// 	res, err := client.Get(context.Background(), "key123").Result()
+// 	assert.NoError(t, err)
+//
+// 	expected := person{
+// 		FirstName: "Bob",
+// 		LastName:  "Dole",
+// 		Birthdate: time.Date(1960, 10, 28, 0, 0, 0, 0, time.Local),
+// 	}
+//
+// 	var p person
+// 	err = msgpack.Unmarshal([]byte(res), &p)
+// 	assert.NoError(t, err)
+// 	assert.Equal(t, expected, p)
+//
+// 	err = client.Del(context.Background(), "key123", "key456", "key789").Err()
+// 	assert.NoError(t, err)
+//
+// 	err = cache.MSet(context.Background(), data, time.Minute*10)
+// 	assert.NoError(t, err)
+//
+// 	ttl, err := client.TTL(context.Background(), "key123").Result()
+// 	assert.NoError(t, err)
+// 	assert.Less(t, time.Minute*9, ttl)
+// }
+
+func TestCache_MSetWithTTL(t *testing.T) {
 	setup()
 	defer tearDown()
 
@@ -238,7 +300,7 @@ func TestCache_MSet(t *testing.T) {
 
 	cache := New(client)
 
-	err := cache.MSet(context.Background(), data, InfiniteTTL)
+	err := cache.MSetWithTTL(context.Background(), data, time.Minute*30)
 	assert.NoError(t, err)
 
 	results, err := client.MGet(context.Background(), "key123", "key456", "key789").Result()
@@ -262,12 +324,24 @@ func TestCache_MSet(t *testing.T) {
 	err = client.Del(context.Background(), "key123", "key456", "key789").Err()
 	assert.NoError(t, err)
 
-	err = cache.MSet(context.Background(), data, time.Minute*10)
+	err = cache.MSetWithTTL(context.Background(), data, time.Minute*10)
 	assert.NoError(t, err)
 
 	ttl, err := client.TTL(context.Background(), "key123").Result()
 	assert.NoError(t, err)
 	assert.Less(t, time.Minute*9, ttl)
+
+	// if err != nil {
+	// 	var cmdErrs CommandErrors
+	// 	if errors.As(err, &cmdErrs) {
+	// 		for _, e := range cmdErrs {
+	// 			fmt.Println(e)
+	// 		}
+	// 		// todo: do something actually useful here
+	// 	} else {
+	// 		fmt.Println(err) // just a normal error value
+	// 	}
+	// }
 }
 
 func TestCache_Delete(t *testing.T) {

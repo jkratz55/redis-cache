@@ -250,17 +250,11 @@ func (c *Cache) SetIfPresent(ctx context.Context, key string, v any, ttl time.Du
 // MSet performs multiple SET operations. Entries are added to the cache or
 // overridden if they already exists.
 //
-// MSet performs all the SET operations with a single command which reduces the
-// round trips to Redis and significantly reduces the network overhead increasing
-// throughput. However, this comes at a cost when using TTLs. When the TTL value
-// is greater than 0 the TTL isn't set until after the MSET command successfully
-// completes. This means that the operations are not atomic. It is possible for
-// MSET operation to succeed but the EXPIRE commands to fail leaving some or all
-// keys without a TTL. This is a limitation of the Redis API/protocol.
-//
-// Despite the drawbacks when using TTLs, MSet can be significantly faster than
-// calling Set sequentially, and is faster than using pipelines.
-func (c *Cache) MSet(ctx context.Context, keyvalues map[string]any, ttl time.Duration) error {
+// MSet is atomic, either all keyvalues are set or none are set. Since MSet
+// operates using a single atomic command it is the fastest way to bulk write
+// entries to the Cache. It greatly reduces network overhead and latency when
+// compared to calling SET sequentially.
+func (c *Cache) MSet(ctx context.Context, keyvalues map[string]any) error {
 	// The key and values needs to be processed prior to calling MSet by marshalling
 	// and compressing the values.
 	rawData := make(map[string]any)
@@ -280,23 +274,74 @@ func (c *Cache) MSet(ctx context.Context, keyvalues map[string]any, ttl time.Dur
 		return fmt.Errorf("redis: %w", err)
 	}
 
-	// If a TTL was set than we need to EXPIRE each key. Redis does not provide
-	// a way to expire multiple keys in a single command, so we need to use a
-	// pipeline to try to reduce the network overhead. It is important to note
-	// that EXPIRE commands may fail and leave some, if not all keys without a
-	// TTL. This is done for performance reasons because MSET is still faster
-	// than pipelining SET commands.
-	if ttl > 0 {
-		pipe := c.redis.Pipeline()
+	return nil
+}
 
-		for k := range keyvalues {
-			pipe.Expire(ctx, k, ttl)
-		}
-
-		_, err := pipe.Exec(ctx)
+// MSetWithTTL adds or overwrites multiple entries to the cache with a TTL value.
+//
+// MSetWithTTL performs multiple SET operations using a Pipeline. Unlike MSet,
+// MSetWithTTL is not atomic. It is possible for some entries to succeed while
+// others fail. When the pipeline itself executes successfully but commands fail
+// MSetWithTTL returns CommandErrors which can be inspected to understand which
+// keys failed in the event they need to be retried or logged. If the pipeline
+// execution fails, or marshal and compression fails, a standard error value is
+// returned.
+//
+// The command errors can be inspected following this example:
+//
+//	err := cache.MSetWithTTL(context.Background(), data, time.Minute*30)
+//	if err != nil {
+//		var cmdErrs CommandErrors
+//		if errors.As(err, &cmdErrs) {
+//			for _, e := range cmdErrs {
+//				fmt.Println(e)
+//			}
+//			// todo: do something actually useful here
+//		} else {
+//			fmt.Println(err) // just a normal error value
+//		}
+//	}
+func (c *Cache) MSetWithTTL(ctx context.Context, keyvalues map[string]any, ttl time.Duration) error {
+	pipe := c.redis.Pipeline()
+	for k, v := range keyvalues {
+		val, err := c.hooksMixin.current.marshal(v)
 		if err != nil {
-			return fmt.Errorf("error setting TTLs on keys: %w", err)
+			return fmt.Errorf("marshal value: %w", err)
 		}
+		val, err = c.hooksMixin.current.compress(val)
+		if err != nil {
+			return fmt.Errorf("compress value: %w", err)
+		}
+		pipe.Set(ctx, k, val, ttl)
+	}
+
+	cmds, err := pipe.Exec(ctx)
+	if err != nil {
+		cmdErrors := make(CommandErrors, 0)
+		for _, cmd := range cmds {
+			if cmd.Err() != nil {
+				// This shouldn't panic but let's not take chances ...
+				var key string
+				if k, ok := cmd.Args()[1].(string); ok {
+					key = k
+				}
+
+				cmdErrors = append(cmdErrors, CommandError{
+					Command: cmd.Name(),
+					Key:     key,
+					Err:     cmd.Err(),
+				})
+			}
+		}
+
+		// If len redis errors is zero than the pipeline itself failed and none
+		// of the commands executed on Redis. In this case the original error
+		// from the Pipeliner is returned. If there were errors on at least one
+		// command than the command errors are return.
+		if len(cmdErrors) == 0 {
+			return err
+		}
+		return cmdErrors
 	}
 
 	return nil
@@ -439,7 +484,7 @@ func MGet[R any](ctx context.Context, c *Cache, keys ...string) (MultiResult[R],
 	if err != nil {
 		return nil, fmt.Errorf("redis: %w", err)
 	}
-	resultMap := make(map[string]R, 0)
+	resultMap := make(map[string]R)
 	for i, res := range results {
 		if res == nil || res == redis.Nil {
 			// Some or all of the requested keys may not exist. Skip iterations
