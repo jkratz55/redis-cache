@@ -1,5 +1,11 @@
 # Release Notes
 
+## v1.3.0
+
+* [BREAKING] - MSet no longer accepts a TTL value. The keys and values passed to MSet will not have an expiration/ttl. The way ttl was implemented in v1.2.0 was non-ideal in retrospective.
+* Added MSetWithTLL method on the `Cache` type to set multiple keys with a TTL in a single operation. MSetWithTTL uses pipelining in Redis under the hood to provide good performance while still supporting TTL values.
+* Updated msgpack dependency version
+
 ## v1.2.0
 
 * Added support for MSET operations

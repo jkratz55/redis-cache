@@ -2,5 +2,5 @@ package cache
 
 // Version returns the current version of redis-cache.
 func Version() string {
-	return "1.2.0"
+	return "1.3.0"
 }
