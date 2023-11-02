@@ -1,5 +1,11 @@
 # Release Notes
 
+## v1.4.0
+
+* Upgraded OpenTelemetry dependencies
+* Upgraded go-redis client/driver
+* Upgraded other third party dependencies like msgpack, etc.
+
 ## v1.3.0
 
 * [BREAKING] - MSet no longer accepts a TTL value. The keys and values passed to MSet will not have an expiration/ttl. The way ttl was implemented in v1.2.0 was non-ideal in retrospective.
