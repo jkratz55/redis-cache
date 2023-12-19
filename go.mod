@@ -1,6 +1,6 @@
 module github.com/jkratz55/redis-cache
 
-go 1.19
+go 1.20
 
 require (
 	github.com/alicebob/miniredis/v2 v2.31.0
