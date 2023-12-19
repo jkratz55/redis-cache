@@ -9,7 +9,6 @@ import (
 	"github.com/redis/go-redis/v9"
 	"go.opentelemetry.io/otel/exporters/prometheus"
 	"go.opentelemetry.io/otel/sdk/metric"
-	"go.opentelemetry.io/otel/sdk/metric/aggregation"
 
 	cache "github.com/jkratz55/redis-cache"
 	"github.com/jkratz55/redis-cache/otel"
@@ -21,14 +20,14 @@ func main() {
 		Addr: "localhost:6379",
 	})
 
-	exporter, err := prometheus.New(prometheus.WithAggregationSelector(func(kind metric.InstrumentKind) aggregation.Aggregation {
+	exporter, err := prometheus.New(prometheus.WithAggregationSelector(func(kind metric.InstrumentKind) metric.Aggregation {
 		if kind == metric.InstrumentKindHistogram {
-			return aggregation.ExplicitBucketHistogram{
+			return metric.AggregationExplicitBucketHistogram{
 				Boundaries: []float64{0.005, 0.010, 0.020, 0.040, 0.080, 0.120},
 				NoMinMax:   false,
 			}
 		}
-		return aggregation.Default{}
+		return metric.DefaultAggregationSelector(kind)
 	}))
 	if err != nil {
 		panic(err)
@@ -39,7 +38,7 @@ func main() {
 		panic(err)
 	}
 
-	rdb := cache.NewCache(redisClient)
+	rdb := cache.New(redisClient)
 	if err := otel.InstrumentMetrics(rdb, otel.WithMeterProvider(provider)); err != nil {
 		panic(err)
 	}

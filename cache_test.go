@@ -567,3 +567,25 @@ func TestCache_ExtendTTL(t *testing.T) {
 	err = rdb.ExtendTTL(context.Background(), "random", time.Hour*1)
 	assert.ErrorIs(t, err, ErrKeyNotFound)
 }
+
+func TestCache_ScanKeys(t *testing.T) {
+	setup()
+	defer tearDown()
+
+	assert.NoError(t, client.Set(context.Background(), "user:123", "user123", 0).Err())
+	assert.NoError(t, client.Set(context.Background(), "user:456", "user456", 0).Err())
+	assert.NoError(t, client.Set(context.Background(), "user:789", "user789", 0).Err())
+	assert.NoError(t, client.Set(context.Background(), "system:123", "system123", 0).Err())
+	assert.NoError(t, client.Set(context.Background(), "system:456", "system456", 0).Err())
+	assert.NoError(t, client.Set(context.Background(), "system:789", "system789", 0).Err())
+
+	rdb := New(client)
+
+	keys, err := rdb.ScanKeys(context.Background(), "user:*")
+	assert.NoError(t, err)
+	assert.ElementsMatch(t, []string{"user:123", "user:456", "user:789"}, keys)
+
+	keys, err = rdb.ScanKeys(context.Background(), "system:*")
+	assert.NoError(t, err)
+	assert.ElementsMatch(t, []string{"system:123", "system:456", "system:789"}, keys)
+}

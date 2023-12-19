@@ -184,6 +184,19 @@ func (c *Cache) Keys(ctx context.Context) ([]string, error) {
 	return keys, nil
 }
 
+// ScanKeys allows for scanning keys in Redis using a pattern.
+func (c *Cache) ScanKeys(ctx context.Context, pattern string) ([]string, error) {
+	keys := make([]string, 0)
+	iter := c.redis.Scan(ctx, 0, pattern, 0).Iterator()
+	for iter.Next(ctx) {
+		keys = append(keys, iter.Val())
+	}
+	if err := iter.Err(); err != nil {
+		return nil, fmt.Errorf("redis: %w", err)
+	}
+	return keys, nil
+}
+
 // Set adds an entry into the cache, or overwrites an entry if the key already
 // existed. The entry is set without an expiration.
 func (c *Cache) Set(ctx context.Context, key string, v any) error {
