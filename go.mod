@@ -5,9 +5,9 @@ go 1.19
 require (
 	github.com/alicebob/miniredis/v2 v2.31.0
 	github.com/andybalholm/brotli v1.0.6
-	github.com/pierrec/lz4/v4 v4.1.18
+	github.com/pierrec/lz4/v4 v4.1.19
 	github.com/prometheus/client_golang v1.17.0
-	github.com/redis/go-redis/v9 v9.3.0
+	github.com/redis/go-redis/v9 v9.3.1
 	github.com/stretchr/testify v1.8.4
 	github.com/vmihailenco/msgpack/v5 v5.4.1
 	go.opentelemetry.io/otel v1.21.0
