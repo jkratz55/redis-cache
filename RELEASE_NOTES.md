@@ -1,5 +1,9 @@
 # Release Notes
 
+## v1.5.0
+
+Nothing much with this release. Just updated the dependencies to the latest versions.
+
 ## v1.4.0
 
 * Upgraded OpenTelemetry dependencies

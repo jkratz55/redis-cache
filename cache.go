@@ -629,3 +629,15 @@ func UpsertTTL[T any](ctx context.Context, c *Cache, key string, val T, cb Upser
 	}
 	return err
 }
+
+// Scan retrieves all the keys and values from Redis matching the given pattern.
+//
+// Scan works similar to MGet, but allows a pattern to be specified rather than
+// providing keys.
+func Scan[T any](ctx context.Context, c *Cache, pattern string) (MultiResult[T], error) {
+	keys, err := c.ScanKeys(ctx, pattern)
+	if err != nil {
+		return nil, fmt.Errorf("redis: %w", err)
+	}
+	return MGet[T](ctx, c, keys...)
+}
