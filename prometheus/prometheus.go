@@ -250,6 +250,14 @@ func InstrumentClientMetrics(rdb redis.UniversalClient, opts ...Option) error {
 		Help:        "Number of operations cancelled in flight",
 		ConstLabels: conf.globalLabels,
 	}, []string{"operation"})
+	mgetKeys := prometheus.NewHistogram(prometheus.HistogramOpts{
+		Namespace:   conf.namespace,
+		Subsystem:   conf.subSystem,
+		Name:        "mget_keys_requested",
+		Help:        "Count of keys requested in MGET operations",
+		ConstLabels: conf.globalLabels,
+		Buckets:     conf.mgetKeysBuckets,
+	})
 
 	err := multierr.Combine(
 		prometheus.Register(processTime),
@@ -257,7 +265,8 @@ func InstrumentClientMetrics(rdb redis.UniversalClient, opts ...Option) error {
 		prometheus.Register(hits),
 		prometheus.Register(misses),
 		prometheus.Register(errs),
-		prometheus.Register(cancels))
+		prometheus.Register(cancels),
+		prometheus.Register(mgetKeys))
 	if err != nil {
 		return fmt.Errorf("failed to register prometheus collectors: %w", err)
 	}
@@ -269,6 +278,7 @@ func InstrumentClientMetrics(rdb redis.UniversalClient, opts ...Option) error {
 		misses:      misses,
 		errors:      errs,
 		cancels:     cancels,
+		mgetKeys:    mgetKeys,
 	}
 	rdb.AddHook(hook)
 
@@ -301,6 +311,7 @@ type clientMetricsHook struct {
 	misses      prometheus.Counter
 	errors      *prometheus.CounterVec
 	cancels     *prometheus.CounterVec
+	mgetKeys    prometheus.Histogram
 }
 
 func (c *clientMetricsHook) DialHook(next redis.DialHook) redis.DialHook {
@@ -335,14 +346,21 @@ func (c *clientMetricsHook) ProcessHook(next redis.ProcessHook) redis.ProcessHoo
 
 		c.processTime.WithLabelValues(cmd.Name()).Observe(dur)
 
-		if strings.ToLower(cmd.Name()) == "get" {
+		switch strings.ToLower(cmd.Name()) {
+		case "get":
 			if strCmd, ok := cmd.(*redis.StringCmd); ok {
 				if errors.Is(strCmd.Err(), redis.Nil) || (strCmd.Val() == "" && strCmd.Err() == nil) {
 					c.misses.Inc()
+					break
 				}
 				if strCmd.Err() == nil {
 					c.hits.Inc()
 				}
+			}
+		case "mget":
+			if mgetCmd, ok := cmd.(*redis.SliceCmd); ok {
+				keysRequested := len(mgetCmd.Args()) - 1
+				c.mgetKeys.Observe(float64(keysRequested))
 			}
 		}
 

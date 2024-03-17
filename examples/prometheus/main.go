@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -31,7 +32,7 @@ func main() {
 		panic(err)
 	}
 
-	rdb := cache.NewCache(redisClient)
+	rdb := cache.New(redisClient)
 
 	if err := prometheus.InstrumentMetrics(rdb); err != nil {
 		panic(err)
@@ -62,6 +63,27 @@ func main() {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
+	}))
+	http.Handle("/mget", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+
+		type request struct {
+			Keys []string `json:"keys"`
+		}
+
+		var req request
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+
+		res, err := cache.MGet[string](r.Context(), rdb, req.Keys...)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(res)
 	}))
 
 	http.ListenAndServe(":8080", nil)
