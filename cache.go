@@ -521,6 +521,42 @@ func MGet[R any](ctx context.Context, c *Cache, keys ...string) (MultiResult[R],
 	return resultMap, nil
 }
 
+// MGetValues fetches multiple keys from Redis and returns only the values. If
+// the relationship between key -> value is required use MGet instead.
+//
+// MGetValues is useful when you only want to values and want to avoid the
+// overhead of allocating a slice from a MultiResult.
+func MGetValues[T any](ctx context.Context, c *Cache, keys ...string) ([]T, error) {
+	results, err := c.redis.MGet(ctx, keys...).Result()
+	if err != nil {
+		return nil, fmt.Errorf("redis: %w", err)
+	}
+
+	values := make([]T, 0, len(keys))
+	for i := 0; i < len(results); i++ {
+		res := results[i]
+		if res == nil || res == redis.Nil {
+			// Some or all of the requested keys may not exist. Skip iterations
+			// where the key wasn't found
+			continue
+		}
+		str, ok := res.(string)
+		if !ok {
+			return nil, fmt.Errorf("unexpected value type from Redis: expected %T but got %T", str, res)
+		}
+		data, err := c.hooksMixin.current.decompress([]byte(str))
+		if err != nil {
+			return nil, fmt.Errorf("decompress value: %w", err)
+		}
+		var val T
+		if err := c.hooksMixin.current.unmarshall(data, &val); err != nil {
+			return nil, fmt.Errorf("unmarshall value to type %T: %w", val, err)
+		}
+		values = append(values, val)
+	}
+	return values, nil
+}
+
 // UpsertCallback is a callback function that is invoked by Upsert. An UpsertCallback
 // is passed if a key was found, the old value (or zero-value if the key wasn't found)
 // and the new value. An UpsertCallback is responsible for determining what value should
