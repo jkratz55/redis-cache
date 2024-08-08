@@ -1,5 +1,9 @@
 # Release Notes
 
+## v1.5.3
+
+* Added MSetValues to allow fetching values only with multiple keys.
+
 ## v1.5.0
 
 Nothing much with this release. Just updated the dependencies to the latest versions.
