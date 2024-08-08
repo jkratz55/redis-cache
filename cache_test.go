@@ -429,6 +429,50 @@ func TestMGet(t *testing.T) {
 	}, map[string]name(results))
 }
 
+func TestMGetValues(t *testing.T) {
+	setup()
+	defer tearDown()
+
+	type name struct {
+		First  string
+		Middle string
+		Last   string
+	}
+
+	val, _ := msgpack.Marshal(name{
+		First:  "Billy",
+		Middle: "Joel",
+		Last:   "Bob",
+	})
+	if err := client.Set(context.Background(), "key123", val, 0).Err(); err != nil {
+		t.Errorf("failed to setup data in Redis")
+	}
+	val, _ = msgpack.Marshal(name{
+		First:  "Shelly",
+		Middle: "Jane",
+		Last:   "Bob",
+	})
+	if err := client.Set(context.Background(), "key456", val, 0).Err(); err != nil {
+		t.Errorf("failed to setup data in Redis")
+	}
+
+	cache := New(client)
+	results, err := MGetValues[name](context.Background(), cache, "key123", "key456")
+	assert.NoError(t, err)
+	assert.ElementsMatch(t, []name{
+		{
+			First:  "Billy",
+			Middle: "Joel",
+			Last:   "Bob",
+		},
+		{
+			First:  "Shelly",
+			Middle: "Jane",
+			Last:   "Bob",
+		},
+	}, results)
+}
+
 func TestUpsertTTL(t *testing.T) {
 	setup()
 	defer tearDown()
