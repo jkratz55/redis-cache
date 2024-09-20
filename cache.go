@@ -66,6 +66,7 @@ type Cache struct {
 	marshaller   Marshaller
 	unmarshaller Unmarshaller
 	codec        Codec
+	mgetBatch    int // zero-value indicates no batching
 	hooksMixin
 }
 
@@ -441,6 +442,20 @@ func (c *Cache) ExtendTTL(ctx context.Context, key string, dur time.Duration) er
 	return c.Expire(ctx, key, ttl+dur)
 }
 
+// Client returns the underlying Redis client the Cache is wrapping/using.
+//
+// This can be useful when there are operations that are not supported by Cache
+// that are required, but you don't want to have to pass the Redis client around
+// your application as well. This allows for the Redis client to be accessed from
+// the Cache. However, it is important to understand that when using the Redis
+// client directly it will not have the same behavior as the Cache. You will have
+// to handle marshalling, unmarshalling, and compression yourself. You will also
+// not have the same hooks behavior as the Cache and some metrics will not be
+// tracked.
+func (c *Cache) Client() redis.UniversalClient {
+	return c.redis.(redis.UniversalClient)
+}
+
 // DefaultMarshaller returns a Marshaller using msgpack to marshall
 // values.
 func DefaultMarshaller() Marshaller {
@@ -492,7 +507,17 @@ func (mr MultiResult[T]) IsEmpty() bool {
 
 // MGet uses the provided Cache to retrieve multiple keys from Redis and returns
 // a MultiResult.
+//
+// If a key doesn't exist in Redis it will not be included in the MultiResult
+// returned. If all keys are not found the MultiResult will be empty.
 func MGet[R any](ctx context.Context, c *Cache, keys ...string) (MultiResult[R], error) {
+
+	// If batching is enabled and the number of keys exceeds the batch size use
+	// multiple MGET commands in a pipeline.
+	if c.mgetBatch > 0 && len(keys) > c.mgetBatch {
+		return mGetBatch[R](ctx, c, keys...)
+	}
+
 	results, err := c.redis.MGet(ctx, keys...).Result()
 	if err != nil {
 		return nil, fmt.Errorf("redis: %w", err)
@@ -521,12 +546,69 @@ func MGet[R any](ctx context.Context, c *Cache, keys ...string) (MultiResult[R],
 	return resultMap, nil
 }
 
+// mGetBatch is a helper function that uses pipelining to fetch multiple keys
+// from Redis in batches. Under certain conditions, this can be faster than
+// fetching all keys in a single MGET command.
+func mGetBatch[R any](ctx context.Context, c *Cache, keys ...string) (MultiResult[R], error) {
+
+	chunks := chunk(keys, c.mgetBatch)
+
+	pipe := c.redis.Pipeline()
+	cmds := make([]*redis.SliceCmd, 0, len(chunks))
+	for i := 0; i < len(chunks); i++ {
+		cmds = append(cmds, pipe.MGet(ctx, chunks[i]...))
+	}
+
+	_, err := pipe.Exec(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("redis: %w", err)
+	}
+
+	resultMap := make(map[string]R)
+	for i := 0; i < len(cmds); i++ {
+		results, err := cmds[i].Result()
+		if err != nil {
+			return nil, fmt.Errorf("redis: %w", err)
+		}
+		for j, res := range results {
+			if res == nil || res == redis.Nil {
+				// Some or all of the requested keys may not exist. Skip iterations
+				// where the key wasn't found
+				continue
+			}
+			str, ok := res.(string)
+			if !ok {
+				return nil, fmt.Errorf("unexpected value type from Redis: expected %T but got %T", str, res)
+			}
+			data, err := c.hooksMixin.current.decompress([]byte(str))
+			if err != nil {
+				return nil, fmt.Errorf("decompress value: %w", err)
+			}
+			var val R
+			if err := c.hooksMixin.current.unmarshall(data, &val); err != nil {
+				return nil, fmt.Errorf("unmarshall value to type %T: %w", val, err)
+			}
+			key := chunks[i][j]
+			resultMap[key] = val
+		}
+	}
+
+	return resultMap, nil
+}
+
 // MGetValues fetches multiple keys from Redis and returns only the values. If
 // the relationship between key -> value is required use MGet instead.
 //
 // MGetValues is useful when you only want to values and want to avoid the
 // overhead of allocating a slice from a MultiResult.
 func MGetValues[T any](ctx context.Context, c *Cache, keys ...string) ([]T, error) {
+
+	// If batching is enabled and the number of keys exceeds the batch size use
+	// multiple MGET commands in a pipeline.
+	if c.mgetBatch > 0 && len(keys) > c.mgetBatch {
+		return mGetValuesBatch[T](ctx, c, keys...)
+	}
+
 	results, err := c.redis.MGet(ctx, keys...).Result()
 	if err != nil {
 		return nil, fmt.Errorf("redis: %w", err)
@@ -554,6 +636,52 @@ func MGetValues[T any](ctx context.Context, c *Cache, keys ...string) ([]T, erro
 		}
 		values = append(values, val)
 	}
+	return values, nil
+}
+
+func mGetValuesBatch[T any](ctx context.Context, c *Cache, keys ...string) ([]T, error) {
+	chunks := chunk(keys, c.mgetBatch)
+	pipe := c.redis.Pipeline()
+	cmds := make([]*redis.SliceCmd, 0, len(chunks))
+
+	for i := 0; i < len(chunks); i++ {
+		cmds = append(cmds, pipe.MGet(ctx, chunks[i]...))
+	}
+
+	_, err := pipe.Exec(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("redis: %w", err)
+	}
+
+	values := make([]T, 0, len(keys))
+	for i := 0; i < len(cmds); i++ {
+		results, err := cmds[i].Result()
+		if err != nil {
+			return nil, fmt.Errorf("redis: %w", err)
+		}
+		for j := 0; j < len(results); j++ {
+			res := results[j]
+			if res == nil || res == redis.Nil {
+				// Some or all of the requested keys may not exist. Skip iterations
+				// where the key wasn't found
+				continue
+			}
+			str, ok := res.(string)
+			if !ok {
+				return nil, fmt.Errorf("unexpected value type from Redis: expected %T but got %T", str, res)
+			}
+			data, err := c.hooksMixin.current.decompress([]byte(str))
+			if err != nil {
+				return nil, fmt.Errorf("decompress value: %w", err)
+			}
+			var val T
+			if err := c.hooksMixin.current.unmarshall(data, &val); err != nil {
+				return nil, fmt.Errorf("unmarshall value to type %T: %w", val, err)
+			}
+			values = append(values, val)
+		}
+	}
+
 	return values, nil
 }
 

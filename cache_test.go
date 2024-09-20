@@ -429,6 +429,42 @@ func TestMGet(t *testing.T) {
 	}, map[string]name(results))
 }
 
+func TestMGetBatch(t *testing.T) {
+	setup()
+	defer tearDown()
+
+	type name struct {
+		First  string
+		Middle string
+		Last   string
+	}
+
+	testVal := name{
+		First:  "Billy",
+		Middle: "Joel",
+		Last:   "Bob",
+	}
+
+	val, _ := msgpack.Marshal(testVal)
+	expected := make(map[string]name)
+
+	keys := make([]string, 0, 10000)
+	for i := 0; i < 10000; i++ {
+		key := fmt.Sprintf("key%d", i)
+		keys = append(keys, key)
+		expected[key] = testVal
+		if err := client.Set(context.Background(), key, val, 0).Err(); err != nil {
+			t.Errorf("failed to setup data in Redis")
+		}
+	}
+
+	cache := New(client, BatchMultiGets(1000))
+	results, err := MGet[name](context.Background(), cache, keys...)
+	assert.NoError(t, err)
+	assert.Equal(t, 10000, len(results))
+	assert.Equal(t, MultiResult[name](expected), results)
+}
+
 func TestMGetValues(t *testing.T) {
 	setup()
 	defer tearDown()
@@ -471,6 +507,42 @@ func TestMGetValues(t *testing.T) {
 			Last:   "Bob",
 		},
 	}, results)
+}
+
+func TestMGetValuesBatch(t *testing.T) {
+	setup()
+	defer tearDown()
+
+	type name struct {
+		First  string
+		Middle string
+		Last   string
+	}
+
+	testVal := name{
+		First:  "Billy",
+		Middle: "Joel",
+		Last:   "Bob",
+	}
+
+	val, _ := msgpack.Marshal(testVal)
+	expected := make([]name, 0, 10000)
+	keys := make([]string, 0, 10000)
+
+	for i := 0; i < 10000; i++ {
+		key := fmt.Sprintf("key%d", i)
+		keys = append(keys, key)
+		expected = append(expected, testVal)
+		if err := client.Set(context.Background(), key, val, 0).Err(); err != nil {
+			t.Errorf("failed to setup data in Redis")
+		}
+	}
+
+	cache := New(client, BatchMultiGets(1000))
+	results, err := MGetValues[name](context.Background(), cache, keys...)
+	assert.NoError(t, err)
+	assert.Equal(t, 10000, len(results))
+	assert.Equal(t, expected, results)
 }
 
 func TestUpsertTTL(t *testing.T) {

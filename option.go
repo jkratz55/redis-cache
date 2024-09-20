@@ -88,3 +88,12 @@ func Brotli() Option {
 	codec := brotli.NewCodec(6)
 	return Compression(codec)
 }
+
+// BatchMultiGets configures the Cache to use pipelining and split keys up into
+// multiple MGET commands for increased throughput and lower latency when dealing
+// with MGet operations with very large sets of keys.
+func BatchMultiGets(batchSize int) Option {
+	return func(c *Cache) {
+		c.mgetBatch = batchSize
+	}
+}
