@@ -1,8 +1,24 @@
 # Release Notes
 
+## v1.6.0
+
+* Cache type can now be configured to split MGet with a large number of keys into multiple MGET commands executed within a pipeline which under some conditions can significantly reduce latency.
+* Added method to get the underlying Redis client from the `Cache` type
+* Updated dependencies
+
 ## v1.5.3
 
 * Added MSetValues to allow fetching values only with multiple keys.
+
+## v1.5.2
+
+* Update dependencies
+
+## v1.5.1
+
+* Added Scan method on `Cache` to fetch multiple keys by a pattern
+* Fixes a bug where Prometheus cache hits metric was being incremented when there was a cache miss
+* Adds additional metrics to track how many keys are being sent in MGET commands
 
 ## v1.5.0
 
