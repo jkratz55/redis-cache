@@ -86,7 +86,7 @@ func Write[T any](
 	key string,
 	val T,
 	ttl time.Duration,
-	fn func(ctx context.Context, T any) error) error {
+	fn func(ctx context.Context, v T) error) error {
 
 	// Write the value to the source of truth first. If this operation fails bail
 	err := fn(ctx, val)
