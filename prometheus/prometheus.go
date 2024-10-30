@@ -12,7 +12,7 @@ import (
 	"github.com/redis/go-redis/v9"
 	"go.uber.org/multierr"
 
-	cache "github.com/jkratz55/redis-cache"
+	cache "github.com/jkratz55/redis-cache/v2"
 )
 
 var cacheLabels = []string{"operation"}

@@ -18,7 +18,7 @@ Redis Cache is a library for caching any data structure in Redis. Redis Cache is
 ## Getting Redis Cache
 
 ```shell
-go get github.com/jkratz55/redis-cache
+go get github.com/jkratz55/redis-cache/v2
 ```
 
 ## Usage
@@ -61,7 +61,7 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
-	rcache "github.com/jkratz55/redis-cache"
+	rcache "github.com/jkratz55/redis-cache/v2"
 )
 
 type Person struct {
@@ -132,7 +132,7 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
-	rcache "github.com/jkratz55/redis-cache"
+	rcache "github.com/jkratz55/redis-cache/v2"
 )
 
 type Person struct {

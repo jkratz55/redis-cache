@@ -10,8 +10,8 @@ import (
 	"go.opentelemetry.io/otel/exporters/prometheus"
 	"go.opentelemetry.io/otel/sdk/metric"
 
-	cache "github.com/jkratz55/redis-cache"
-	"github.com/jkratz55/redis-cache/otel"
+	cache "github.com/jkratz55/redis-cache/v2"
+	"github.com/jkratz55/redis-cache/v2/otel"
 )
 
 func main() {

@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
-	"github.com/vmihailenco/msgpack/v5"
+	"github.com/redis/rueidis"
 )
 
 const (
@@ -18,7 +18,7 @@ const (
 	InfiniteTTL time.Duration = -3
 
 	// KeepTTL indicates to keep the existing TTL on the key on SET commands.
-	KeepTTL = redis.KeepTTL
+	KeepTTL = -1
 )
 
 var (
@@ -27,46 +27,19 @@ var (
 	ErrKeyNotFound = errors.New("key not found")
 )
 
-// RedisClient is an interface type that defines the Redis functionality this
-// package requires to use Redis as a cache.
-type RedisClient interface {
-	Get(ctx context.Context, key string) *redis.StringCmd
-	GetEx(ctx context.Context, key string, expiration time.Duration) *redis.StringCmd
-	MGet(ctx context.Context, keys ...string) *redis.SliceCmd
-	Set(ctx context.Context, key string, val any, ttl time.Duration) *redis.StatusCmd
-	SetNX(ctx context.Context, key string, value any, expiration time.Duration) *redis.BoolCmd
-	SetXX(ctx context.Context, key string, value any, expiration time.Duration) *redis.BoolCmd
-	MSet(ctx context.Context, values ...any) *redis.StatusCmd
-	Del(ctx context.Context, keys ...string) *redis.IntCmd
-	Watch(ctx context.Context, fn func(*redis.Tx) error, keys ...string) error
-	Scan(ctx context.Context, cursor uint64, match string, count int64) *redis.ScanCmd
-	FlushDB(ctx context.Context) *redis.StatusCmd
-	FlushDBAsync(ctx context.Context) *redis.StatusCmd
-	Ping(ctx context.Context) *redis.StatusCmd
-	TTL(ctx context.Context, key string) *redis.DurationCmd
-	Expire(ctx context.Context, key string, expiration time.Duration) *redis.BoolCmd
-	Pipeline() redis.Pipeliner
-}
-
-// Marshaller is a function type that marshals the value of a cache entry for
-// storage.
-type Marshaller func(v any) ([]byte, error)
-
-// Unmarshaller is a function type that unmarshalls the value retrieved from the
-// cache into the target type.
-type Unmarshaller func(b []byte, v any) error
-
 // Cache is a simple type that provides basic caching functionality: store, retrieve,
 // and delete. It is backed by Redis and supports storing entries with a TTL.
 //
 // The zero-value is not usable, and this type should be instantiated using the
 // New function.
 type Cache struct {
-	redis        RedisClient
-	marshaller   Marshaller
-	unmarshaller Unmarshaller
-	codec        Codec
-	mgetBatch    int // zero-value indicates no batching
+	redis            rueidis.Client
+	marshaller       Marshaller
+	unmarshaller     Unmarshaller
+	codec            Codec
+	mgetBatch        int // zero-value indicates no batching
+	nearCacheEnabled bool
+	nearCacheTTL     time.Duration
 	hooksMixin
 }
 
@@ -74,7 +47,7 @@ type Cache struct {
 //
 // By default, msgpack is used for marshalling and unmarshalling the entry values.
 // The behavior of Cache can be configured by passing Options.
-func New(client RedisClient, opts ...Option) *Cache {
+func New(client rueidis.Client, opts ...Option) *Cache {
 	if client == nil {
 		panic(fmt.Errorf("a valid redis client is required, illegal use of api"))
 	}
@@ -101,17 +74,6 @@ func New(client RedisClient, opts ...Option) *Cache {
 	return cache
 }
 
-// NewCache creates and initializes a new Cache instance.
-//
-// By default, msgpack is used for marshalling and unmarshalling the entry values.
-// The behavior of Cache can be configured by passing Options.
-//
-// DEPRECATED: NewCache has been deprecated in favor of New and subject to being
-// removed in future versions.
-func NewCache(client RedisClient, opts ...Option) *Cache {
-	return New(client, opts...)
-}
-
 // Get retrieves an entry from the Cache for the given key, and if found will
 // unmarshall the value into v.
 //
@@ -119,9 +81,19 @@ func NewCache(client RedisClient, opts ...Option) *Cache {
 // A non-nil error value will be returned if the operation on the backing Redis
 // fails, or if the value cannot be unmarshalled into the target type.
 func (c *Cache) Get(ctx context.Context, key string, v any) error {
-	data, err := c.redis.Get(ctx, key).Bytes()
+	var (
+		data []byte
+		err  error
+	)
+
+	cmd := c.redis.B().Get().Key(key)
+	if c.nearCacheEnabled {
+		data, err = c.redis.DoCache(ctx, cmd.Cache(), c.nearCacheTTL).AsBytes()
+	} else {
+		data, err = c.redis.Do(ctx, cmd.Build()).AsBytes()
+	}
 	if err != nil {
-		if errors.Is(err, redis.Nil) {
+		if errors.Is(err, rueidis.Nil) {
 			return ErrKeyNotFound
 		}
 		return fmt.Errorf("redis: %w", err)
@@ -155,13 +127,16 @@ func (c *Cache) GetAndExpire(ctx context.Context, key string, v any, ttl time.Du
 		ttl = 0
 	}
 
-	val, err := c.redis.GetEx(ctx, key, ttl).Bytes()
+	cmd := c.redis.B().Getex().Key(key).Ex(ttl).Build()
+	val, err := c.redis.Do(ctx, cmd).AsBytes()
+
 	if err != nil {
-		if errors.Is(err, redis.Nil) {
+		if errors.Is(err, rueidis.Nil) {
 			return ErrKeyNotFound
 		}
 		return fmt.Errorf("redis: %w", err)
 	}
+
 	data, err := c.hooksMixin.current.decompress(val)
 	if err != nil {
 		return fmt.Errorf("decompress value: %w", err)
@@ -174,40 +149,50 @@ func (c *Cache) GetAndExpire(ctx context.Context, key string, v any, ttl time.Du
 
 // Keys retrieves all the keys in Redis/Cache
 func (c *Cache) Keys(ctx context.Context) ([]string, error) {
+	cursor := uint64(0)
 	keys := make([]string, 0)
-	iter := c.redis.Scan(ctx, 0, "*", 0).Iterator()
-	for iter.Next(ctx) {
-		keys = append(keys, iter.Val())
+	for {
+		result, err := c.redis.Do(ctx, c.redis.B().Scan().Cursor(cursor).Count(1000).Build()).AsScanEntry()
+		if err != nil {
+			return nil, fmt.Errorf("redis: %w", err)
+		}
+
+		cursor = result.Cursor
+		keys = append(keys, result.Elements...)
+
+		if cursor == 0 {
+			break
+		}
 	}
-	if err := iter.Err(); err != nil {
-		return nil, fmt.Errorf("redis: %w", err)
-	}
+
 	return keys, nil
 }
 
 // ScanKeys allows for scanning keys in Redis using a pattern.
 func (c *Cache) ScanKeys(ctx context.Context, pattern string) ([]string, error) {
+	cursor := uint64(0)
 	keys := make([]string, 0)
-	iter := c.redis.Scan(ctx, 0, pattern, 0).Iterator()
-	for iter.Next(ctx) {
-		keys = append(keys, iter.Val())
+	for {
+		result, err := c.redis.Do(ctx, c.redis.B().Scan().Cursor(cursor).
+			Match(pattern).Count(1000).Build()).AsScanEntry()
+		if err != nil {
+			return nil, fmt.Errorf("redis: %w", err)
+		}
+
+		cursor = result.Cursor
+		keys = append(keys, result.Elements...)
+
+		if cursor == 0 {
+			break
+		}
 	}
-	if err := iter.Err(); err != nil {
-		return nil, fmt.Errorf("redis: %w", err)
-	}
+
 	return keys, nil
 }
 
 // Set adds an entry into the cache, or overwrites an entry if the key already
-// existed. The entry is set without an expiration.
-func (c *Cache) Set(ctx context.Context, key string, v any) error {
-	return c.SetWithTTL(ctx, key, v, InfiniteTTL)
-}
-
-// SetWithTTL adds an entry into the cache, or overwrites an entry if the key
-// already existed. The entry is set with the provided TTL and automatically
-// removed from the cache once the TTL is expired.
-func (c *Cache) SetWithTTL(ctx context.Context, key string, v any, ttl time.Duration) error {
+// existed.
+func (c *Cache) Set(ctx context.Context, key string, v any, ttl time.Duration) error {
 	data, err := c.hooksMixin.current.marshal(v)
 	if err != nil {
 		return fmt.Errorf("marshall value: %w", err)
@@ -216,7 +201,13 @@ func (c *Cache) SetWithTTL(ctx context.Context, key string, v any, ttl time.Dura
 	if err != nil {
 		return fmt.Errorf("compress value: %w", err)
 	}
-	err = c.redis.Set(ctx, key, data, ttl).Err()
+
+	cmd := c.redis.B().Set().Key(key).Value(string(data))
+	if ttl > 0 {
+		cmd.Ex(ttl)
+	}
+
+	err = c.redis.Do(ctx, cmd.Build()).Error()
 	if err != nil {
 		err = fmt.Errorf("redis: %w", err)
 	}
@@ -235,7 +226,13 @@ func (c *Cache) SetIfAbsent(ctx context.Context, key string, v any, ttl time.Dur
 	if err != nil {
 		return false, fmt.Errorf("compress value: %w", err)
 	}
-	ok, err := c.redis.SetNX(ctx, key, data, ttl).Result()
+
+	cmd := c.redis.B().Set().Key(key).Value(string(data)).Nx()
+	if ttl > 0 {
+		cmd.Ex(ttl)
+	}
+
+	ok, err := c.redis.Do(ctx, cmd.Build()).AsBool()
 	if err != nil {
 		err = fmt.Errorf("redis: %w", err)
 	}
@@ -254,7 +251,13 @@ func (c *Cache) SetIfPresent(ctx context.Context, key string, v any, ttl time.Du
 	if err != nil {
 		return false, fmt.Errorf("compress value: %w", err)
 	}
-	ok, err := c.redis.SetXX(ctx, key, data, ttl).Result()
+
+	cmd := c.redis.B().Set().Key(key).Value(string(data)).Xx()
+	if ttl > 0 {
+		cmd.Ex(ttl)
+	}
+
+	ok, err := c.redis.Do(ctx, cmd.Build()).AsBool()
 	if err != nil {
 		err = fmt.Errorf("redis: %w", err)
 	}
@@ -271,7 +274,7 @@ func (c *Cache) SetIfPresent(ctx context.Context, key string, v any, ttl time.Du
 func (c *Cache) MSet(ctx context.Context, keyvalues map[string]any) error {
 	// The key and values needs to be processed prior to calling MSet by marshalling
 	// and compressing the values.
-	rawData := make(map[string]any)
+	cmd := c.redis.B().Mset().KeyValue()
 	for k, v := range keyvalues {
 		val, err := c.hooksMixin.current.marshal(v)
 		if err != nil {
@@ -281,81 +284,11 @@ func (c *Cache) MSet(ctx context.Context, keyvalues map[string]any) error {
 		if err != nil {
 			return fmt.Errorf("compress value: %w", err)
 		}
-		rawData[k] = val
+		cmd.KeyValue(k, string(val))
 	}
 
-	if err := c.redis.MSet(ctx, rawData).Err(); err != nil {
+	if err := c.redis.Do(ctx, cmd.Build()).Error(); err != nil {
 		return fmt.Errorf("redis: %w", err)
-	}
-
-	return nil
-}
-
-// MSetWithTTL adds or overwrites multiple entries to the cache with a TTL value.
-//
-// MSetWithTTL performs multiple SET operations using a Pipeline. Unlike MSet,
-// MSetWithTTL is not atomic. It is possible for some entries to succeed while
-// others fail. When the pipeline itself executes successfully but commands fail
-// MSetWithTTL returns CommandErrors which can be inspected to understand which
-// keys failed in the event they need to be retried or logged. If the pipeline
-// execution fails, or marshal and compression fails, a standard error value is
-// returned.
-//
-// The command errors can be inspected following this example:
-//
-//	err := cache.MSetWithTTL(context.Background(), data, time.Minute*30)
-//	if err != nil {
-//		var cmdErrs CommandErrors
-//		if errors.As(err, &cmdErrs) {
-//			for _, e := range cmdErrs {
-//				fmt.Println(e)
-//			}
-//			// todo: do something actually useful here
-//		} else {
-//			fmt.Println(err) // just a normal error value
-//		}
-//	}
-func (c *Cache) MSetWithTTL(ctx context.Context, keyvalues map[string]any, ttl time.Duration) error {
-	pipe := c.redis.Pipeline()
-	for k, v := range keyvalues {
-		val, err := c.hooksMixin.current.marshal(v)
-		if err != nil {
-			return fmt.Errorf("marshal value: %w", err)
-		}
-		val, err = c.hooksMixin.current.compress(val)
-		if err != nil {
-			return fmt.Errorf("compress value: %w", err)
-		}
-		pipe.Set(ctx, k, val, ttl)
-	}
-
-	cmds, err := pipe.Exec(ctx)
-	if err != nil {
-		cmdErrors := make(CommandErrors, 0)
-		for _, cmd := range cmds {
-			if cmd.Err() != nil {
-				// This shouldn't panic but let's not take chances ...
-				var key string
-				if k, ok := cmd.Args()[1].(string); ok {
-					key = k
-				}
-
-				cmdErrors = append(cmdErrors, CommandError{
-					Command: cmd.Name(),
-					Key:     key,
-					Err:     cmd.Err(),
-				})
-			}
-		}
-
-		// If len redis errors is zero than the pipeline itself failed and none
-		// of the commands executed on Redis. In this case the original error
-		// from the Pipeliner is returned. If there were errors on at least one
-		// command than the command errors are return.
-		if len(cmdErrors) == 0 {
-			return err
-		}
-		return cmdErrors
 	}
 
 	return nil
@@ -363,25 +296,25 @@ func (c *Cache) MSetWithTTL(ctx context.Context, keyvalues map[string]any, ttl t
 
 // Delete removes entries from the cache for a given set of keys.
 func (c *Cache) Delete(ctx context.Context, keys ...string) error {
-	return c.redis.Del(ctx, keys...).Err()
+	return c.redis.Do(ctx, c.redis.B().Del().Key(keys...).Build()).Error()
 }
 
 // Flush flushes the cache deleting all keys/entries.
 func (c *Cache) Flush(ctx context.Context) error {
-	return c.redis.FlushDB(ctx).Err()
+	return c.redis.Do(ctx, c.redis.B().Flushdb().Sync().Build()).Error()
 }
 
 // FlushAsync flushes the cache deleting all keys/entries asynchronously. Only keys
 // that were present when FLUSH ASYNC command was received by Redis will be deleted.
 // Any keys created during asynchronous flush will be unaffected.
 func (c *Cache) FlushAsync(ctx context.Context) error {
-	return c.redis.FlushDBAsync(ctx).Err()
+	return c.redis.Do(ctx, c.redis.B().Flushdb().Async().Build()).Error()
 }
 
 // Healthy pings Redis to ensure it is reachable and responding. Healthy returns
 // true if Redis successfully responds to the ping, otherwise false.
 func (c *Cache) Healthy(ctx context.Context) bool {
-	return c.redis.Ping(ctx).Err() == nil
+	return c.redis.Do(ctx, c.redis.B().Ping().Build()).Error() == nil
 }
 
 // TTL returns the time to live for a particular key.
@@ -389,7 +322,7 @@ func (c *Cache) Healthy(ctx context.Context) bool {
 // If the key doesn't exist ErrKeyNotFound will be returned for the error value.
 // If the key doesn't have a TTL InfiniteTTL will be returned.
 func (c *Cache) TTL(ctx context.Context, key string) (time.Duration, error) {
-	dur, err := c.redis.TTL(ctx, key).Result()
+	dur, err := c.redis.Do(ctx, c.redis.B().Ttl().Key(key).Build()).AsInt64() // c.redis.TTL(ctx, key).Result()
 	if err != nil {
 		return 0, fmt.Errorf("redis: %w", err)
 	}
@@ -402,7 +335,7 @@ func (c *Cache) TTL(ctx context.Context, key string) (time.Duration, error) {
 	if dur == -2 {
 		return 0, ErrKeyNotFound
 	}
-	return dur, nil
+	return time.Duration(dur) * time.Second, nil
 }
 
 // Expire sets a TTL on the given key.
@@ -412,7 +345,8 @@ func (c *Cache) TTL(ctx context.Context, key string) (time.Duration, error) {
 //
 // Calling Expire with a non-positive ttl will result in the key being deleted.
 func (c *Cache) Expire(ctx context.Context, key string, ttl time.Duration) error {
-	ok, err := c.redis.Expire(ctx, key, ttl).Result()
+	ok, err := c.redis.Do(ctx, c.redis.B().Expire().Key(key).
+		Seconds(int64(ttl.Seconds())).Build()).AsBool()
 	if err != nil {
 		return fmt.Errorf("redis: %w", err)
 	}
@@ -429,7 +363,7 @@ func (c *Cache) Expire(ctx context.Context, key string, ttl time.Duration) error
 //
 // If the key doesn't exist ErrKeyNotFound will be returned for the error value.
 func (c *Cache) ExtendTTL(ctx context.Context, key string, dur time.Duration) error {
-	ttl, err := c.redis.TTL(ctx, key).Result()
+	ttl, err := c.redis.Do(ctx, c.redis.B().Ttl().Key(key).Build()).AsInt64()
 	if err != nil {
 		return fmt.Errorf("redis: %w", err)
 	}
@@ -439,7 +373,7 @@ func (c *Cache) ExtendTTL(ctx context.Context, key string, dur time.Duration) er
 		return ErrKeyNotFound
 	}
 
-	return c.Expire(ctx, key, ttl+dur)
+	return c.Expire(ctx, key, time.Duration(ttl)*time.Second+dur)
 }
 
 // Client returns the underlying Redis client the Cache is wrapping/using.
@@ -452,24 +386,8 @@ func (c *Cache) ExtendTTL(ctx context.Context, key string, dur time.Duration) er
 // to handle marshalling, unmarshalling, and compression yourself. You will also
 // not have the same hooks behavior as the Cache and some metrics will not be
 // tracked.
-func (c *Cache) Client() redis.UniversalClient {
-	return c.redis.(redis.UniversalClient)
-}
-
-// DefaultMarshaller returns a Marshaller using msgpack to marshall
-// values.
-func DefaultMarshaller() Marshaller {
-	return func(v any) ([]byte, error) {
-		return msgpack.Marshal(v)
-	}
-}
-
-// DefaultUnmarshaller returns an Unmarshaller using msgpack to unmarshall
-// values.
-func DefaultUnmarshaller() Unmarshaller {
-	return func(b []byte, v any) error {
-		return msgpack.Unmarshal(b, v)
-	}
+func (c *Cache) Client() rueidis.Client {
+	return c.redis
 }
 
 // MultiResult is a type representing returning multiple entries from the Cache.
@@ -518,22 +436,29 @@ func MGet[R any](ctx context.Context, c *Cache, keys ...string) (MultiResult[R],
 		return mGetBatch[R](ctx, c, keys...)
 	}
 
-	results, err := c.redis.MGet(ctx, keys...).Result()
+	var (
+		results []string
+		err     error
+	)
+
+	cmd := c.redis.B().Mget().Key(keys...)
+	if c.nearCacheEnabled {
+		results, err = c.redis.DoCache(ctx, cmd.Cache(), c.nearCacheTTL).AsStrSlice()
+	} else {
+		results, err = c.redis.Do(ctx, cmd.Build()).AsStrSlice()
+	}
+
 	if err != nil {
 		return nil, fmt.Errorf("redis: %w", err)
 	}
 	resultMap := make(map[string]R)
 	for i, res := range results {
-		if res == nil || res == redis.Nil {
+		if res == "" {
 			// Some or all of the requested keys may not exist. Skip iterations
 			// where the key wasn't found
 			continue
 		}
-		str, ok := res.(string)
-		if !ok {
-			return nil, fmt.Errorf("unexpected value type from Redis: expected %T but got %T", str, res)
-		}
-		data, err := c.hooksMixin.current.decompress([]byte(str))
+		data, err := c.hooksMixin.current.decompress([]byte(res))
 		if err != nil {
 			return nil, fmt.Errorf("decompress value: %w", err)
 		}
@@ -552,35 +477,41 @@ func MGet[R any](ctx context.Context, c *Cache, keys ...string) (MultiResult[R],
 func mGetBatch[R any](ctx context.Context, c *Cache, keys ...string) (MultiResult[R], error) {
 
 	chunks := chunk(keys, c.mgetBatch)
-
-	pipe := c.redis.Pipeline()
-	cmds := make([]*redis.SliceCmd, 0, len(chunks))
-	for i := 0; i < len(chunks); i++ {
-		cmds = append(cmds, pipe.MGet(ctx, chunks[i]...))
-	}
-
-	_, err := pipe.Exec(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("redis: %w", err)
-	}
-
 	resultMap := make(map[string]R)
-	for i := 0; i < len(cmds); i++ {
-		results, err := cmds[i].Result()
+	var redisResults []rueidis.RedisResult
+
+	// Using near caching/local caching requires handling the calls to rueidis
+	// differently.
+	if c.nearCacheEnabled {
+		cmds := make([]rueidis.CacheableTTL, 0, len(chunks))
+		for i := 0; i < len(chunks); i++ {
+			cmds = append(cmds, rueidis.CacheableTTL{
+				Cmd: c.redis.B().Mget().Key(chunks[i]...).Cache(),
+				TTL: c.nearCacheTTL,
+			})
+		}
+		redisResults = c.redis.DoMultiCache(ctx, cmds...)
+	} else {
+		cmds := make([]rueidis.Completed, 0, len(chunks))
+		for i := 0; i < len(chunks); i++ {
+			cmds = append(cmds, c.redis.B().Mget().Key(chunks[i]...).Build())
+		}
+		redisResults = c.redis.DoMulti(ctx, cmds...)
+	}
+
+	for i := 0; i < len(redisResults); i++ {
+		results, err := redisResults[i].AsStrSlice()
 		if err != nil {
 			return nil, fmt.Errorf("redis: %w", err)
 		}
-		for j, res := range results {
-			if res == nil || res == redis.Nil {
+		for j := 0; j < len(results); j++ {
+			res := results[j]
+			if res == "" {
 				// Some or all of the requested keys may not exist. Skip iterations
 				// where the key wasn't found
 				continue
 			}
-			str, ok := res.(string)
-			if !ok {
-				return nil, fmt.Errorf("unexpected value type from Redis: expected %T but got %T", str, res)
-			}
-			data, err := c.hooksMixin.current.decompress([]byte(str))
+			data, err := c.hooksMixin.current.decompress([]byte(res))
 			if err != nil {
 				return nil, fmt.Errorf("decompress value: %w", err)
 			}
@@ -617,7 +548,7 @@ func MGetValues[T any](ctx context.Context, c *Cache, keys ...string) ([]T, erro
 	values := make([]T, 0, len(keys))
 	for i := 0; i < len(results); i++ {
 		res := results[i]
-		if res == nil || res == redis.Nil {
+		if res == nil || res == rueidis.Nil {
 			// Some or all of the requested keys may not exist. Skip iterations
 			// where the key wasn't found
 			continue
@@ -661,7 +592,7 @@ func mGetValuesBatch[T any](ctx context.Context, c *Cache, keys ...string) ([]T,
 		}
 		for j := 0; j < len(results); j++ {
 			res := results[j]
-			if res == nil || res == redis.Nil {
+			if res == nil || res == rueidis.Nil {
 				// Some or all of the requested keys may not exist. Skip iterations
 				// where the key wasn't found
 				continue

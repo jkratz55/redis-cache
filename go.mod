@@ -1,4 +1,4 @@
-module github.com/jkratz55/redis-cache
+module github.com/jkratz55/redis-cache/v2
 
 go 1.22
 
@@ -10,6 +10,7 @@ require (
 	github.com/pierrec/lz4/v4 v4.1.21
 	github.com/prometheus/client_golang v1.20.5
 	github.com/redis/go-redis/v9 v9.7.0
+	github.com/redis/rueidis v1.0.48
 	github.com/stretchr/testify v1.9.0
 	github.com/vmihailenco/msgpack/v5 v5.4.1
 	go.opentelemetry.io/otel v1.31.0

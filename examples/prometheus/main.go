@@ -11,8 +11,8 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/redis/go-redis/v9"
 
-	cache "github.com/jkratz55/redis-cache"
-	"github.com/jkratz55/redis-cache/prometheus"
+	cache "github.com/jkratz55/redis-cache/v2"
+	"github.com/jkratz55/redis-cache/v2/prometheus"
 )
 
 func main() {

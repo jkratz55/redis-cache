@@ -6,7 +6,7 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
-	rcache "github.com/jkratz55/redis-cache"
+	rcache "github.com/jkratz55/redis-cache/v2"
 )
 
 type Person struct {

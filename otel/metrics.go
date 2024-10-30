@@ -13,7 +13,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 
-	cache "github.com/jkratz55/redis-cache"
+	cache "github.com/jkratz55/redis-cache/v2"
 )
 
 func InstrumentMetrics(c *cache.Cache, opts ...MetricsOption) error {

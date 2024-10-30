@@ -4,10 +4,10 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/jkratz55/redis-cache/compression/brotli"
-	"github.com/jkratz55/redis-cache/compression/flate"
-	"github.com/jkratz55/redis-cache/compression/gzip"
-	"github.com/jkratz55/redis-cache/compression/lz4"
+	"github.com/jkratz55/redis-cache/v2/compression/brotli"
+	"github.com/jkratz55/redis-cache/v2/compression/flate"
+	"github.com/jkratz55/redis-cache/v2/compression/gzip"
+	"github.com/jkratz55/redis-cache/v2/compression/lz4"
 )
 
 // Option allows for the Cache behavior/configuration to be customized.
@@ -95,5 +95,13 @@ func Brotli() Option {
 func BatchMultiGets(batchSize int) Option {
 	return func(c *Cache) {
 		c.mgetBatch = batchSize
+	}
+}
+
+// NearCache enables a local in-memory cache to reduce the load on Redis and
+// improve the latency.
+func NearCache() Option {
+	return func(c *Cache) {
+		c.nearCacheEnabled = true
 	}
 }
