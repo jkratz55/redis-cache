@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/redis/go-redis/v9"
 	"github.com/redis/rueidis"
 )
 
@@ -540,7 +539,18 @@ func MGetValues[T any](ctx context.Context, c *Cache, keys ...string) ([]T, erro
 		return mGetValuesBatch[T](ctx, c, keys...)
 	}
 
-	results, err := c.redis.MGet(ctx, keys...).Result()
+	var (
+		results []string
+		err     error
+	)
+
+	cmd := c.redis.B().Mget().Key(keys...)
+	if c.nearCacheEnabled {
+		results, err = c.redis.DoCache(ctx, cmd.Cache(), c.nearCacheTTL).AsStrSlice()
+	} else {
+		results, err = c.redis.Do(ctx, cmd.Build()).AsStrSlice()
+	}
+
 	if err != nil {
 		return nil, fmt.Errorf("redis: %w", err)
 	}
@@ -548,16 +558,12 @@ func MGetValues[T any](ctx context.Context, c *Cache, keys ...string) ([]T, erro
 	values := make([]T, 0, len(keys))
 	for i := 0; i < len(results); i++ {
 		res := results[i]
-		if res == nil || res == rueidis.Nil {
+		if res == "" {
 			// Some or all of the requested keys may not exist. Skip iterations
 			// where the key wasn't found
 			continue
 		}
-		str, ok := res.(string)
-		if !ok {
-			return nil, fmt.Errorf("unexpected value type from Redis: expected %T but got %T", str, res)
-		}
-		data, err := c.hooksMixin.current.decompress([]byte(str))
+		data, err := c.hooksMixin.current.decompress([]byte(res))
 		if err != nil {
 			return nil, fmt.Errorf("decompress value: %w", err)
 		}
@@ -572,36 +578,41 @@ func MGetValues[T any](ctx context.Context, c *Cache, keys ...string) ([]T, erro
 
 func mGetValuesBatch[T any](ctx context.Context, c *Cache, keys ...string) ([]T, error) {
 	chunks := chunk(keys, c.mgetBatch)
-	pipe := c.redis.Pipeline()
-	cmds := make([]*redis.SliceCmd, 0, len(chunks))
-
-	for i := 0; i < len(chunks); i++ {
-		cmds = append(cmds, pipe.MGet(ctx, chunks[i]...))
-	}
-
-	_, err := pipe.Exec(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("redis: %w", err)
-	}
-
 	values := make([]T, 0, len(keys))
-	for i := 0; i < len(cmds); i++ {
-		results, err := cmds[i].Result()
+	var redisResults []rueidis.RedisResult
+
+	// Using near caching/local caching requires handling the calls to rueidis
+	// differently.
+	if c.nearCacheEnabled {
+		cmds := make([]rueidis.CacheableTTL, 0, len(chunks))
+		for i := 0; i < len(chunks); i++ {
+			cmds = append(cmds, rueidis.CacheableTTL{
+				Cmd: c.redis.B().Mget().Key(chunks[i]...).Cache(),
+				TTL: c.nearCacheTTL,
+			})
+		}
+		redisResults = c.redis.DoMultiCache(ctx, cmds...)
+	} else {
+		cmds := make([]rueidis.Completed, 0, len(chunks))
+		for i := 0; i < len(chunks); i++ {
+			cmds = append(cmds, c.redis.B().Mget().Key(chunks[i]...).Build())
+		}
+		redisResults = c.redis.DoMulti(ctx, cmds...)
+	}
+
+	for i := 0; i < len(redisResults); i++ {
+		results, err := redisResults[i].AsStrSlice()
 		if err != nil {
 			return nil, fmt.Errorf("redis: %w", err)
 		}
 		for j := 0; j < len(results); j++ {
 			res := results[j]
-			if res == nil || res == rueidis.Nil {
+			if res == "" {
 				// Some or all of the requested keys may not exist. Skip iterations
 				// where the key wasn't found
 				continue
 			}
-			str, ok := res.(string)
-			if !ok {
-				return nil, fmt.Errorf("unexpected value type from Redis: expected %T but got %T", str, res)
-			}
-			data, err := c.hooksMixin.current.decompress([]byte(str))
+			data, err := c.hooksMixin.current.decompress([]byte(res))
 			if err != nil {
 				return nil, fmt.Errorf("decompress value: %w", err)
 			}
@@ -683,45 +694,63 @@ func Upsert[T any](ctx context.Context, c *Cache, key string, val T, cb UpsertCa
 //	}
 func UpsertTTL[T any](ctx context.Context, c *Cache, key string, val T, cb UpsertCallback[T], ttl time.Duration) error {
 
-	// Builds Redis transaction where the value is fetched from Redis, unmarshalled,
-	// and then passed to the UpsertCallback. The returned value from the UpsertCallback
-	// is the value set for the given key.
-	tx := func(tx *redis.Tx) error {
-		found := false
-		var oldVal T
-		err := c.Get(ctx, key, &oldVal)
-		if err != nil && !errors.Is(err, ErrKeyNotFound) {
+	err := c.redis.Dedicated(func(client rueidis.DedicatedClient) error {
+
+		// Watches the key to detect changes during the transaction
+		err := client.Do(ctx, client.B().Watch().Key(key).Build()).Error()
+		if err != nil {
 			return fmt.Errorf("redis: %w", err)
 		}
-		if err == nil {
-			found = true
+
+		// Attempt to fetch the key from Redis
+		res, err := client.Do(ctx, client.B().Get().Key(key).Build()).AsBytes()
+		if err != nil && !errors.Is(err, rueidis.Nil) {
+			return fmt.Errorf("redis: %w", err)
 		}
+		found := !errors.Is(err, rueidis.Nil)
+
+		// Since this all needs to be done in a dedicated connection this code is
+		// duplicated from the Cache.Get method.
+		var oldVal T
+		res, err = c.hooksMixin.current.decompress(res)
+		if err != nil {
+			return fmt.Errorf("decompress value: %w", err)
+		}
+		if err := c.hooksMixin.current.unmarshall(res, &oldVal); err != nil {
+			return fmt.Errorf("unmarshall value: %w", err)
+		}
+
+		// Invoke the callback to determine the value that should be set
 		newVal := cb(found, oldVal, val)
-		_, err = tx.TxPipelined(ctx, func(pipe redis.Pipeliner) error {
-			binaryValue, err := c.hooksMixin.current.marshal(newVal)
-			if err != nil {
-				return fmt.Errorf("marshal value: %w", err)
-			}
-			data, err := c.hooksMixin.current.compress(binaryValue)
-			if err != nil {
-				return fmt.Errorf("compress value: %w", err)
-			}
-			return pipe.Set(ctx, key, data, ttl).Err()
-		})
-		return err
-	}
 
-	err := c.redis.Watch(ctx, tx, key)
-
-	// Since Redis uses optimistic locking the key might have been modified during
-	// the transaction. In such cases the operation will fail from Redis but the
-	// operation can be retried, so we return a RetryableError.
-	if errors.Is(err, redis.TxFailedErr) {
-		return RetryableError{
-			retryable: true,
-			cause:     err,
+		// Since this all needs to be done in a dedicated connection this code is
+		// duplicated from the Cache.Set method.
+		newData, err := c.hooksMixin.current.marshal(newVal)
+		if err != nil {
+			return fmt.Errorf("marshal value: %w", err)
 		}
-	}
+		newData, err = c.hooksMixin.current.compress(newData)
+		if err != nil {
+			return fmt.Errorf("compress value: %w", err)
+		}
+
+		// Initialize and execute the transaction
+		results := client.DoMulti(ctx,
+			client.B().Multi().Build(),
+			client.B().Set().Key(key).Value(string(newData)).Ex(ttl).Build(),
+			client.B().Exec().Build())
+
+		// Check if Exec succeeded or if the transaction failed
+		if results[len(results)-1].Error() != nil {
+			return RetryableError{
+				retryable: true,
+				cause:     fmt.Errorf("redis transaction failed: %w", results[len(results)-1].Error()),
+			}
+		}
+
+		return nil
+	})
+
 	return err
 }
 

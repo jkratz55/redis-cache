@@ -94,7 +94,7 @@ func Write[T any](
 		return err
 	}
 
-	if err := c.SetWithTTL(ctx, key, val, ttl); err != nil {
+	if err := c.Set(ctx, key, val, ttl); err != nil {
 		return fmt.Errorf("redis: SET %s failed: %w", key, err)
 	}
 
