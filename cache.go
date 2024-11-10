@@ -15,9 +15,6 @@ const (
 	// Depending on Redis configuration keys may still be evicted if Redis is
 	// under memory pressure in accordance to the eviction policy configured.
 	InfiniteTTL time.Duration = -3
-
-	// KeepTTL indicates to keep the existing TTL on the key on SET commands.
-	KeepTTL = -1
 )
 
 var (
@@ -119,7 +116,7 @@ func (c *Cache) Get(ctx context.Context, key string, v any) error {
 // be persisted indefinitely.
 func (c *Cache) GetAndUpdateTTL(ctx context.Context, key string, v any, ttl time.Duration) error {
 	// This is a bit wonky since tll values are used different in different places
-	// in go-redis and Redis. So here we map InfiniteTTL to 0, so it keeps the same
+	// in client and Redis. So here we map InfiniteTTL to 0, so it keeps the same
 	// semantic meaning through the package.
 	if ttl == InfiniteTTL {
 		ttl = 0
@@ -217,7 +214,7 @@ func (c *Cache) ScanKeys(ctx context.Context, pattern string) ([]string, error) 
 }
 
 // Set adds an entry into the cache, or overwrites an entry if the key already
-// existed.
+// existed. If the ttl value is <= 0 the key will be persisted indefinitely.
 func (c *Cache) Set(ctx context.Context, key string, v any, ttl time.Duration) error {
 	data, err := c.hooksMixin.current.marshal(v)
 	if err != nil {
@@ -242,7 +239,8 @@ func (c *Cache) Set(ctx context.Context, key string, v any, ttl time.Duration) e
 
 // SetIfAbsent adds an entry into the cache only if the key doesn't already exist.
 // The entry is set with the provided TTL and automatically removed from the cache
-// once the TTL is expired.
+// once the TTL is expired. If the ttl value is <= 0 the key will be persisted
+// indefinitely.
 func (c *Cache) SetIfAbsent(ctx context.Context, key string, v any, ttl time.Duration) (bool, error) {
 	data, err := c.hooksMixin.current.marshal(v)
 	if err != nil {
@@ -270,7 +268,8 @@ func (c *Cache) SetIfAbsent(ctx context.Context, key string, v any, ttl time.Dur
 
 // SetIfPresent updates an entry into the cache if they key already exists in the
 // cache. The entry is set with the provided TTL and automatically removed from the
-// cache once the TTL is expired.
+// cache once the TTL is expired. If the ttl value is <= 0 the key will be persisted
+// indefinitely.
 func (c *Cache) SetIfPresent(ctx context.Context, key string, v any, ttl time.Duration) (bool, error) {
 	data, err := c.hooksMixin.current.marshal(v)
 	if err != nil {
@@ -345,6 +344,9 @@ func (c *Cache) FlushAsync(ctx context.Context) error {
 
 // Healthy pings Redis to ensure it is reachable and responding. Healthy returns
 // true if Redis successfully responds to the ping, otherwise false.
+//
+// Note that Healthy does not guarantee that Redis is fully operational, only that
+// it is reachable and responding to pings.
 func (c *Cache) Healthy(ctx context.Context) bool {
 	return c.redis.Do(ctx, c.redis.B().Ping().Build()).Error() == nil
 }

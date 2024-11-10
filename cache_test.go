@@ -503,6 +503,33 @@ func TestUpsertTTL(t *testing.T) {
 	assert.NoError(t, err)
 
 	assert.Equal(t, arg, actual)
+
+	cb = UpsertCallback[name](func(found bool, oldValue, newValue name) name {
+		called++
+		assert.True(t, found)
+		assert.Equal(t, name{
+			First:  "Billy",
+			Middle: "Joel",
+			Last:   "Bob",
+		}, oldValue)
+		assert.Equal(t, name{
+			First:  "Billy",
+			Middle: "Jane",
+			Last:   "Bob",
+		}, newValue)
+		return newValue
+	})
+
+	arg.Middle = "Jane"
+	err = Upsert[name](context.Background(), cache, "BillyBob", arg, cb, 0)
+	assert.NoError(t, err)
+	assert.Equal(t, 2, called)
+
+	raw, err = client.Do(context.Background(), client.B().Get().Key("BillyBob").Build()).AsBytes()
+	assert.NoError(t, err)
+	err = msgpack.Unmarshal(raw, &actual)
+	assert.NoError(t, err)
+	assert.Equal(t, arg, actual)
 }
 
 func TestCache_Keys(t *testing.T) {
