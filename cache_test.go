@@ -9,19 +9,25 @@ import (
 	"time"
 
 	"github.com/alicebob/miniredis/v2"
-	"github.com/redis/go-redis/v9"
+	"github.com/redis/rueidis"
 	"github.com/stretchr/testify/assert"
 	"github.com/vmihailenco/msgpack/v5"
 )
 
 var server *miniredis.Miniredis
-var client *redis.Client
+var client rueidis.Client
 
 func setup() {
 	server = mockRedis()
-	client = redis.NewClient(&redis.Options{
-		Addr: server.Addr(),
+	var err error
+	client, err = rueidis.NewClient(rueidis.ClientOption{
+		InitAddress:       []string{server.Addr()},
+		DisableCache:      true,
+		ForceSingleClient: true, // this is required for unit tests or rueidis tries to operate in cluster mode
 	})
+	if err != nil {
+		panic(err)
+	}
 }
 
 func tearDown() {
@@ -38,6 +44,9 @@ func mockRedis() *miniredis.Miniredis {
 }
 
 func TestNewCache(t *testing.T) {
+	setup()
+	defer tearDown()
+
 	assert.NotPanics(t, func() {
 		New(client)
 	})
@@ -48,11 +57,14 @@ func TestCache_Get(t *testing.T) {
 	defer tearDown()
 
 	val, _ := msgpack.Marshal("value123")
-	if err := client.Set(context.Background(), "key123", val, 0).Err(); err != nil {
+	if err := client.Do(context.Background(), client.B().Set().Key("key123").
+		Value(string(val)).Build()).Error(); err != nil {
 		t.Errorf("failed to setup data in Redis")
 	}
+
 	val, _ = msgpack.Marshal("value456")
-	if err := client.Set(context.Background(), "key456", val, 0).Err(); err != nil {
+	if err := client.Do(context.Background(), client.B().Set().Key("key456").
+		Value(string(val)).Build()).Error(); err != nil {
 		t.Errorf("failed to setup data in Redis")
 	}
 
@@ -71,53 +83,42 @@ func TestCache_Get(t *testing.T) {
 	assert.ErrorIs(t, err, ErrKeyNotFound)
 }
 
-func TestCache_GetAndExpire(t *testing.T) {
+func TestCache_GetAndUpdateTTL(t *testing.T) {
 	setup()
 	defer tearDown()
 
 	val, _ := msgpack.Marshal("value123")
-	if err := client.Set(context.Background(), "key123", val, time.Second*60).Err(); err != nil {
+	if err := client.Do(context.Background(), client.B().Set().Key("key123").
+		Value(string(val)).Build()).Error(); err != nil {
 		t.Errorf("failed to setup data in Redis")
 	}
+
 	val, _ = msgpack.Marshal("value456")
-	if err := client.Set(context.Background(), "key456", val, time.Second*60).Err(); err != nil {
+	if err := client.Do(context.Background(), client.B().Set().Key("key456").
+		Value(string(val)).Ex(300*time.Second).Build()).Error(); err != nil {
 		t.Errorf("failed to setup data in Redis")
 	}
 
 	cache := New(client)
 
 	var s string
-	err := cache.GetAndExpire(context.Background(), "key123", &s, time.Second*300)
+	err := cache.GetAndUpdateTTL(context.Background(), "key123", &s, time.Second*300)
 	assert.NoError(t, err)
 	assert.Equal(t, "value123", s)
 
-	ttl, err := client.TTL(context.Background(), "key123").Result()
+	ttl, err := client.Do(context.Background(), client.B().Ttl().Key("key123").Build()).AsInt64()
 	assert.NoError(t, err)
-	assert.Greater(t, ttl, time.Second*60)
+	assert.Greater(t, ttl, int64(60))
 
-	err = cache.GetAndExpire(context.Background(), "random", &s, time.Second*300)
+	err = cache.GetAndUpdateTTL(context.Background(), "random", &s, time.Second*300)
 	assert.ErrorIs(t, err, ErrKeyNotFound)
 
-	err = cache.GetAndExpire(context.Background(), "key123", &s, time.Duration(-1))
+	err = cache.GetAndUpdateTTL(context.Background(), "key123", &s, 0)
 	assert.NoError(t, err)
 	assert.Equal(t, "value123", s)
-	ttl, err = client.TTL(context.Background(), "key123").Result()
+	ttl, err = client.Do(context.Background(), client.B().Ttl().Key("key123").Build()).AsInt64()
 	assert.NoError(t, err)
-	assert.LessOrEqual(t, ttl, time.Second*300)
-
-	err = cache.GetAndExpire(context.Background(), "key123", &s, InfiniteTTL)
-	assert.NoError(t, err)
-	assert.Equal(t, "value123", s)
-	ttl, err = client.TTL(context.Background(), "key123").Result()
-	assert.NoError(t, err)
-	assert.Equal(t, ttl, time.Duration(-1))
-
-	err = cache.GetAndExpire(context.Background(), "key123", &s, time.Duration(0))
-	assert.NoError(t, err)
-	assert.Equal(t, "value123", s)
-	ttl, err = client.TTL(context.Background(), "key123").Result()
-	assert.NoError(t, err)
-	assert.Equal(t, ttl, time.Duration(-1))
+	assert.LessOrEqual(t, ttl, int64(-1))
 }
 
 func TestCache_Set(t *testing.T) {
@@ -126,37 +127,19 @@ func TestCache_Set(t *testing.T) {
 
 	cache := New(client)
 
-	err := cache.Set(context.Background(), "key123", "value123")
+	err := cache.Set(context.Background(), "key123", "value123", 0)
 	assert.NoError(t, err)
 
-	err = cache.Set(context.Background(), "key456", "value456")
+	err = cache.Set(context.Background(), "key456", "value456", 0)
 	assert.NoError(t, err)
 
-	b, err := client.Get(context.Background(), "key123").Bytes()
+	b, err := client.Do(context.Background(), client.B().Get().Key("key123").Build()).AsBytes()
 	assert.NoError(t, err)
 
 	var s string
 	err = msgpack.Unmarshal(b, &s)
 	assert.NoError(t, err)
 	assert.Equal(t, "value123", s)
-}
-
-func TestCache_SetTTL(t *testing.T) {
-	setup()
-	defer tearDown()
-
-	cache := New(client)
-
-	err := cache.SetWithTTL(context.Background(), "key123", "value123", time.Second*1)
-	assert.NoError(t, err)
-
-	count, err := client.Exists(context.Background(), "key123").Result()
-	assert.NoError(t, err)
-	assert.Equal(t, int64(1), count)
-
-	dur, err := client.TTL(context.Background(), "key123").Result()
-	assert.NoError(t, err)
-	assert.Equal(t, time.Second*1, dur)
 }
 
 func TestCache_SetIfAbsent(t *testing.T) {
@@ -173,7 +156,7 @@ func TestCache_SetIfAbsent(t *testing.T) {
 	assert.NoError(t, err)
 	assert.False(t, ok)
 
-	b, err := client.Get(context.Background(), "key123").Bytes()
+	b, err := client.Do(context.Background(), client.B().Get().Key("key123").Build()).AsBytes()
 	assert.NoError(t, err)
 
 	var s string
@@ -192,14 +175,14 @@ func TestCache_SetIfPresent(t *testing.T) {
 	assert.NoError(t, err)
 	assert.False(t, ok)
 
-	err = cache.Set(context.Background(), "key123", "value123")
+	err = cache.Set(context.Background(), "key123", "value123", 0)
 	assert.NoError(t, err)
 
 	ok, err = cache.SetIfPresent(context.Background(), "key123", "value123", 0)
 	assert.NoError(t, err)
 	assert.True(t, ok)
 
-	b, err := client.Get(context.Background(), "key123").Bytes()
+	b, err := client.Do(context.Background(), client.B().Get().Key("key123").Build()).AsBytes()
 	assert.NoError(t, err)
 
 	var s string
@@ -241,11 +224,11 @@ func TestCache_MSet(t *testing.T) {
 	err := cache.MSet(context.Background(), data)
 	assert.NoError(t, err)
 
-	results, err := client.MGet(context.Background(), "key123", "key456", "key789").Result()
+	results, err := client.Do(context.Background(), client.B().Mget().Key("key123", "key456", "key789").Build()).AsStrSlice()
 	assert.NoError(t, err)
 	assert.Equal(t, 3, len(results))
 
-	res, err := client.Get(context.Background(), "key123").Result()
+	res, err := client.Do(context.Background(), client.B().Get().Key("key123").Build()).AsBytes()
 	assert.NoError(t, err)
 
 	expected := person{
@@ -255,82 +238,20 @@ func TestCache_MSet(t *testing.T) {
 	}
 
 	var p person
-	err = msgpack.Unmarshal([]byte(res), &p)
+	err = msgpack.Unmarshal(res, &p)
 	assert.NoError(t, err)
 	assert.Equal(t, expected, p)
 
-	err = client.Del(context.Background(), "key123", "key456", "key789").Err()
+	err = client.Do(context.Background(), client.B().Del().Key("key123", "key456", "key789").Build()).Error()
 	assert.NoError(t, err)
-}
-
-func TestCache_MSetWithTTL(t *testing.T) {
-	setup()
-	defer tearDown()
-
-	type person struct {
-		FirstName string
-		LastName  string
-		Birthdate time.Time
-	}
-
-	data := map[string]any{
-		"key123": person{
-			FirstName: "Bob",
-			LastName:  "Dole",
-			Birthdate: time.Date(1960, 10, 28, 0, 0, 0, 0, time.Local),
-		},
-		"key 456": person{
-			FirstName: "Bill",
-			LastName:  "Clinton",
-			Birthdate: time.Date(1960, 10, 28, 0, 0, 0, 0, time.Local),
-		},
-		"key789": person{
-			FirstName: "Jimmy",
-			LastName:  "Dean",
-			Birthdate: time.Date(1960, 10, 28, 0, 0, 0, 0, time.Local),
-		},
-	}
-
-	cache := New(client)
-
-	err := cache.MSetWithTTL(context.Background(), data, 0)
-	assert.NoError(t, err)
-
-	results, err := client.MGet(context.Background(), "key123", "key456", "key789").Result()
-	assert.NoError(t, err)
-	assert.Equal(t, 3, len(results))
-
-	res, err := client.Get(context.Background(), "key123").Result()
-	assert.NoError(t, err)
-
-	expected := person{
-		FirstName: "Bob",
-		LastName:  "Dole",
-		Birthdate: time.Date(1960, 10, 28, 0, 0, 0, 0, time.Local),
-	}
-
-	var p person
-	err = msgpack.Unmarshal([]byte(res), &p)
-	assert.NoError(t, err)
-	assert.Equal(t, expected, p)
-
-	err = client.Del(context.Background(), "key123", "key456", "key789").Err()
-	assert.NoError(t, err)
-
-	err = cache.MSetWithTTL(context.Background(), data, time.Minute*10)
-	assert.NoError(t, err)
-
-	ttl, err := client.TTL(context.Background(), "key123").Result()
-	assert.NoError(t, err)
-	assert.Less(t, time.Minute*9, ttl)
 }
 
 func TestCache_Delete(t *testing.T) {
 	setup()
 	defer tearDown()
 
-	client.Set(context.Background(), "key123", "value123", 0)
-	client.Set(context.Background(), "key456", "value456", 0)
+	assert.NoError(t, client.Do(context.Background(), client.B().Set().Key("key123").Value("value123").Build()).Error())
+	assert.NoError(t, client.Do(context.Background(), client.B().Set().Key("key456").Value("value456").Build()).Error())
 
 	cache := New(client)
 	err := cache.Delete(context.Background(), "key123", "key456")
@@ -371,7 +292,7 @@ func TestNewCache_CustomSerialization(t *testing.T) {
 		MiddleName: "Joel",
 		LastName:   "Bob",
 		Age:        99,
-	})
+	}, 0)
 	assert.NoError(t, err)
 
 	var p Person
@@ -400,7 +321,7 @@ func TestMGet(t *testing.T) {
 		Middle: "Joel",
 		Last:   "Bob",
 	})
-	if err := client.Set(context.Background(), "key123", val, 0).Err(); err != nil {
+	if err := client.Do(context.Background(), client.B().Set().Key("key123").Value(string(val)).Build()).Error(); err != nil {
 		t.Errorf("failed to setup data in Redis")
 	}
 	val, _ = msgpack.Marshal(name{
@@ -408,7 +329,7 @@ func TestMGet(t *testing.T) {
 		Middle: "Jane",
 		Last:   "Bob",
 	})
-	if err := client.Set(context.Background(), "key456", val, 0).Err(); err != nil {
+	if err := client.Do(context.Background(), client.B().Set().Key("key456").Value(string(val)).Build()).Error(); err != nil {
 		t.Errorf("failed to setup data in Redis")
 	}
 
@@ -416,12 +337,12 @@ func TestMGet(t *testing.T) {
 	results, err := MGet[name](context.Background(), cache, "key123", "key456")
 	assert.NoError(t, err)
 	assert.Equal(t, map[string]name{
-		"key123": name{
+		"key123": {
 			First:  "Billy",
 			Middle: "Joel",
 			Last:   "Bob",
 		},
-		"key456": name{
+		"key456": {
 			First:  "Shelly",
 			Middle: "Jane",
 			Last:   "Bob",
@@ -453,7 +374,7 @@ func TestMGetBatch(t *testing.T) {
 		key := fmt.Sprintf("key%d", i)
 		keys = append(keys, key)
 		expected[key] = testVal
-		if err := client.Set(context.Background(), key, val, 0).Err(); err != nil {
+		if err := client.Do(context.Background(), client.B().Set().Key(key).Value(string(val)).Build()).Error(); err != nil {
 			t.Errorf("failed to setup data in Redis")
 		}
 	}
@@ -480,7 +401,7 @@ func TestMGetValues(t *testing.T) {
 		Middle: "Joel",
 		Last:   "Bob",
 	})
-	if err := client.Set(context.Background(), "key123", val, 0).Err(); err != nil {
+	if err := client.Do(context.Background(), client.B().Set().Key("key123").Value(string(val)).Build()).Error(); err != nil {
 		t.Errorf("failed to setup data in Redis")
 	}
 	val, _ = msgpack.Marshal(name{
@@ -488,7 +409,7 @@ func TestMGetValues(t *testing.T) {
 		Middle: "Jane",
 		Last:   "Bob",
 	})
-	if err := client.Set(context.Background(), "key456", val, 0).Err(); err != nil {
+	if err := client.Do(context.Background(), client.B().Set().Key("key456").Value(string(val)).Build()).Error(); err != nil {
 		t.Errorf("failed to setup data in Redis")
 	}
 
@@ -533,7 +454,7 @@ func TestMGetValuesBatch(t *testing.T) {
 		key := fmt.Sprintf("key%d", i)
 		keys = append(keys, key)
 		expected = append(expected, testVal)
-		if err := client.Set(context.Background(), key, val, 0).Err(); err != nil {
+		if err := client.Do(context.Background(), client.B().Set().Key(key).Value(string(val)).Build()).Error(); err != nil {
 			t.Errorf("failed to setup data in Redis")
 		}
 	}
@@ -571,14 +492,14 @@ func TestUpsertTTL(t *testing.T) {
 	})
 
 	cache := New(client)
-	err := UpsertTTL[name](context.Background(), cache, "BillyBob", arg, cb, 0)
+	err := Upsert[name](context.Background(), cache, "BillyBob", arg, cb, 0)
 	assert.NoError(t, err)
 	assert.Equal(t, 1, called)
 
-	raw, err := client.Get(context.Background(), "BillyBob").Result()
+	raw, err := client.Do(context.Background(), client.B().Get().Key("BillyBob").Build()).AsBytes()
 	assert.NoError(t, err)
 	var actual name
-	err = msgpack.Unmarshal([]byte(raw), &actual)
+	err = msgpack.Unmarshal(raw, &actual)
 	assert.NoError(t, err)
 
 	assert.Equal(t, arg, actual)
@@ -592,7 +513,9 @@ func TestCache_Keys(t *testing.T) {
 
 	for i := 0; i < 10; i++ {
 		key := fmt.Sprintf("%d", i)
-		err := rdb.Set(context.Background(), key, key)
+		val, err := msgpack.Marshal(key)
+		assert.NoError(t, err)
+		err = client.Do(context.Background(), client.B().Set().Key(key).Value(string(val)).Build()).Error()
 		assert.NoError(t, err)
 	}
 
@@ -614,10 +537,10 @@ func TestCache_TTL(t *testing.T) {
 
 	rdb := New(client)
 
-	err := client.Set(context.Background(), "test-nottl", "test", InfiniteTTL).Err()
+	err := client.Do(context.Background(), client.B().Set().Key("test-nottl").Value("test").Build()).Error()
 	assert.NoError(t, err)
 
-	err = client.Set(context.Background(), "test-ttl", "test", time.Second*300).Err()
+	err = client.Do(context.Background(), client.B().Set().Key("test-ttl").Value("test").Ex(time.Second*300).Build()).Error()
 	assert.NoError(t, err)
 
 	ttl, err := rdb.TTL(context.Background(), "test-nottl")
@@ -638,21 +561,23 @@ func TestCache_Expire(t *testing.T) {
 
 	rdb := New(client)
 
-	err := client.Set(context.Background(), "test-nottl", "test", InfiniteTTL).Err()
+	err := client.Do(context.Background(), client.B().Set().Key("test-nottl").Value("test").Build()).Error()
 	assert.NoError(t, err)
 
-	err = client.Set(context.Background(), "test-ttl", "test", time.Second*300).Err()
+	err = client.Do(context.Background(), client.B().Set().Key("test-ttl").Value("test").Ex(time.Second*300).Build()).Error()
 	assert.NoError(t, err)
 
 	err = rdb.Expire(context.Background(), "test-nottl", time.Second*300)
 	assert.NoError(t, err)
-	ttl := client.TTL(context.Background(), "test-nottl").Val()
-	assert.Equal(t, time.Second*300, ttl)
+	ttl, err := client.Do(context.Background(), client.B().Ttl().Key("test-nottl").Build()).AsInt64()
+	assert.NoError(t, err)
+	assert.Equal(t, int64(300), ttl)
 
 	err = rdb.Expire(context.Background(), "test-ttl", InfiniteTTL)
 	assert.NoError(t, err)
-	ttl = client.TTL(context.Background(), "test-ttl").Val()
-	assert.Equal(t, time.Duration(-2), ttl)
+	ttl, err = client.Do(context.Background(), client.B().Ttl().Key("test-ttl").Build()).AsInt64()
+	assert.NoError(t, err)
+	assert.Equal(t, int64(-2), ttl)
 
 	err = rdb.Expire(context.Background(), "random", time.Second*300)
 	assert.ErrorIs(t, err, ErrKeyNotFound)
@@ -664,21 +589,22 @@ func TestCache_ExtendTTL(t *testing.T) {
 
 	rdb := New(client)
 
-	err := client.Set(context.Background(), "test-nottl", "test", InfiniteTTL).Err()
+	err := client.Do(context.Background(), client.B().Set().Key("test-nottl").Value("test").Build()).Error()
 	assert.NoError(t, err)
 
-	err = client.Set(context.Background(), "test-ttl", "test", time.Second*300).Err()
+	err = client.Do(context.Background(), client.B().Set().Key("test-ttl").Value("test").Ex(time.Second*300).Build()).Error()
 	assert.NoError(t, err)
 
 	err = rdb.ExtendTTL(context.Background(), "test-nottl", time.Second*60)
 	assert.NoError(t, err)
-	ttl := client.TTL(context.Background(), "test-nottl").Val()
-	assert.Equal(t, time.Second*59, ttl)
+	ttl, err := client.Do(context.Background(), client.B().Ttl().Key("test-nottl").Build()).AsInt64()
+	assert.NoError(t, err)
+	assert.Equal(t, int64(59), ttl)
 
 	err = rdb.ExtendTTL(context.Background(), "test-ttl", time.Second*120)
 	assert.NoError(t, err)
-	ttl = client.TTL(context.Background(), "test-ttl").Val()
-	assert.Equal(t, time.Second*420, ttl)
+	ttl, err = client.Do(context.Background(), client.B().Ttl().Key("test-ttl").Build()).AsInt64()
+	assert.Equal(t, int64(420), ttl)
 
 	err = rdb.ExtendTTL(context.Background(), "random", time.Hour*1)
 	assert.ErrorIs(t, err, ErrKeyNotFound)
@@ -688,12 +614,12 @@ func TestCache_ScanKeys(t *testing.T) {
 	setup()
 	defer tearDown()
 
-	assert.NoError(t, client.Set(context.Background(), "user:123", "user123", 0).Err())
-	assert.NoError(t, client.Set(context.Background(), "user:456", "user456", 0).Err())
-	assert.NoError(t, client.Set(context.Background(), "user:789", "user789", 0).Err())
-	assert.NoError(t, client.Set(context.Background(), "system:123", "system123", 0).Err())
-	assert.NoError(t, client.Set(context.Background(), "system:456", "system456", 0).Err())
-	assert.NoError(t, client.Set(context.Background(), "system:789", "system789", 0).Err())
+	assert.NoError(t, client.Do(context.Background(), client.B().Set().Key("user:123").Value("user123").Build()).Error())
+	assert.NoError(t, client.Do(context.Background(), client.B().Set().Key("user:456").Value("user456").Build()).Error())
+	assert.NoError(t, client.Do(context.Background(), client.B().Set().Key("user:789").Value("user789").Build()).Error())
+	assert.NoError(t, client.Do(context.Background(), client.B().Set().Key("system:123").Value("system123").Build()).Error())
+	assert.NoError(t, client.Do(context.Background(), client.B().Set().Key("system:456").Value("system456").Build()).Error())
+	assert.NoError(t, client.Do(context.Background(), client.B().Set().Key("system:789").Value("system789").Build()).Error())
 
 	rdb := New(client)
 

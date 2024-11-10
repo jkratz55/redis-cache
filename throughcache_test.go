@@ -38,7 +38,7 @@ func TestCacheable(t *testing.T) {
 			name: "Cache Hit",
 			key:  "user:123:grade",
 			initializer: func(c *Cache) error {
-				err := c.Set(context.Background(), "user:123:grade", 95)
+				err := c.Set(context.Background(), "user:123:grade", 95, 0)
 				assert.NoError(t, err)
 				return nil
 			},
@@ -133,7 +133,7 @@ func TestWrite(t *testing.T) {
 			key:  "user:123:grade",
 			val:  95,
 			initializer: func(c *Cache) error {
-				assert.NoError(t, c.Set(context.Background(), "user:123:grade", 90))
+				assert.NoError(t, c.Set(context.Background(), "user:123:grade", 90, 0))
 				return nil
 			},
 			fn: func(ctx context.Context, val int) error {
@@ -202,7 +202,7 @@ func TestDelete(t *testing.T) {
 
 	cache := New(client)
 
-	assert.NoError(t, cache.Set(context.Background(), "user:123:grade", 95))
+	assert.NoError(t, cache.Set(context.Background(), "user:123:grade", 95, 0))
 
 	err := Delete(context.Background(), cache, "user:123:grade", 44, fn)
 	assert.NoError(t, err)

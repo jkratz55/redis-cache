@@ -107,18 +107,17 @@ func (c *Cache) Get(ctx context.Context, key string, v any) error {
 	return nil
 }
 
-// GetAndExpire retrieves a value from the Cache for the given key, decompresses it if
-// applicable, unmarshalls the value to v, and sets the TTL for the key.
+// GetAndUpdateTTL retrieves a value from the Cache for the given key, decompresses
+// it if applicable, unmarshalls the value to v, and updates the TTL for the key.
 //
 // If the key does not exist ErrKeyNotFound will be returned as the error value.
 // A non-nil error value will be returned if the operation on the backing Redis
 // fails, or if the value cannot be unmarshalled into the target type.
 //
-// Passing a negative ttl value has no effect on the existing TTL for the key.
-// Passing a ttl value of 0 or InfiniteTTL removes the TTL and persist the key
-// until it is either explicitly deleted or evicted according to Redis eviction
-// policy.
-func (c *Cache) GetAndExpire(ctx context.Context, key string, v any, ttl time.Duration) error {
+// The TTL/expiration for the key is updated to the provided key if it exists, even
+// if the key did not have a TTL previously. If the ttl value is <= 0 the key will
+// be persisted indefinitely.
+func (c *Cache) GetAndUpdateTTL(ctx context.Context, key string, v any, ttl time.Duration) error {
 	// This is a bit wonky since tll values are used different in different places
 	// in go-redis and Redis. So here we map InfiniteTTL to 0, so it keeps the same
 	// semantic meaning through the package.
@@ -126,14 +125,42 @@ func (c *Cache) GetAndExpire(ctx context.Context, key string, v any, ttl time.Du
 		ttl = 0
 	}
 
-	cmd := c.redis.B().Getex().Key(key).Ex(ttl).Build()
-	val, err := c.redis.Do(ctx, cmd).AsBytes()
+	var (
+		val []byte
+		err error
+	)
 
-	if err != nil {
-		if errors.Is(err, rueidis.Nil) {
-			return ErrKeyNotFound
+	// If the TTL is less than or equal to 0 than we fetch the value but remove
+	// the TTL on the key.
+	if ttl <= 0 {
+		cmds := []rueidis.Completed{
+			c.redis.B().Get().Key(key).Build(),
+			c.redis.B().Persist().Key(key).Build(),
 		}
-		return fmt.Errorf("redis: %w", err)
+		var results []rueidis.RedisResult
+		results = c.redis.DoMulti(ctx, cmds...)
+
+		getResult := results[0]
+		val, err = getResult.AsBytes()
+		if err != nil {
+			if errors.Is(err, rueidis.Nil) {
+				return ErrKeyNotFound
+			}
+			return fmt.Errorf("redis: %w", err)
+		}
+		if results[1].Error() != nil {
+			return fmt.Errorf("redis: %w", results[1].Error())
+		}
+	} else {
+		cmd := c.redis.B().Getex().Key(key).Ex(ttl).Build()
+		val, err = c.redis.Do(ctx, cmd).AsBytes()
+
+		if err != nil {
+			if errors.Is(err, rueidis.Nil) {
+				return ErrKeyNotFound
+			}
+			return fmt.Errorf("redis: %w", err)
+		}
 	}
 
 	data, err := c.hooksMixin.current.decompress(val)
@@ -231,11 +258,14 @@ func (c *Cache) SetIfAbsent(ctx context.Context, key string, v any, ttl time.Dur
 		cmd.Ex(ttl)
 	}
 
-	ok, err := c.redis.Do(ctx, cmd.Build()).AsBool()
+	resp, err := c.redis.Do(ctx, cmd.Build()).ToMessage()
 	if err != nil {
 		err = fmt.Errorf("redis: %w", err)
 	}
-	return ok, err
+	if resp.IsNil() {
+		return false, nil
+	}
+	return true, nil
 }
 
 // SetIfPresent updates an entry into the cache if they key already exists in the
@@ -256,11 +286,14 @@ func (c *Cache) SetIfPresent(ctx context.Context, key string, v any, ttl time.Du
 		cmd.Ex(ttl)
 	}
 
-	ok, err := c.redis.Do(ctx, cmd.Build()).AsBool()
+	resp, err := c.redis.Do(ctx, cmd.Build()).ToMessage()
 	if err != nil {
 		err = fmt.Errorf("redis: %w", err)
 	}
-	return ok, err
+	if resp.IsNil() {
+		return false, nil
+	}
+	return true, err
 }
 
 // MSet performs multiple SET operations. Entries are added to the cache or
@@ -654,45 +687,14 @@ type UpsertCallback[T any] func(found bool, oldValue T, newValue T) T
 //	})
 //	retries := 3
 //	for i := 0; i < retries; i++ {
-//		err := rcache.Upsert[Person](context.Background(), c, "BillyBob", p, cb)
+//		err := rcache.Upsert[Person](context.Background(), c, "BillyBob", p, cb, time.Minute * 1)
 //		if rcache.IsRetryable(err) {
 //			continue
 //		}
 //		// do something useful ...
 //		break
 //	}
-func Upsert[T any](ctx context.Context, c *Cache, key string, val T, cb UpsertCallback[T]) error {
-	return UpsertTTL(ctx, c, key, val, cb, InfiniteTTL)
-}
-
-// UpsertTTL retrieves the existing value for a given key and invokes the UpsertCallback.
-// The UpsertCallback function is responsible for determining the value to be stored.
-// The value returned from the UpsertCallback is what is set in Redis.
-//
-// Upsert allows for atomic updates of existing records, or simply inserting new
-// entries when the key doesn't exist.
-//
-// Redis uses an optimistic locking model. If the key changes during the transaction
-// Redis will fail the transaction and return an error. However, these errors are
-// retryable. To determine if the error is retryable use the IsRetryable function
-// with the returned error.
-//
-//	cb := rcache.UpsertCallback[Person](func(found bool, oldValue Person, newValue Person) Person {
-//		fmt.Println(found)
-//		fmt.Println(oldValue)
-//		fmt.Println(newValue)
-//		return newValue
-//	})
-//	retries := 3
-//	for i := 0; i < retries; i++ {
-//		err := rcache.UpsertTTL[Person](context.Background(), c, "BillyBob", p, cb, time.Minute * 1)
-//		if rcache.IsRetryable(err) {
-//			continue
-//		}
-//		// do something useful ...
-//		break
-//	}
-func UpsertTTL[T any](ctx context.Context, c *Cache, key string, val T, cb UpsertCallback[T], ttl time.Duration) error {
+func Upsert[T any](ctx context.Context, c *Cache, key string, val T, cb UpsertCallback[T], ttl time.Duration) error {
 
 	err := c.redis.Dedicated(func(client rueidis.DedicatedClient) error {
 
@@ -712,12 +714,14 @@ func UpsertTTL[T any](ctx context.Context, c *Cache, key string, val T, cb Upser
 		// Since this all needs to be done in a dedicated connection this code is
 		// duplicated from the Cache.Get method.
 		var oldVal T
-		res, err = c.hooksMixin.current.decompress(res)
-		if err != nil {
-			return fmt.Errorf("decompress value: %w", err)
-		}
-		if err := c.hooksMixin.current.unmarshall(res, &oldVal); err != nil {
-			return fmt.Errorf("unmarshall value: %w", err)
+		if found {
+			res, err = c.hooksMixin.current.decompress(res)
+			if err != nil {
+				return fmt.Errorf("decompress value: %w", err)
+			}
+			if err := c.hooksMixin.current.unmarshall(res, &oldVal); err != nil {
+				return fmt.Errorf("unmarshall value: %w", err)
+			}
 		}
 
 		// Invoke the callback to determine the value that should be set
@@ -734,10 +738,15 @@ func UpsertTTL[T any](ctx context.Context, c *Cache, key string, val T, cb Upser
 			return fmt.Errorf("compress value: %w", err)
 		}
 
+		setCmd := client.B().Set().Key(key).Value(string(newData))
+		if ttl > 0 {
+			setCmd.Ex(ttl)
+		}
+
 		// Initialize and execute the transaction
 		results := client.DoMulti(ctx,
 			client.B().Multi().Build(),
-			client.B().Set().Key(key).Value(string(newData)).Ex(ttl).Build(),
+			setCmd.Build(),
 			client.B().Exec().Build())
 
 		// Check if Exec succeeded or if the transaction failed
