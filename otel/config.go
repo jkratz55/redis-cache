@@ -12,6 +12,7 @@ type config struct {
 	meterProvider metric.MeterProvider
 	meter         metric.Meter
 	poolName      string
+	cmdBoundaries []float64
 }
 
 func newConfig(opts ...baseOption) *config {
@@ -19,6 +20,7 @@ func newConfig(opts ...baseOption) *config {
 		dbSystem:      "redis",
 		attrs:         []attribute.KeyValue{},
 		meterProvider: otel.GetMeterProvider(),
+		cmdBoundaries: ExponentialBuckets(0.005, 2, 6),
 	}
 
 	for _, opt := range opts {
@@ -76,5 +78,11 @@ var _ MetricsOption = (*metricOption)(nil)
 func WithMeterProvider(mp metric.MeterProvider) MetricsOption {
 	return metricOption(func(conf *config) {
 		conf.meterProvider = mp
+	})
+}
+
+func WithExplicitBucketBoundaries(boundaries []float64) MetricsOption {
+	return metricOption(func(conf *config) {
+		conf.cmdBoundaries = boundaries
 	})
 }

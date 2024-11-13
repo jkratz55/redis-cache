@@ -424,6 +424,16 @@ func (c *Cache) Client() rueidis.Client {
 	return c.redis
 }
 
+// SetClient sets the underlying Redis client the Cache is wrapping/using.
+//
+// Passing nil is not permitted and will result in a panic.
+func (c *Cache) SetClient(client rueidis.Client) {
+	if client == nil {
+		panic(fmt.Errorf("cannot set client to nil"))
+	}
+	c.redis = client
+}
+
 // MultiResult is a type representing returning multiple entries from the Cache.
 type MultiResult[T any] map[string]T
 
