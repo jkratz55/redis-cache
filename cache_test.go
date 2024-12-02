@@ -12,6 +12,9 @@ import (
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
 	"github.com/vmihailenco/msgpack/v5"
+	"google.golang.org/protobuf/proto"
+
+	"github.com/jkratz55/redis-cache/testfixtures/pb"
 )
 
 var server *miniredis.Miniredis
@@ -704,4 +707,72 @@ func TestCache_ScanKeys(t *testing.T) {
 	keys, err = rdb.ScanKeys(context.Background(), "system:*")
 	assert.NoError(t, err)
 	assert.ElementsMatch(t, []string{"system:123", "system:456", "system:789"}, keys)
+}
+
+func TestCache_Protobuf(t *testing.T) {
+	setup()
+	defer tearDown()
+
+	protoMarshaller := Marshaller(func(v any) ([]byte, error) {
+		vv, ok := v.(proto.Message)
+		if !ok {
+			return nil, fmt.Errorf("protobuf marshaller: invalid type")
+		}
+		return proto.Marshal(vv)
+	})
+	protoUnmarshaller := Unmarshaller(func(b []byte, v any) error {
+		vv, ok := v.(proto.Message)
+		if !ok {
+			return fmt.Errorf("protobuf unmarshaller: invalid type")
+		}
+		return proto.Unmarshal(b, vv)
+	})
+
+	rdb := New(client, Serialization(protoMarshaller, protoUnmarshaller))
+
+	keys := make([]string, 0, 10000)
+	for i := 0; i < 10000; i++ {
+		key := fmt.Sprintf("key%d", i)
+		keys = append(keys, key)
+		val := &pb.Person{
+			Id:        int32(i),
+			FirstName: "Super",
+			LastName:  "Cow",
+			Email:     "supercow@gmail.com",
+		}
+		assert.NoError(t, rdb.Set(context.Background(), key, val))
+	}
+
+	results, err := MGet[*pb.Person](context.Background(), rdb, keys...)
+	assert.NoError(t, err)
+	assert.Equal(t, 10000, len(results))
+}
+
+func TestCache_Json_Pointers(t *testing.T) {
+	setup()
+	defer tearDown()
+
+	type person struct {
+		FirstName string `json:"first_name"`
+		LastName  string `json:"last_name"`
+		Age       int    `json:"age"`
+	}
+
+	rdb := New(client, JSON())
+
+	keys := make([]string, 0, 10000)
+	for i := 0; i < 10000; i++ {
+		key := fmt.Sprintf("key%d", i)
+		keys = append(keys, key)
+		val := &person{
+			FirstName: "Super",
+			LastName:  "Cow",
+			Age:       33,
+		}
+		assert.NoError(t, rdb.Set(context.Background(), key, val))
+	}
+
+	results, err := MGet[*person](context.Background(), rdb, keys...)
+	assert.NoError(t, err)
+	assert.Equal(t, 10000, len(results))
 }
