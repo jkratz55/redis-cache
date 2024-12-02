@@ -1,5 +1,13 @@
 # Release Notes
 
+## v1.8.0
+
+* MGet and MGetValues now handles use-cases where the type parameter is a pointer better. It checks if the type parameter is a pointer and appropriately calls unmarshal. Previously if the type parameter was a pointer it would pass a pointer to a pointer calling unmarshal.
+
+## v1.7.0
+
+* Added helper functions to read-through and write-through caching
+
 ## v1.6.0
 
 * Cache type can now be configured to split MGet with a large number of keys into multiple MGET commands executed within a pipeline which under some conditions can significantly reduce latency.

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -518,6 +519,12 @@ func MGet[R any](ctx context.Context, c *Cache, keys ...string) (MultiResult[R],
 		return mGetBatch[R](ctx, c, keys...)
 	}
 
+	// Determine if the type parameter is a pointer type. This is used to determine
+	// if the unmarshalling should be done on the value directly or on a pointer.
+	// This is done here to avoid doing this check for every iteration in the loop.
+	var tmp R
+	isPtr := reflect.ValueOf(tmp).Kind() == reflect.Ptr
+
 	results, err := c.redis.MGet(ctx, keys...).Result()
 	if err != nil {
 		return nil, fmt.Errorf("redis: %w", err)
@@ -537,9 +544,18 @@ func MGet[R any](ctx context.Context, c *Cache, keys ...string) (MultiResult[R],
 		if err != nil {
 			return nil, fmt.Errorf("decompress value: %w", err)
 		}
+
+		// If the type is a pointer type we unmarshall directly into the value.
+		// Otherwise, we unmarshall into a pointer to the value.
 		var val R
-		if err := c.hooksMixin.current.unmarshall(data, &val); err != nil {
-			return nil, fmt.Errorf("unmarshall value to type %T: %w", val, err)
+		if isPtr {
+			if err := c.hooksMixin.current.unmarshall(data, val); err != nil {
+				return nil, fmt.Errorf("unmarshall value to type %T: %w", val, err)
+			}
+		} else {
+			if err := c.hooksMixin.current.unmarshall(data, &val); err != nil {
+				return nil, fmt.Errorf("unmarshall value to type %T: %w", val, err)
+			}
 		}
 		resultMap[keys[i]] = val
 	}
@@ -550,6 +566,12 @@ func MGet[R any](ctx context.Context, c *Cache, keys ...string) (MultiResult[R],
 // from Redis in batches. Under certain conditions, this can be faster than
 // fetching all keys in a single MGET command.
 func mGetBatch[R any](ctx context.Context, c *Cache, keys ...string) (MultiResult[R], error) {
+
+	// Determine if the type parameter is a pointer type. This is used to determine
+	// if the unmarshalling should be done on the value directly or on a pointer.
+	// This is done here to avoid doing this check for every iteration in the loop.
+	var tmp R
+	isPtr := reflect.ValueOf(tmp).Kind() == reflect.Ptr
 
 	chunks := chunk(keys, c.mgetBatch)
 
@@ -584,9 +606,18 @@ func mGetBatch[R any](ctx context.Context, c *Cache, keys ...string) (MultiResul
 			if err != nil {
 				return nil, fmt.Errorf("decompress value: %w", err)
 			}
+
+			// If the type is a pointer type we unmarshall directly into the value.
+			// Otherwise, we unmarshall into a pointer to the value.
 			var val R
-			if err := c.hooksMixin.current.unmarshall(data, &val); err != nil {
-				return nil, fmt.Errorf("unmarshall value to type %T: %w", val, err)
+			if isPtr {
+				if err := c.hooksMixin.current.unmarshall(data, val); err != nil {
+					return nil, fmt.Errorf("unmarshall value to type %T: %w", val, err)
+				}
+			} else {
+				if err := c.hooksMixin.current.unmarshall(data, &val); err != nil {
+					return nil, fmt.Errorf("unmarshall value to type %T: %w", val, err)
+				}
 			}
 			key := chunks[i][j]
 			resultMap[key] = val
@@ -609,6 +640,12 @@ func MGetValues[T any](ctx context.Context, c *Cache, keys ...string) ([]T, erro
 		return mGetValuesBatch[T](ctx, c, keys...)
 	}
 
+	// Determine if the type parameter is a pointer type. This is used to determine
+	// if the unmarshalling should be done on the value directly or on a pointer.
+	// This is done here to avoid doing this check for every iteration in the loop.
+	var tmp T
+	isPtr := reflect.ValueOf(tmp).Kind() == reflect.Ptr
+
 	results, err := c.redis.MGet(ctx, keys...).Result()
 	if err != nil {
 		return nil, fmt.Errorf("redis: %w", err)
@@ -630,9 +667,18 @@ func MGetValues[T any](ctx context.Context, c *Cache, keys ...string) ([]T, erro
 		if err != nil {
 			return nil, fmt.Errorf("decompress value: %w", err)
 		}
+
+		// If the type is a pointer type we unmarshall directly into the value.
+		// Otherwise, we unmarshall into a pointer to the value.
 		var val T
-		if err := c.hooksMixin.current.unmarshall(data, &val); err != nil {
-			return nil, fmt.Errorf("unmarshall value to type %T: %w", val, err)
+		if isPtr {
+			if err := c.hooksMixin.current.unmarshall(data, val); err != nil {
+				return nil, fmt.Errorf("unmarshall value to type %T: %w", val, err)
+			}
+		} else {
+			if err := c.hooksMixin.current.unmarshall(data, &val); err != nil {
+				return nil, fmt.Errorf("unmarshall value to type %T: %w", val, err)
+			}
 		}
 		values = append(values, val)
 	}
@@ -640,6 +686,12 @@ func MGetValues[T any](ctx context.Context, c *Cache, keys ...string) ([]T, erro
 }
 
 func mGetValuesBatch[T any](ctx context.Context, c *Cache, keys ...string) ([]T, error) {
+	// Determine if the type parameter is a pointer type. This is used to determine
+	// if the unmarshalling should be done on the value directly or on a pointer.
+	// This is done here to avoid doing this check for every iteration in the loop.
+	var tmp T
+	isPtr := reflect.ValueOf(tmp).Kind() == reflect.Ptr
+
 	chunks := chunk(keys, c.mgetBatch)
 	pipe := c.redis.Pipeline()
 	cmds := make([]*redis.SliceCmd, 0, len(chunks))
@@ -674,9 +726,18 @@ func mGetValuesBatch[T any](ctx context.Context, c *Cache, keys ...string) ([]T,
 			if err != nil {
 				return nil, fmt.Errorf("decompress value: %w", err)
 			}
+
+			// If the type is a pointer type we unmarshall directly into the value.
+			// Otherwise, we unmarshall into a pointer to the value.
 			var val T
-			if err := c.hooksMixin.current.unmarshall(data, &val); err != nil {
-				return nil, fmt.Errorf("unmarshall value to type %T: %w", val, err)
+			if isPtr {
+				if err := c.hooksMixin.current.unmarshall(data, val); err != nil {
+					return nil, fmt.Errorf("unmarshall value to type %T: %w", val, err)
+				}
+			} else {
+				if err := c.hooksMixin.current.unmarshall(data, &val); err != nil {
+					return nil, fmt.Errorf("unmarshall value to type %T: %w", val, err)
+				}
 			}
 			values = append(values, val)
 		}
