@@ -549,6 +549,7 @@ func MGet[R any](ctx context.Context, c *Cache, keys ...string) (MultiResult[R],
 		// Otherwise, we unmarshall into a pointer to the value.
 		var val R
 		if isPtr {
+			val = reflect.New(reflect.TypeOf(tmp).Elem()).Interface().(R)
 			if err := c.hooksMixin.current.unmarshall(data, val); err != nil {
 				return nil, fmt.Errorf("unmarshall value to type %T: %w", val, err)
 			}
@@ -611,6 +612,7 @@ func mGetBatch[R any](ctx context.Context, c *Cache, keys ...string) (MultiResul
 			// Otherwise, we unmarshall into a pointer to the value.
 			var val R
 			if isPtr {
+				val = reflect.New(reflect.TypeOf(tmp).Elem()).Interface().(R)
 				if err := c.hooksMixin.current.unmarshall(data, val); err != nil {
 					return nil, fmt.Errorf("unmarshall value to type %T: %w", val, err)
 				}
@@ -672,6 +674,7 @@ func MGetValues[T any](ctx context.Context, c *Cache, keys ...string) ([]T, erro
 		// Otherwise, we unmarshall into a pointer to the value.
 		var val T
 		if isPtr {
+			val = reflect.New(reflect.TypeOf(tmp).Elem()).Interface().(T)
 			if err := c.hooksMixin.current.unmarshall(data, val); err != nil {
 				return nil, fmt.Errorf("unmarshall value to type %T: %w", val, err)
 			}
@@ -731,6 +734,7 @@ func mGetValuesBatch[T any](ctx context.Context, c *Cache, keys ...string) ([]T,
 			// Otherwise, we unmarshall into a pointer to the value.
 			var val T
 			if isPtr {
+				val = reflect.New(reflect.TypeOf(tmp).Elem()).Interface().(T)
 				if err := c.hooksMixin.current.unmarshall(data, val); err != nil {
 					return nil, fmt.Errorf("unmarshall value to type %T: %w", val, err)
 				}
