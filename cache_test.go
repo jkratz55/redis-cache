@@ -747,3 +747,32 @@ func TestCache_Protobuf(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, 10000, len(results))
 }
+
+func TestCache_Json_Pointers(t *testing.T) {
+	setup()
+	defer tearDown()
+
+	type person struct {
+		FirstName string `json:"first_name"`
+		LastName  string `json:"last_name"`
+		Age       int    `json:"age"`
+	}
+
+	rdb := New(client, JSON())
+
+	keys := make([]string, 0, 10000)
+	for i := 0; i < 10000; i++ {
+		key := fmt.Sprintf("key%d", i)
+		keys = append(keys, key)
+		val := &person{
+			FirstName: "Super",
+			LastName:  "Cow",
+			Age:       33,
+		}
+		assert.NoError(t, rdb.Set(context.Background(), key, val))
+	}
+
+	results, err := MGet[*person](context.Background(), rdb, keys...)
+	assert.NoError(t, err)
+	assert.Equal(t, 10000, len(results))
+}
