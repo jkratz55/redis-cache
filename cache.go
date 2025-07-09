@@ -174,28 +174,15 @@ func (c *Cache) GetAndExpire(ctx context.Context, key string, v any, ttl time.Du
 
 // Keys retrieves all the keys in Redis/Cache
 func (c *Cache) Keys(ctx context.Context) ([]string, error) {
-	keys := make([]string, 0)
-	iter := c.redis.Scan(ctx, 0, "*", 0).Iterator()
-	for iter.Next(ctx) {
-		keys = append(keys, iter.Val())
-	}
-	if err := iter.Err(); err != nil {
-		return nil, fmt.Errorf("redis: %w", err)
-	}
-	return keys, nil
+	return c.Scan(ctx, "*", 1000)
 }
 
 // ScanKeys allows for scanning keys in Redis using a pattern.
+//
+// DEPRECATED: ScanKeys has been deprecated in favor of Scan and subject to being
+// removed in future versions.
 func (c *Cache) ScanKeys(ctx context.Context, pattern string) ([]string, error) {
-	keys := make([]string, 0)
-	iter := c.redis.Scan(ctx, 0, pattern, 0).Iterator()
-	for iter.Next(ctx) {
-		keys = append(keys, iter.Val())
-	}
-	if err := iter.Err(); err != nil {
-		return nil, fmt.Errorf("redis: %w", err)
-	}
-	return keys, nil
+	return c.Scan(ctx, pattern, 1000)
 }
 
 // Set adds an entry into the cache, or overwrites an entry if the key already
@@ -440,6 +427,38 @@ func (c *Cache) ExtendTTL(ctx context.Context, key string, dur time.Duration) er
 	}
 
 	return c.Expire(ctx, key, ttl+dur)
+}
+
+// Scan retrieves all keys matching the specified pattern using Redis SCAN command.
+// The batch parameter controls how many keys are retrieved in each iteration.
+// Recommended batch sizes are between 100 and 1000 for optimal performance.
+// For Redis Cluster, this will scan all master nodes.
+func (c *Cache) Scan(ctx context.Context, pattern string, batch int64) ([]string, error) {
+	keys := make([]string, 0, batch)
+	switch rdb := c.redis.(type) {
+	case *redis.ClusterClient:
+		err := rdb.ForEachMaster(ctx, func(ctx context.Context, client *redis.Client) error {
+			iter := client.Scan(ctx, 0, pattern, batch).Iterator()
+			for iter.Next(ctx) {
+				keys = append(keys, iter.Val())
+			}
+			if err := iter.Err(); err != nil {
+				return fmt.Errorf("redis: %w", err)
+			}
+
+			return nil
+		})
+		return keys, err
+	default:
+		iter := rdb.Scan(ctx, 0, pattern, batch).Iterator()
+		for iter.Next(ctx) {
+			keys = append(keys, iter.Val())
+		}
+		if err := iter.Err(); err != nil {
+			return nil, fmt.Errorf("redis: %w", err)
+		}
+		return keys, nil
+	}
 }
 
 // Client returns the underlying Redis client the Cache is wrapping/using.
@@ -799,7 +818,7 @@ func UpsertTTL[T any](ctx context.Context, c *Cache, key string, val T, cb Upser
 // Scan works similar to MGet, but allows a pattern to be specified rather than
 // providing keys.
 func Scan[T any](ctx context.Context, c *Cache, pattern string) (MultiResult[T], error) {
-	keys, err := c.ScanKeys(ctx, pattern)
+	keys, err := c.Scan(ctx, pattern, 1000)
 	if err != nil {
 		return nil, fmt.Errorf("redis: %w", err)
 	}

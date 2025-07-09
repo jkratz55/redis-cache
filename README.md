@@ -11,8 +11,8 @@ Redis Cache is a library for caching any data structure in Redis. Redis Cache is
 
 ## Requirements
 
-* Go 1.22+ 
-* Redis 6+
+* Go 1.23+ 
+* Redis 7+
 
 
 ## Getting Redis Cache

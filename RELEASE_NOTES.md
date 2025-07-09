@@ -1,5 +1,14 @@
 # Release Notes
 
+## v1.8.0
+
+* Methods and functions that rely on Redis SCAN command such as `Keys`, `ScanKeys`, and `Scan` now properly handle the use-case when the underlying client is `redis.ClusterClient`. Before those methods would only scan a single master and not all the masters.
+* Updated dependencies
+
+## v1.7.0
+
+* Adding helper functions to make write-through and read-through caching easier to implement
+
 ## v1.6.0
 
 * Cache type can now be configured to split MGet with a large number of keys into multiple MGET commands executed within a pipeline which under some conditions can significantly reduce latency.
