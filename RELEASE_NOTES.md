@@ -1,5 +1,9 @@
 # Release Notes
 
+## v1.8.1
+
+* Updated dependencies including go-redis and opentelemetry
+
 ## v1.8.0
 
 * Methods and functions that rely on Redis SCAN command such as `Keys`, `ScanKeys`, and `Scan` now properly handle the use-case when the underlying client is `redis.ClusterClient`. Before those methods would only scan a single master and not all the masters.
