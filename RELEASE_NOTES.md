@@ -1,5 +1,11 @@
 # Release Notes
 
+## v1.9.0
+
+* Updates go-redis client from v9.14 to 9.16
+* Adds support for snappy compression
+* Adds new `TypedCache` type that leverages generics to provide a more ergonomic and type-safe API
+
 ## v1.8.1
 
 * Updated dependencies including go-redis and opentelemetry
