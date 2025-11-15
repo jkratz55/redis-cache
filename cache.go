@@ -32,6 +32,7 @@ var (
 type RedisClient interface {
 	Get(ctx context.Context, key string) *redis.StringCmd
 	GetEx(ctx context.Context, key string, expiration time.Duration) *redis.StringCmd
+	GetDel(ctx context.Context, key string) *redis.StringCmd
 	MGet(ctx context.Context, keys ...string) *redis.SliceCmd
 	Set(ctx context.Context, key string, val any, ttl time.Duration) *redis.StatusCmd
 	SetNX(ctx context.Context, key string, value any, expiration time.Duration) *redis.BoolCmd
@@ -473,6 +474,22 @@ func (c *Cache) Scan(ctx context.Context, pattern string, batch int64) ([]string
 // tracked.
 func (c *Cache) Client() redis.UniversalClient {
 	return c.redis.(redis.UniversalClient)
+}
+
+func (c *Cache) setMarshaller(marshaller Marshaller) {
+	c.marshaller = marshaller
+}
+
+func (c *Cache) setUnmarshaller(unmarshaller Unmarshaller) {
+	c.unmarshaller = unmarshaller
+}
+
+func (c *Cache) setCodec(codec Codec) {
+	c.codec = codec
+}
+
+func (c *Cache) setMGetBatch(i int) {
+	c.mgetBatch = i
 }
 
 // DefaultMarshaller returns a Marshaller using msgpack to marshall

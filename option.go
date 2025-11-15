@@ -8,10 +8,18 @@ import (
 	"github.com/jkratz55/redis-cache/compression/flate"
 	"github.com/jkratz55/redis-cache/compression/gzip"
 	"github.com/jkratz55/redis-cache/compression/lz4"
+	"github.com/jkratz55/redis-cache/compression/snappy"
 )
 
+type configurable interface {
+	setMarshaller(Marshaller)
+	setUnmarshaller(Unmarshaller)
+	setCodec(Codec)
+	setMGetBatch(int)
+}
+
 // Option allows for the Cache behavior/configuration to be customized.
-type Option func(c *Cache)
+type Option func(c configurable)
 
 // Serialization allows for the marshalling and unmarshalling behavior to be
 // customized for the Cache.
@@ -22,9 +30,9 @@ func Serialization(mar Marshaller, unmar Unmarshaller) Option {
 	if mar == nil || unmar == nil {
 		panic(fmt.Errorf("nil Marshaller and/or Unmarshaller not permitted, illegal use of api"))
 	}
-	return func(c *Cache) {
-		c.marshaller = mar
-		c.unmarshaller = unmar
+	return func(c configurable) {
+		c.setMarshaller(mar)
+		c.setUnmarshaller(unmar)
 	}
 }
 
@@ -50,8 +58,8 @@ func Compression(codec Codec) Option {
 	if codec == nil {
 		panic(fmt.Errorf("nil Codec not permitted, illegal use of API"))
 	}
-	return func(c *Cache) {
-		c.codec = codec
+	return func(c configurable) {
+		c.setCodec(codec)
 	}
 }
 
@@ -89,11 +97,18 @@ func Brotli() Option {
 	return Compression(codec)
 }
 
+// Snappy configures the Cache to use Snappy for compressing and decompressing
+// values stored in Redis.
+func Snappy() Option {
+	codec := snappy.NewCodec()
+	return Compression(codec)
+}
+
 // BatchMultiGets configures the Cache to use pipelining and split keys up into
 // multiple MGET commands for increased throughput and lower latency when dealing
 // with MGet operations with very large sets of keys.
 func BatchMultiGets(batchSize int) Option {
-	return func(c *Cache) {
-		c.mgetBatch = batchSize
+	return func(c configurable) {
+		c.setMGetBatch(batchSize)
 	}
 }
