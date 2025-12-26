@@ -22,7 +22,7 @@ func NewCodec(lvl int) *Codec {
 	}
 }
 
-func (c *Codec) Flate(data []byte) ([]byte, error) {
+func (c *Codec) Compress(data []byte) ([]byte, error) {
 	var b bytes.Buffer
 	var err error
 	writer, _ := c.writerPool.Get().(*brotli.Writer)
@@ -49,7 +49,7 @@ func (c *Codec) Flate(data []byte) ([]byte, error) {
 	return b.Bytes(), nil
 }
 
-func (c *Codec) Deflate(data []byte) ([]byte, error) {
+func (c *Codec) Decompress(data []byte) ([]byte, error) {
 	var err error
 	reader := bytes.NewReader(data)
 	brotliReader, _ := c.readerPool.Get().(*brotli.Reader)

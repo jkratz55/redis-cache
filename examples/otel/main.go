@@ -10,8 +10,8 @@ import (
 	"go.opentelemetry.io/otel/exporters/prometheus"
 	"go.opentelemetry.io/otel/sdk/metric"
 
-	cache "github.com/jkratz55/redis-cache"
-	"github.com/jkratz55/redis-cache/otel"
+	cache "github.com/jkratz55/redis-cache/v2"
+	"github.com/jkratz55/redis-cache/v2/cacheotel"
 )
 
 func main() {
@@ -34,12 +34,12 @@ func main() {
 	}
 	provider := metric.NewMeterProvider(metric.WithReader(exporter))
 
-	if err := otel.InstrumentClientMetrics(redisClient, otel.WithMeterProvider(provider)); err != nil {
+	if err := cacheotel.InstrumentClientMetrics(redisClient, cacheotel.WithMeterProvider(provider)); err != nil {
 		panic(err)
 	}
 
 	rdb := cache.New(redisClient)
-	if err := otel.InstrumentMetrics(rdb, otel.WithMeterProvider(provider)); err != nil {
+	if err := cacheotel.InstrumentMetrics(rdb, cacheotel.WithMeterProvider(provider)); err != nil {
 		panic(err)
 	}
 

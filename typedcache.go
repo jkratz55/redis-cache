@@ -19,11 +19,10 @@ import (
 //
 // The zero-value of TypedCache is not usable. Use NewTyped to create a new instance.
 type TypedCache[T any] struct {
-	redis        RedisClient
-	marshaller   Marshaller
-	unmarshaller Unmarshaller
-	codec        Codec
-	mgetBatch    int // zero-value indicates no batching
+	redis      RedisClient
+	serializer Serializer
+	codec      CompressionCodec
+	mgetBatch  int // zero-value indicates no batching
 	hooksMixin
 }
 
@@ -32,10 +31,9 @@ func NewTyped[T any](client RedisClient, opts ...Option) *TypedCache[T] {
 		panic(fmt.Errorf("a valid redis client is required, illegal use of api"))
 	}
 	cache := &TypedCache[T]{
-		redis:        client,
-		marshaller:   DefaultMarshaller(),
-		unmarshaller: DefaultUnmarshaller(),
-		codec:        nopCodec{},
+		redis:      client,
+		serializer: MessagePackSerializer{},
+		codec:      nopCodec{},
 	}
 
 	for _, opt := range opts {
@@ -46,8 +44,8 @@ func NewTyped[T any](client RedisClient, opts ...Option) *TypedCache[T] {
 		initial: hooks{
 			marshal:    cache.marshaller,
 			unmarshall: cache.unmarshaller,
-			compress:   cache.codec.Flate,
-			decompress: cache.codec.Deflate,
+			compress:   cache.codec.Compress,
+			decompress: cache.codec.Decompress,
 		},
 	}
 	cache.chain()
@@ -316,7 +314,7 @@ func (c *TypedCache[T]) setUnmarshaller(unmarshaller Unmarshaller) {
 	c.unmarshaller = unmarshaller
 }
 
-func (c *TypedCache[T]) setCodec(codec Codec) {
+func (c *TypedCache[T]) setCodec(codec CompressionCodec) {
 	c.codec = codec
 }
 

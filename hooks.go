@@ -13,8 +13,8 @@ type CompressionHook func(data []byte) ([]byte, error)
 // It is important implementations of Hook call next or the execution pipeline
 // will terminate.
 type Hook interface {
-	MarshalHook(next Marshaller) Marshaller
-	UnmarshallHook(next Unmarshaller) Unmarshaller
+	MarshalHook(next marshaller) marshaller
+	UnmarshallHook(next unmarshaller) unmarshaller
 	CompressHook(next CompressionHook) CompressionHook
 	DecompressHook(next CompressionHook) CompressionHook
 }
@@ -61,8 +61,8 @@ func (hs *hooksMixin) chain() {
 }
 
 type hooks struct {
-	marshal    Marshaller
-	unmarshall Unmarshaller
+	marshal    marshaller
+	unmarshall unmarshaller
 	compress   CompressionHook
 	decompress CompressionHook
 }

@@ -49,25 +49,16 @@ type RedisClient interface {
 	Pipeline() redis.Pipeliner
 }
 
-// Marshaller is a function type that marshals the value of a cache entry for
-// storage.
-type Marshaller func(v any) ([]byte, error)
-
-// Unmarshaller is a function type that unmarshalls the value retrieved from the
-// cache into the target type.
-type Unmarshaller func(b []byte, v any) error
-
 // Cache is a simple type that provides basic caching functionality: store, retrieve,
 // and delete. It is backed by Redis and supports storing entries with a TTL.
 //
 // The zero-value is not usable, and this type should be instantiated using the
 // New function.
 type Cache struct {
-	redis        RedisClient
-	marshaller   Marshaller
-	unmarshaller Unmarshaller
-	codec        Codec
-	mgetBatch    int // zero-value indicates no batching
+	redis      RedisClient
+	serializer Serializer
+	codec      CompressionCodec
+	mgetBatch  int // zero-value indicates no batching
 	hooksMixin
 }
 
@@ -80,10 +71,9 @@ func New(client RedisClient, opts ...Option) *Cache {
 		panic(fmt.Errorf("a valid redis client is required, illegal use of api"))
 	}
 	cache := &Cache{
-		redis:        client,
-		marshaller:   DefaultMarshaller(),
-		unmarshaller: DefaultUnmarshaller(),
-		codec:        nopCodec{},
+		redis:      client,
+		serializer: MessagePackSerializer{},
+		codec:      nopCodec{},
 	}
 	for _, opt := range opts {
 		opt(cache)
@@ -91,26 +81,15 @@ func New(client RedisClient, opts ...Option) *Cache {
 
 	cache.hooksMixin = hooksMixin{
 		initial: hooks{
-			marshal:    cache.marshaller,
-			unmarshall: cache.unmarshaller,
-			compress:   cache.codec.Flate,
-			decompress: cache.codec.Deflate,
+			marshal:    cache.serializer.Marshal,
+			unmarshall: cache.serializer.Unmarshal,
+			compress:   cache.codec.Compress,
+			decompress: cache.codec.Decompress,
 		},
 	}
 	cache.chain()
 
 	return cache
-}
-
-// NewCache creates and initializes a new Cache instance.
-//
-// By default, msgpack is used for marshalling and unmarshalling the entry values.
-// The behavior of Cache can be configured by passing Options.
-//
-// DEPRECATED: NewCache has been deprecated in favor of New and subject to being
-// removed in future versions.
-func NewCache(client RedisClient, opts ...Option) *Cache {
-	return New(client, opts...)
 }
 
 // Get retrieves an entry from the Cache for the given key, and if found will
@@ -178,24 +157,10 @@ func (c *Cache) Keys(ctx context.Context) ([]string, error) {
 	return c.Scan(ctx, "*", 1000)
 }
 
-// ScanKeys allows for scanning keys in Redis using a pattern.
-//
-// DEPRECATED: ScanKeys has been deprecated in favor of Scan and subject to being
-// removed in future versions.
-func (c *Cache) ScanKeys(ctx context.Context, pattern string) ([]string, error) {
-	return c.Scan(ctx, pattern, 1000)
-}
-
-// Set adds an entry into the cache, or overwrites an entry if the key already
-// existed. The entry is set without an expiration.
-func (c *Cache) Set(ctx context.Context, key string, v any) error {
-	return c.SetWithTTL(ctx, key, v, InfiniteTTL)
-}
-
 // SetWithTTL adds an entry into the cache, or overwrites an entry if the key
 // already existed. The entry is set with the provided TTL and automatically
 // removed from the cache once the TTL is expired.
-func (c *Cache) SetWithTTL(ctx context.Context, key string, v any, ttl time.Duration) error {
+func (c *Cache) Set(ctx context.Context, key string, v any, ttl time.Duration) error {
 	data, err := c.hooksMixin.current.marshal(v)
 	if err != nil {
 		return fmt.Errorf("marshall value: %w", err)
@@ -279,76 +244,6 @@ func (c *Cache) MSet(ctx context.Context, keyvalues map[string]any) error {
 	return nil
 }
 
-// MSetWithTTL adds or overwrites multiple entries to the cache with a TTL value.
-//
-// MSetWithTTL performs multiple SET operations using a Pipeline. Unlike MSet,
-// MSetWithTTL is not atomic. It is possible for some entries to succeed while
-// others fail. When the pipeline itself executes successfully but commands fail
-// MSetWithTTL returns CommandErrors which can be inspected to understand which
-// keys failed in the event they need to be retried or logged. If the pipeline
-// execution fails, or marshal and compression fails, a standard error value is
-// returned.
-//
-// The command errors can be inspected following this example:
-//
-//	err := cache.MSetWithTTL(context.Background(), data, time.Minute*30)
-//	if err != nil {
-//		var cmdErrs CommandErrors
-//		if errors.As(err, &cmdErrs) {
-//			for _, e := range cmdErrs {
-//				fmt.Println(e)
-//			}
-//			// todo: do something actually useful here
-//		} else {
-//			fmt.Println(err) // just a normal error value
-//		}
-//	}
-func (c *Cache) MSetWithTTL(ctx context.Context, keyvalues map[string]any, ttl time.Duration) error {
-	pipe := c.redis.Pipeline()
-	for k, v := range keyvalues {
-		val, err := c.hooksMixin.current.marshal(v)
-		if err != nil {
-			return fmt.Errorf("marshal value: %w", err)
-		}
-		val, err = c.hooksMixin.current.compress(val)
-		if err != nil {
-			return fmt.Errorf("compress value: %w", err)
-		}
-		pipe.Set(ctx, k, val, ttl)
-	}
-
-	cmds, err := pipe.Exec(ctx)
-	if err != nil {
-		cmdErrors := make(CommandErrors, 0)
-		for _, cmd := range cmds {
-			if cmd.Err() != nil {
-				// This shouldn't panic but let's not take chances ...
-				var key string
-				if k, ok := cmd.Args()[1].(string); ok {
-					key = k
-				}
-
-				cmdErrors = append(cmdErrors, CommandError{
-					Command: cmd.Name(),
-					Key:     key,
-					Err:     cmd.Err(),
-				})
-			}
-		}
-
-		// If len redis errors is zero than the pipeline itself failed and none
-		// of the commands executed on Redis. In this case the original error
-		// from the Pipeliner is returned. If there were errors on at least one
-		// command than the command errors are return.
-		if len(cmdErrors) == 0 {
-			return err
-		}
-		return cmdErrors
-	}
-
-	return nil
-}
-
 // Delete removes entries from the cache for a given set of keys.
 func (c *Cache) Delete(ctx context.Context, keys ...string) error {
 	return c.redis.Del(ctx, keys...).Err()
@@ -368,7 +263,7 @@ func (c *Cache) FlushAsync(ctx context.Context) error {
 
 // Healthy pings Redis to ensure it is reachable and responding. Healthy returns
 // true if Redis successfully responds to the ping, otherwise false.
-func (c *Cache) Healthy(ctx context.Context) bool {
+func (c *Cache) Ping(ctx context.Context) bool {
 	return c.redis.Ping(ctx).Err() == nil
 }
 
@@ -472,8 +367,8 @@ func (c *Cache) Scan(ctx context.Context, pattern string, batch int64) ([]string
 // to handle marshalling, unmarshalling, and compression yourself. You will also
 // not have the same hooks behavior as the Cache and some metrics will not be
 // tracked.
-func (c *Cache) Client() redis.UniversalClient {
-	return c.redis.(redis.UniversalClient)
+func (c *Cache) Client() RedisClient {
+	return c.redis
 }
 
 func (c *Cache) setMarshaller(marshaller Marshaller) {
@@ -484,7 +379,7 @@ func (c *Cache) setUnmarshaller(unmarshaller Unmarshaller) {
 	c.unmarshaller = unmarshaller
 }
 
-func (c *Cache) setCodec(codec Codec) {
+func (c *Cache) setCodec(codec CompressionCodec) {
 	c.codec = codec
 }
 
