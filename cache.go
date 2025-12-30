@@ -17,7 +17,7 @@ const (
 	// under memory pressure in accordance to the eviction policy configured.
 	InfiniteTTL time.Duration = -3
 
-	// KeepTTL indicates to keep the existing TTL on the key on SET commands.
+	// KeepTTL indicates to keep the existing TTL on the key on RedisOperationSET commands.
 	KeepTTL = redis.KeepTTL
 )
 
@@ -214,13 +214,13 @@ func (c *Cache) SetIfPresent(ctx context.Context, key string, v any, ttl time.Du
 	return ok, err
 }
 
-// MSet performs multiple SET operations. Entries are added to the cache or
+// MSet performs multiple RedisOperationSET operations. Entries are added to the cache or
 // overridden if they already exists.
 //
 // MSet is atomic, either all keyvalues are set or none are set. Since MSet
 // operates using a single atomic command it is the fastest way to bulk write
 // entries to the Cache. It greatly reduces network overhead and latency when
-// compared to calling SET sequentially.
+// compared to calling RedisOperationSET sequentially.
 func (c *Cache) MSet(ctx context.Context, keyvalues map[string]any) error {
 	// The key and values needs to be processed prior to calling MSet by marshalling
 	// and compressing the values.
