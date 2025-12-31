@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
-	"github.com/vmihailenco/msgpack/v5"
 )
 
 const (
@@ -49,26 +48,27 @@ type RedisClient interface {
 	Pipeline() redis.Pipeliner
 }
 
-// Cache is a simple type that provides basic caching functionality: store, retrieve,
-// and delete. It is backed by Redis and supports storing entries with a TTL.
+// Cache is a thin abstraction over the go-redis client that provides serialization, compression
+// and batching of MGET operations.
 //
-// The zero-value is not usable, and this type should be instantiated using the
-// New function.
+// By default, msgpack is used for marshalling and unmarshalling the entry values. There is no
+// compression by default, but it can be enabled by using an Option in New.
+//
+// The zero-value of Cache is not usable. Use New to create a new instance.
 type Cache struct {
 	redis      RedisClient
 	serializer Serializer
 	codec      CompressionCodec
 	mgetBatch  int // zero-value indicates no batching
-	hooksMixin
 }
 
 // New creates and initializes a new Cache instance.
 //
-// By default, msgpack is used for marshalling and unmarshalling the entry values.
-// The behavior of Cache can be configured by passing Options.
+// By default msgpack is used for marshalling and unmarshalling the entry values. There is no
+// compression by default, but it can be enabled by using an Option.
 func New(client RedisClient, opts ...Option) *Cache {
 	if client == nil {
-		panic(fmt.Errorf("a valid redis client is required, illegal use of api"))
+		panic(fmt.Errorf("client cannot be nil"))
 	}
 	cache := &Cache{
 		redis:      client,
@@ -79,25 +79,24 @@ func New(client RedisClient, opts ...Option) *Cache {
 		opt(cache)
 	}
 
-	cache.hooksMixin = hooksMixin{
-		initial: hooks{
-			marshal:    cache.serializer.Marshal,
-			unmarshall: cache.serializer.Unmarshal,
-			compress:   cache.codec.Compress,
-			decompress: cache.codec.Decompress,
-		},
-	}
-	cache.chain()
-
 	return cache
 }
 
-// Get retrieves an entry from the Cache for the given key, and if found will
-// unmarshall the value into v.
+// Get retrieves a value from Redis for the given key.
 //
-// If the key does not exist ErrKeyNotFound will be returned as the error value.
-// A non-nil error value will be returned if the operation on the backing Redis
-// fails, or if the value cannot be unmarshalled into the target type.
+// If the key does not exist, ErrKeyNotFound will be returned as the error value. If the error is
+// non-nil, but not ErrKeyNotFound, the operation on the backing Redis failed, the value could not
+// be unmarshalled, or the value was compressed and could not be decompressed.
+//
+// The destination type v should be a pointer to the desired type.
+//
+// Example:
+//
+//	var val string
+//	err := cache.Get(ctx, "key", &val)
+//	if err != nil {
+//	  // handle error
+//	}
 func (c *Cache) Get(ctx context.Context, key string, v any) error {
 	data, err := c.redis.Get(ctx, key).Bytes()
 	if err != nil {
@@ -106,27 +105,27 @@ func (c *Cache) Get(ctx context.Context, key string, v any) error {
 		}
 		return fmt.Errorf("redis: %w", err)
 	}
-	data, err = c.hooksMixin.current.decompress(data)
+	data, err = c.codec.Decompress(data)
 	if err != nil {
 		return fmt.Errorf("decompress value: %w", err)
 	}
-	if err := c.hooksMixin.current.unmarshall(data, v); err != nil {
+	if err := c.serializer.Unmarshal(data, v); err != nil {
 		return fmt.Errorf("unmarshall value: %w", err)
 	}
 	return nil
 }
 
-// GetAndExpire retrieves a value from the Cache for the given key, decompresses it if
-// applicable, unmarshalls the value to v, and sets the TTL for the key.
+// GetAndExpire retrieves a value from Redis for the given key and sets the TTL on the key.
 //
-// If the key does not exist ErrKeyNotFound will be returned as the error value.
-// A non-nil error value will be returned if the operation on the backing Redis
-// fails, or if the value cannot be unmarshalled into the target type.
+// If the key does not exist, ErrKeyNotFound will be returned as the error value. If the error is
+// non-nil, but not ErrKeyNotFound, the operation on the backing Redis failed, the value could not
+// be unmarshalled, or the value was compressed and could not be decompressed.
 //
-// Passing a negative ttl value has no effect on the existing TTL for the key.
-// Passing a ttl value of 0 or InfiniteTTL removes the TTL and persist the key
-// until it is either explicitly deleted or evicted according to Redis eviction
-// policy.
+// The destination type v should be a pointer to the desired type.
+//
+// GetAndExpire is useful for operations such as fetching and extending a session stored in Redis.
+//
+// A ttl value of 0 will remove the TTL on the key if there is one.
 func (c *Cache) GetAndExpire(ctx context.Context, key string, v any, ttl time.Duration) error {
 	// This is a bit wonky since tll values are used different in different places
 	// in go-redis and Redis. So here we map InfiniteTTL to 0, so it keeps the same
@@ -142,30 +141,59 @@ func (c *Cache) GetAndExpire(ctx context.Context, key string, v any, ttl time.Du
 		}
 		return fmt.Errorf("redis: %w", err)
 	}
-	data, err := c.hooksMixin.current.decompress(val)
+	data, err := c.codec.Decompress(val)
 	if err != nil {
 		return fmt.Errorf("decompress value: %w", err)
 	}
-	if err := c.hooksMixin.current.unmarshall(data, v); err != nil {
+	if err := c.serializer.Unmarshal(data, v); err != nil {
+		return fmt.Errorf("unmarshall value: %w", err)
+	}
+	return nil
+}
+
+// GetAndDelete retrieves a value from Redis for the given key and deletes the key from Redis.
+//
+// If the key does not exist, ErrKeyNotFound will be returned as the error value. If the error is
+// non-nil, but not ErrKeyNotFound, the operation on the backing Redis failed, the value could not
+// be unmarshalled, or the value was compressed and could not be decompressed.
+//
+// The destination type v should be a pointer to the desired type.
+func (c *Cache) GetAndDelete(ctx context.Context, key string, v any) error {
+	val, err := c.redis.GetDel(ctx, key).Bytes()
+	if err != nil {
+		if errors.Is(err, redis.Nil) {
+			return ErrKeyNotFound
+		}
+		return fmt.Errorf("redis: %w", err)
+	}
+	data, err := c.codec.Decompress(val)
+	if err != nil {
+		return fmt.Errorf("decompress value: %w", err)
+	}
+	if err := c.serializer.Unmarshal(data, v); err != nil {
 		return fmt.Errorf("unmarshall value: %w", err)
 	}
 	return nil
 }
 
 // Keys retrieves all the keys in Redis/Cache
+//
+// Note: Keys under the hood is using the Redis SCAN command instead of KEYS, which is more efficient,
+// but this is still an expensive operation.
 func (c *Cache) Keys(ctx context.Context) ([]string, error) {
 	return c.Scan(ctx, "*", 1000)
 }
 
-// SetWithTTL adds an entry into the cache, or overwrites an entry if the key
-// already existed. The entry is set with the provided TTL and automatically
-// removed from the cache once the TTL is expired.
+// Set adds an entry to Redis with the given key and value. The entry is set with the provided TTL.
+// If the TTL is 0 the entry will not expire.
+//
+// Set will overwrite an existing value for the key if it already exists.
 func (c *Cache) Set(ctx context.Context, key string, v any, ttl time.Duration) error {
-	data, err := c.hooksMixin.current.marshal(v)
+	data, err := c.serializer.Marshal(v)
 	if err != nil {
 		return fmt.Errorf("marshall value: %w", err)
 	}
-	data, err = c.hooksMixin.current.compress(data)
+	data, err = c.codec.Compress(data)
 	if err != nil {
 		return fmt.Errorf("compress value: %w", err)
 	}
@@ -176,15 +204,17 @@ func (c *Cache) Set(ctx context.Context, key string, v any, ttl time.Duration) e
 	return err
 }
 
-// SetIfAbsent adds an entry into the cache only if the key doesn't already exist.
-// The entry is set with the provided TTL and automatically removed from the cache
-// once the TTL is expired.
+// SetIfAbsent adds an entry to Redis with the given key and value if the key does not already exist.
+// If the key already exists, SetIfAbsent will not update Redis and will return false. Otherwise,
+// SetIfAbsent will add the entry to Redis and return true.
+//
+// If the TTL is 0 the entry will not expire.
 func (c *Cache) SetIfAbsent(ctx context.Context, key string, v any, ttl time.Duration) (bool, error) {
-	data, err := c.hooksMixin.current.marshal(v)
+	data, err := c.serializer.Marshal(v)
 	if err != nil {
 		return false, fmt.Errorf("marshall value: %w", err)
 	}
-	data, err = c.hooksMixin.current.compress(data)
+	data, err = c.codec.Compress(data)
 	if err != nil {
 		return false, fmt.Errorf("compress value: %w", err)
 	}
@@ -195,15 +225,17 @@ func (c *Cache) SetIfAbsent(ctx context.Context, key string, v any, ttl time.Dur
 	return ok, err
 }
 
-// SetIfPresent updates an entry into the cache if they key already exists in the
-// cache. The entry is set with the provided TTL and automatically removed from the
-// cache once the TTL is expired.
+// SetIfPresent updates an existing entry in Redis with the given key and value if the key already
+// exists. If the key does not exist, SetIfPresent will not update Redis and will return false.
+// Otherwise, SetIfPresent will update the entry in Redis and return true.
+//
+// If the TTL is 0 the entry will not expire.
 func (c *Cache) SetIfPresent(ctx context.Context, key string, v any, ttl time.Duration) (bool, error) {
-	data, err := c.hooksMixin.current.marshal(v)
+	data, err := c.serializer.Marshal(v)
 	if err != nil {
 		return false, fmt.Errorf("marshall value: %w", err)
 	}
-	data, err = c.hooksMixin.current.compress(data)
+	data, err = c.codec.Compress(data)
 	if err != nil {
 		return false, fmt.Errorf("compress value: %w", err)
 	}
@@ -214,23 +246,19 @@ func (c *Cache) SetIfPresent(ctx context.Context, key string, v any, ttl time.Du
 	return ok, err
 }
 
-// MSet performs multiple RedisOperationSET operations. Entries are added to the cache or
-// overridden if they already exists.
+// MSet sets multiple entries in Redis for the given key/value pairs.
 //
-// MSet is atomic, either all keyvalues are set or none are set. Since MSet
-// operates using a single atomic command it is the fastest way to bulk write
-// entries to the Cache. It greatly reduces network overhead and latency when
-// compared to calling RedisOperationSET sequentially.
+// MSet is atomic and will override any existing entries with the provided values.
 func (c *Cache) MSet(ctx context.Context, keyvalues map[string]any) error {
 	// The key and values needs to be processed prior to calling MSet by marshalling
 	// and compressing the values.
 	rawData := make(map[string]any)
 	for k, v := range keyvalues {
-		val, err := c.hooksMixin.current.marshal(v)
+		val, err := c.serializer.Marshal(v)
 		if err != nil {
 			return fmt.Errorf("marshal value: %w", err)
 		}
-		val, err = c.hooksMixin.current.compress(val)
+		val, err = c.codec.Compress(val)
 		if err != nil {
 			return fmt.Errorf("compress value: %w", err)
 		}
@@ -254,23 +282,18 @@ func (c *Cache) Flush(ctx context.Context) error {
 	return c.redis.FlushDB(ctx).Err()
 }
 
-// FlushAsync flushes the cache deleting all keys/entries asynchronously. Only keys
-// that were present when FLUSH ASYNC command was received by Redis will be deleted.
-// Any keys created during asynchronous flush will be unaffected.
+// FlushAsync flushes the cache deleting all keys/entries asynchronously. Only keys that were present
+// when FLUSH ASYNC command was received by Redis will be deleted. Any keys created during an asynchronous
+// flush will be unaffected.
 func (c *Cache) FlushAsync(ctx context.Context) error {
 	return c.redis.FlushDBAsync(ctx).Err()
 }
 
-// Healthy pings Redis to ensure it is reachable and responding. Healthy returns
-// true if Redis successfully responds to the ping, otherwise false.
-func (c *Cache) Ping(ctx context.Context) bool {
-	return c.redis.Ping(ctx).Err() == nil
-}
-
-// TTL returns the time to live for a particular key.
+// TTL returns the remaining time to live for the given key.
 //
-// If the key doesn't exist ErrKeyNotFound will be returned for the error value.
-// If the key doesn't have a TTL InfiniteTTL will be returned.
+// If the key doesn't exist ErrKeyNotFound will be returned for the error value. If the error is
+// non-nil, but not ErrKeyNotFound, the operation on the backing Redis failed. If the key exists but
+// has no TTL, InfiniteTTL will be returned.
 func (c *Cache) TTL(ctx context.Context, key string) (time.Duration, error) {
 	dur, err := c.redis.TTL(ctx, key).Result()
 	if err != nil {
@@ -290,10 +313,8 @@ func (c *Cache) TTL(ctx context.Context, key string) (time.Duration, error) {
 
 // Expire sets a TTL on the given key.
 //
-// If the key doesn't exist ErrKeyNotFound will be returned for the error value.
-// If the key already has a TTL it will be overridden with ttl value provided.
-//
-// Calling Expire with a non-positive ttl will result in the key being deleted.
+// If the key doesn't exist ErrKeyNotFound will be returned for the error value. If the error is
+// non-nil, but not ErrKeyNotFound, the operation on the backing Redis failed.
 func (c *Cache) Expire(ctx context.Context, key string, ttl time.Duration) error {
 	ok, err := c.redis.Expire(ctx, key, ttl).Result()
 	if err != nil {
@@ -305,31 +326,18 @@ func (c *Cache) Expire(ctx context.Context, key string, ttl time.Duration) error
 	return nil
 }
 
-// ExtendTTL extends the TTL for the key by the given duration.
+// Scan performs a Redis SCAN command to retrieve all keys matching the given pattern.
 //
-// ExtendTTL retrieves the TTL remaining for the key, adds the duration, and then
-// executes the EXPIRE command to set a new TTL.
+// The batch parameter controls the number of keys returned in each SCAN command. The larger the
+// batch, the more efficient the operation is, but the more memory is used.
 //
-// If the key doesn't exist ErrKeyNotFound will be returned for the error value.
-func (c *Cache) ExtendTTL(ctx context.Context, key string, dur time.Duration) error {
-	ttl, err := c.redis.TTL(ctx, key).Result()
-	if err != nil {
-		return fmt.Errorf("redis: %w", err)
-	}
-
-	// Redis returns -2 for TTL command if the key doesn't exist
-	if ttl == -2 {
-		return ErrKeyNotFound
-	}
-
-	return c.Expire(ctx, key, ttl+dur)
-}
-
-// Scan retrieves all keys matching the specified pattern using Redis SCAN command.
-// The batch parameter controls how many keys are retrieved in each iteration.
-// Recommended batch sizes are between 100 and 1000 for optimal performance.
-// For Redis Cluster, this will scan all master nodes.
+// If the underlying client is a redis.ClusterClient, Scan will iterate over all masters in the
+// cluster.
 func (c *Cache) Scan(ctx context.Context, pattern string, batch int64) ([]string, error) {
+	if batch <= 0 {
+		batch = 1000
+	}
+
 	keys := make([]string, 0, batch)
 	switch rdb := c.redis.(type) {
 	case *redis.ClusterClient:
@@ -357,26 +365,19 @@ func (c *Cache) Scan(ctx context.Context, pattern string, batch int64) ([]string
 	}
 }
 
-// Client returns the underlying Redis client the Cache is wrapping/using.
+// Client returns the underlying Redis client.
 //
-// This can be useful when there are operations that are not supported by Cache
-// that are required, but you don't want to have to pass the Redis client around
-// your application as well. This allows for the Redis client to be accessed from
-// the Cache. However, it is important to understand that when using the Redis
-// client directly it will not have the same behavior as the Cache. You will have
-// to handle marshalling, unmarshalling, and compression yourself. You will also
-// not have the same hooks behavior as the Cache and some metrics will not be
-// tracked.
+// Note: When using the client directly, you are responsible for handling serialization and compression
+// yourself. Keep in mind Cache doesn't care about the underlying implementation and doesn't know what
+// kind of client was provided to New. For that reason it returns a RedisClient. If you need functionality
+// beyond what the RedisClient interface offers, you need to handle type casting the returned RedisClient
+// yourself.
 func (c *Cache) Client() RedisClient {
 	return c.redis
 }
 
-func (c *Cache) setMarshaller(marshaller Marshaller) {
-	c.marshaller = marshaller
-}
-
-func (c *Cache) setUnmarshaller(unmarshaller Unmarshaller) {
-	c.unmarshaller = unmarshaller
+func (c *Cache) setSerializer(serializer Serializer) {
+	c.serializer = serializer
 }
 
 func (c *Cache) setCodec(codec CompressionCodec) {
@@ -385,22 +386,6 @@ func (c *Cache) setCodec(codec CompressionCodec) {
 
 func (c *Cache) setMGetBatch(i int) {
 	c.mgetBatch = i
-}
-
-// DefaultMarshaller returns a Marshaller using msgpack to marshall
-// values.
-func DefaultMarshaller() Marshaller {
-	return func(v any) ([]byte, error) {
-		return msgpack.Marshal(v)
-	}
-}
-
-// DefaultUnmarshaller returns an Unmarshaller using msgpack to unmarshall
-// values.
-func DefaultUnmarshaller() Unmarshaller {
-	return func(b []byte, v any) error {
-		return msgpack.Unmarshal(b, v)
-	}
 }
 
 // MultiResult is a type representing returning multiple entries from the Cache.
@@ -416,6 +401,9 @@ func (mr MultiResult[T]) Keys() []string {
 }
 
 // Values returns all the values found.
+//
+// Note: This operation can be expensive as it allocates a new slice and copies all the values from
+// the result.
 func (mr MultiResult[T]) Values() []T {
 	values := make([]T, 0, len(mr))
 	for _, val := range mr {
@@ -436,17 +424,20 @@ func (mr MultiResult[T]) IsEmpty() bool {
 	return len(mr) == 0
 }
 
-// MGet uses the provided Cache to retrieve multiple keys from Redis and returns
-// a MultiResult.
+// MGetMap retrieves multiple keys in a single operation and returns the result as a map key -> value.
 //
-// If a key doesn't exist in Redis it will not be included in the MultiResult
-// returned. If all keys are not found the MultiResult will be empty.
-func MGet[R any](ctx context.Context, c *Cache, keys ...string) (MultiResult[R], error) {
+// If a key doesn't exist in Redis it will not be present in the result map.
+//
+// MGetMap is useful when you want to fetch multiple keys and their relationship between each other
+// is important. For example, if you want to fetch a user's profile and their friends, you can use
+// MGetMap to fetch both the profile and the friends in a single operation. If you just want the values
+// and don't care about the relationship between the keys, use MGet instead.
+func MGetMap[R any](ctx context.Context, c *Cache, keys ...string) (MultiResult[R], error) {
 
 	// If batching is enabled and the number of keys exceeds the batch size use
 	// multiple MGET commands in a pipeline.
 	if c.mgetBatch > 0 && len(keys) > c.mgetBatch {
-		return mGetBatch[R](ctx, c, keys...)
+		return mGetMapBatch[R](ctx, c, keys...)
 	}
 
 	results, err := c.redis.MGet(ctx, keys...).Result()
@@ -464,12 +455,12 @@ func MGet[R any](ctx context.Context, c *Cache, keys ...string) (MultiResult[R],
 		if !ok {
 			return nil, fmt.Errorf("unexpected value type from Redis: expected %T but got %T", str, res)
 		}
-		data, err := c.hooksMixin.current.decompress([]byte(str))
+		data, err := c.codec.Decompress([]byte(str))
 		if err != nil {
 			return nil, fmt.Errorf("decompress value: %w", err)
 		}
 		var val R
-		if err := c.hooksMixin.current.unmarshall(data, &val); err != nil {
+		if err := c.serializer.Unmarshal(data, &val); err != nil {
 			return nil, fmt.Errorf("unmarshall value to type %T: %w", val, err)
 		}
 		resultMap[keys[i]] = val
@@ -477,10 +468,10 @@ func MGet[R any](ctx context.Context, c *Cache, keys ...string) (MultiResult[R],
 	return resultMap, nil
 }
 
-// mGetBatch is a helper function that uses pipelining to fetch multiple keys
+// mGetMapBatch is a helper function that uses pipelining to fetch multiple keys
 // from Redis in batches. Under certain conditions, this can be faster than
 // fetching all keys in a single MGET command.
-func mGetBatch[R any](ctx context.Context, c *Cache, keys ...string) (MultiResult[R], error) {
+func mGetMapBatch[R any](ctx context.Context, c *Cache, keys ...string) (MultiResult[R], error) {
 
 	chunks := chunk(keys, c.mgetBatch)
 
@@ -511,12 +502,12 @@ func mGetBatch[R any](ctx context.Context, c *Cache, keys ...string) (MultiResul
 			if !ok {
 				return nil, fmt.Errorf("unexpected value type from Redis: expected %T but got %T", str, res)
 			}
-			data, err := c.hooksMixin.current.decompress([]byte(str))
+			data, err := c.codec.Decompress([]byte(str))
 			if err != nil {
 				return nil, fmt.Errorf("decompress value: %w", err)
 			}
 			var val R
-			if err := c.hooksMixin.current.unmarshall(data, &val); err != nil {
+			if err := c.serializer.Unmarshal(data, &val); err != nil {
 				return nil, fmt.Errorf("unmarshall value to type %T: %w", val, err)
 			}
 			key := chunks[i][j]
@@ -527,17 +518,17 @@ func mGetBatch[R any](ctx context.Context, c *Cache, keys ...string) (MultiResul
 	return resultMap, nil
 }
 
-// MGetValues fetches multiple keys from Redis and returns only the values. If
-// the relationship between key -> value is required use MGet instead.
+// MGet retrieves multiple keys in a single operation and returns the result as a slice.
 //
-// MGetValues is useful when you only want to values and want to avoid the
-// overhead of allocating a slice from a MultiResult.
-func MGetValues[T any](ctx context.Context, c *Cache, keys ...string) ([]T, error) {
+// If a key doesn't exist in Redis it will not be present in the result slice. Due to missing keys
+// being omitted it isn't possible to correlate the keys with their values. If you need to fetch
+// multiple keys and their relationship between each other is important, use MGetMap instead.
+func MGet[T any](ctx context.Context, c *Cache, keys ...string) ([]T, error) {
 
 	// If batching is enabled and the number of keys exceeds the batch size use
 	// multiple MGET commands in a pipeline.
 	if c.mgetBatch > 0 && len(keys) > c.mgetBatch {
-		return mGetValuesBatch[T](ctx, c, keys...)
+		return mGetBatch[T](ctx, c, keys...)
 	}
 
 	results, err := c.redis.MGet(ctx, keys...).Result()
@@ -557,12 +548,12 @@ func MGetValues[T any](ctx context.Context, c *Cache, keys ...string) ([]T, erro
 		if !ok {
 			return nil, fmt.Errorf("unexpected value type from Redis: expected %T but got %T", str, res)
 		}
-		data, err := c.hooksMixin.current.decompress([]byte(str))
+		data, err := c.codec.Decompress([]byte(str))
 		if err != nil {
 			return nil, fmt.Errorf("decompress value: %w", err)
 		}
 		var val T
-		if err := c.hooksMixin.current.unmarshall(data, &val); err != nil {
+		if err := c.serializer.Unmarshal(data, &val); err != nil {
 			return nil, fmt.Errorf("unmarshall value to type %T: %w", val, err)
 		}
 		values = append(values, val)
@@ -570,7 +561,7 @@ func MGetValues[T any](ctx context.Context, c *Cache, keys ...string) ([]T, erro
 	return values, nil
 }
 
-func mGetValuesBatch[T any](ctx context.Context, c *Cache, keys ...string) ([]T, error) {
+func mGetBatch[T any](ctx context.Context, c *Cache, keys ...string) ([]T, error) {
 	chunks := chunk(keys, c.mgetBatch)
 	pipe := c.redis.Pipeline()
 	cmds := make([]*redis.SliceCmd, 0, len(chunks))
@@ -601,12 +592,12 @@ func mGetValuesBatch[T any](ctx context.Context, c *Cache, keys ...string) ([]T,
 			if !ok {
 				return nil, fmt.Errorf("unexpected value type from Redis: expected %T but got %T", str, res)
 			}
-			data, err := c.hooksMixin.current.decompress([]byte(str))
+			data, err := c.codec.Decompress([]byte(str))
 			if err != nil {
 				return nil, fmt.Errorf("decompress value: %w", err)
 			}
 			var val T
-			if err := c.hooksMixin.current.unmarshall(data, &val); err != nil {
+			if err := c.serializer.Unmarshal(data, &val); err != nil {
 				return nil, fmt.Errorf("unmarshall value to type %T: %w", val, err)
 			}
 			values = append(values, val)
@@ -643,37 +634,6 @@ type UpsertCallback[T any] func(found bool, oldValue T, newValue T) T
 //	})
 //	retries := 3
 //	for i := 0; i < retries; i++ {
-//		err := rcache.Upsert[Person](context.Background(), c, "BillyBob", p, cb)
-//		if rcache.IsRetryable(err) {
-//			continue
-//		}
-//		// do something useful ...
-//		break
-//	}
-func Upsert[T any](ctx context.Context, c *Cache, key string, val T, cb UpsertCallback[T]) error {
-	return UpsertTTL(ctx, c, key, val, cb, InfiniteTTL)
-}
-
-// UpsertTTL retrieves the existing value for a given key and invokes the UpsertCallback.
-// The UpsertCallback function is responsible for determining the value to be stored.
-// The value returned from the UpsertCallback is what is set in Redis.
-//
-// Upsert allows for atomic updates of existing records, or simply inserting new
-// entries when the key doesn't exist.
-//
-// Redis uses an optimistic locking model. If the key changes during the transaction
-// Redis will fail the transaction and return an error. However, these errors are
-// retryable. To determine if the error is retryable use the IsRetryable function
-// with the returned error.
-//
-//	cb := rcache.UpsertCallback[Person](func(found bool, oldValue Person, newValue Person) Person {
-//		fmt.Println(found)
-//		fmt.Println(oldValue)
-//		fmt.Println(newValue)
-//		return newValue
-//	})
-//	retries := 3
-//	for i := 0; i < retries; i++ {
 //		err := rcache.UpsertTTL[Person](context.Background(), c, "BillyBob", p, cb, time.Minute * 1)
 //		if rcache.IsRetryable(err) {
 //			continue
@@ -681,7 +641,7 @@ func Upsert[T any](ctx context.Context, c *Cache, key string, val T, cb UpsertCa
 //		// do something useful ...
 //		break
 //	}
-func UpsertTTL[T any](ctx context.Context, c *Cache, key string, val T, cb UpsertCallback[T], ttl time.Duration) error {
+func Upsert[T any](ctx context.Context, c *Cache, key string, val T, cb UpsertCallback[T], ttl time.Duration) error {
 
 	// Builds Redis transaction where the value is fetched from Redis, unmarshalled,
 	// and then passed to the UpsertCallback. The returned value from the UpsertCallback
@@ -698,11 +658,11 @@ func UpsertTTL[T any](ctx context.Context, c *Cache, key string, val T, cb Upser
 		}
 		newVal := cb(found, oldVal, val)
 		_, err = tx.TxPipelined(ctx, func(pipe redis.Pipeliner) error {
-			binaryValue, err := c.hooksMixin.current.marshal(newVal)
+			binaryValue, err := c.serializer.Marshal(newVal)
 			if err != nil {
 				return fmt.Errorf("marshal value: %w", err)
 			}
-			data, err := c.hooksMixin.current.compress(binaryValue)
+			data, err := c.codec.Compress(binaryValue)
 			if err != nil {
 				return fmt.Errorf("compress value: %w", err)
 			}
@@ -723,16 +683,4 @@ func UpsertTTL[T any](ctx context.Context, c *Cache, key string, val T, cb Upser
 		}
 	}
 	return err
-}
-
-// Scan retrieves all the keys and values from Redis matching the given pattern.
-//
-// Scan works similar to MGet, but allows a pattern to be specified rather than
-// providing keys.
-func Scan[T any](ctx context.Context, c *Cache, pattern string) (MultiResult[T], error) {
-	keys, err := c.Scan(ctx, pattern, 1000)
-	if err != nil {
-		return nil, fmt.Errorf("redis: %w", err)
-	}
-	return MGet[T](ctx, c, keys...)
 }

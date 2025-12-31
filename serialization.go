@@ -6,10 +6,6 @@ import (
 	"github.com/vmihailenco/msgpack/v5"
 )
 
-type marshaller func(v any) ([]byte, error)
-
-type unmarshaller func(b []byte, v any) error
-
 // A Serializer is a type that can marshal and unmarshal data types and structures between a GO
 // application and Redis.
 //

@@ -413,7 +413,7 @@ func TestMGet(t *testing.T) {
 	}
 
 	cache := New(client)
-	results, err := MGet[name](context.Background(), cache, "key123", "key456")
+	results, err := MGetMap[name](context.Background(), cache, "key123", "key456")
 	assert.NoError(t, err)
 	assert.Equal(t, map[string]name{
 		"key123": name{
@@ -459,7 +459,7 @@ func TestMGetBatch(t *testing.T) {
 	}
 
 	cache := New(client, BatchMultiGets(1000))
-	results, err := MGet[name](context.Background(), cache, keys...)
+	results, err := MGetMap[name](context.Background(), cache, keys...)
 	assert.NoError(t, err)
 	assert.Equal(t, 10000, len(results))
 	assert.Equal(t, MultiResult[name](expected), results)
