@@ -4,14 +4,41 @@ import (
 	"context"
 	"time"
 
-	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 
 	cache "github.com/jkratz55/redis-cache/v2"
 )
 
-// todo: Add func to support custom histogram boundaries
+// Init configures the OpenTelemetry metrics for the cacheotel package.
+//
+// Note: You only need to call Init if you want to override the default MeterProvider and configuration.
+// Init should only be called once. Calling Init multiple times can lead to non-determinitic results and
+// behavior.
+func Init(opts ...Option) {
+	conf := newConfig()
+	for _, opt := range opts {
+		opt(conf)
+	}
+
+	meter := conf.meterProvider.Meter(scope)
+
+	var err error
+	executionDuration, err = meter.Float64Histogram("cache.execution_duration",
+		metric.WithDescription("Duration of cache operations"),
+		metric.WithUnit("s"),
+		metric.WithExplicitBucketBoundaries(conf.durationBoundaries...))
+	if err != nil {
+		panic(err)
+	}
+
+	mgetKeys, err = meter.Int64Histogram("cache.mget_keys",
+		metric.WithDescription("Number of keys used in MGetMap operation"),
+		metric.WithExplicitBucketBoundaries(conf.mgetKeyBoundaries...))
+	if err != nil {
+		panic(err)
+	}
+}
 
 type Cache interface {
 	Get(ctx context.Context, key string, v any) error
@@ -188,24 +215,8 @@ var (
 )
 
 func init() {
-	meterProvider := otel.GetMeterProvider()
-	meter := meterProvider.Meter(scope)
-
-	var err error
-	executionDuration, err = meter.Float64Histogram("cache.execution_duration",
-		metric.WithDescription("Duration of cache operations"),
-		metric.WithUnit("s"),
-		metric.WithExplicitBucketBoundaries(0.005, 0.010, 0.025, 0.050, 0.100)) // 5ms, 10ms, 25ms, 50ms, 100ms
-	if err != nil {
-		panic(err)
-	}
-
-	mgetKeys, err = meter.Int64Histogram("cache.mget_keys",
-		metric.WithDescription("Number of keys used in MGetMap operation"),
-		metric.WithExplicitBucketBoundaries(100, 250, 500, 1000, 2500, 5000, 10000, 20000, 40000, 80000))
-	if err != nil {
-		panic(err)
-	}
+	// Initializes OpenTelemetry meter and metrics with defaults
+	Init()
 }
 
 // MGet retrieves multiple keys in a single operation and returns the result as a slice.
