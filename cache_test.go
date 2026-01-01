@@ -37,6 +37,30 @@ func mockRedis() *miniredis.Miniredis {
 	return s
 }
 
+type errorRedisClient struct {
+	RedisClient
+	getErr error
+	setErr error
+}
+
+func (m *errorRedisClient) Get(ctx context.Context, key string) *redis.StringCmd {
+	if m.getErr != nil {
+		cmd := redis.NewStringCmd(ctx)
+		cmd.SetErr(m.getErr)
+		return cmd
+	}
+	return m.RedisClient.Get(ctx, key)
+}
+
+func (m *errorRedisClient) Set(ctx context.Context, key string, value any, expiration time.Duration) *redis.StatusCmd {
+	if m.setErr != nil {
+		cmd := redis.NewStatusCmd(ctx)
+		cmd.SetErr(m.setErr)
+		return cmd
+	}
+	return m.RedisClient.Set(ctx, key, value, expiration)
+}
+
 func TestNewCache(t *testing.T) {
 	assert.NotPanics(t, func() {
 		New(client)
