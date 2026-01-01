@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"reflect"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -23,6 +24,7 @@ type TypedCache[T any] struct {
 	serializer Serializer
 	codec      CompressionCodec
 	mgetBatch  int // zero-value indicates no batching
+	isPtr      bool
 }
 
 // NewTyped creates and initializes a new TypedCache instance.
@@ -30,6 +32,7 @@ func NewTyped[T any](client RedisClient, opts ...Option) *TypedCache[T] {
 	if client == nil {
 		panic(errors.New("client cannot be nil"))
 	}
+
 	cache := &TypedCache[T]{
 		redis:      client,
 		serializer: MessagePackSerializer{},
@@ -39,6 +42,9 @@ func NewTyped[T any](client RedisClient, opts ...Option) *TypedCache[T] {
 	for _, opt := range opts {
 		opt(cache)
 	}
+
+	t := reflect.TypeOf((*T)(nil)).Elem()
+	cache.isPtr = t.Kind() == reflect.Ptr
 
 	return cache
 }
@@ -58,14 +64,7 @@ func (c *TypedCache[T]) Get(ctx context.Context, key string) (T, error) {
 		}
 		return res, fmt.Errorf("redis: %w", err)
 	}
-	data, err = c.codec.Decompress(data)
-	if err != nil {
-		return res, fmt.Errorf("decompress value: %w", err)
-	}
-	if err := c.serializer.Unmarshal(data, &res); err != nil {
-		return res, fmt.Errorf("unmarshall value to type %T: %w", res, err)
-	}
-	return res, nil
+	return c.decompressAndUnmarshal(data)
 }
 
 // GetAndExpire retrieves the value for the given key from the cache and sets the expiration time for the key.
@@ -85,14 +84,7 @@ func (c *TypedCache[T]) GetAndExpire(ctx context.Context, key string, ttl time.D
 		}
 		return res, fmt.Errorf("redis: %w", err)
 	}
-	data, err = c.codec.Decompress(data)
-	if err != nil {
-		return res, fmt.Errorf("decompress value: %w", err)
-	}
-	if err := c.serializer.Unmarshal(data, &res); err != nil {
-		return res, fmt.Errorf("unmarshall value to type %T: %w", res, err)
-	}
-	return res, nil
+	return c.decompressAndUnmarshal(data)
 }
 
 // GetAndDelete retrieves the value for the given key from the cache and deletes the key from the cache.
@@ -110,14 +102,7 @@ func (c *TypedCache[T]) GetAndDelete(ctx context.Context, key string) (T, error)
 		}
 		return res, fmt.Errorf("redis: %w", err)
 	}
-	data, err = c.codec.Decompress(data)
-	if err != nil {
-		return res, fmt.Errorf("decompress value: %w", err)
-	}
-	if err := c.serializer.Unmarshal(data, &res); err != nil {
-		return res, fmt.Errorf("unmarshall value to type %T: %w", res, err)
-	}
-	return res, nil
+	return c.decompressAndUnmarshal(data)
 }
 
 // MGet retrieves multiple values from Redis for the given keys.
@@ -155,13 +140,9 @@ func (c *TypedCache[T]) MGet(ctx context.Context, keys ...string) ([]T, error) {
 			if !ok {
 				return nil, fmt.Errorf("unexpected value type from Redis: expected %T but got %T", str, res)
 			}
-			data, err := c.codec.Decompress([]byte(str))
+			val, err := c.decompressAndUnmarshal([]byte(str))
 			if err != nil {
-				return nil, fmt.Errorf("decompress value: %w", err)
-			}
-			var val T
-			if err := c.serializer.Unmarshal(data, &val); err != nil {
-				return nil, fmt.Errorf("unmarshall value to type %T: %w", val, err)
+				return nil, err
 			}
 			resultValues = append(resultValues, val)
 		}
@@ -204,13 +185,9 @@ func (c *TypedCache[T]) MGetMap(ctx context.Context, keys ...string) (MultiResul
 			if !ok {
 				return nil, fmt.Errorf("unexpected value type from Redis: expected %T but got %T", str, res)
 			}
-			data, err := c.codec.Decompress([]byte(str))
+			val, err := c.decompressAndUnmarshal([]byte(str))
 			if err != nil {
-				return nil, fmt.Errorf("decompress value: %w", err)
-			}
-			var val T
-			if err := c.serializer.Unmarshal(data, &val); err != nil {
-				return nil, fmt.Errorf("unmarshall value to type %T: %w", val, err)
+				return nil, err
 			}
 			key := chunks[i][j]
 			resultMap[key] = val
@@ -373,4 +350,27 @@ func (c *TypedCache[T]) setCodec(codec CompressionCodec) {
 
 func (c *TypedCache[T]) setMGetBatch(i int) {
 	c.mgetBatch = i
+}
+
+func (c *TypedCache[T]) decompressAndUnmarshal(data []byte) (T, error) {
+	var res T
+
+	data, err := c.codec.Decompress(data)
+	if err != nil {
+		return res, fmt.Errorf("decompress value: %w", err)
+	}
+	if c.isPtr {
+		t := reflect.TypeOf((*T)(nil)).Elem()
+		ptr := reflect.New(t.Elem()).Interface()
+		if err := c.serializer.Unmarshal(data, ptr); err != nil {
+			return res, fmt.Errorf("unmarshal value: %w", err)
+		}
+		res = ptr.(T)
+		return res, nil
+	}
+
+	if err := c.serializer.Unmarshal(data, &res); err != nil {
+		return res, fmt.Errorf("unmarshal value: %w", err)
+	}
+	return res, nil
 }

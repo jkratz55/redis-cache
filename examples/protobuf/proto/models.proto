@@ -1,0 +1,14 @@
+syntax = "proto3";
+
+package proto;
+
+option go_package = "github.com/jkratz55/redis-cache/examples/protobuf/proto";
+
+message Customer {
+  int64 id = 1;
+  string first_name = 2;
+  string middle_name = 3;
+  string last_name = 4;
+  string email = 5;
+  bool loyalty = 6;
+}
