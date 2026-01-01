@@ -3,6 +3,7 @@ package cache
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -71,6 +72,10 @@ func TestReadThrough(t *testing.T) {
 			assert.NoError(t, err)
 			assert.Equal(t, tt.expectedValue, val)
 			assert.Equal(t, tt.expectedLoaderCalls, loaderCalls)
+
+			if tt.opts.UpdateAsync {
+				time.Sleep(time.Millisecond * 50)
+			}
 
 			var cachedVal string
 			err = rdb.Get(context.Background(), tt.key, &cachedVal)

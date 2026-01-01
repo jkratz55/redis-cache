@@ -17,8 +17,7 @@ type Option func(c configurable)
 // Serialization allows for the marshalling and unmarshalling behavior to be
 // customized for the Cache.
 //
-// A valid Marshaller and Unmarshaller must be provided. Providing nil for either
-// will immediately panic.
+// A valid Serializer must be provided. Providing nil will immediately panic.
 func Serialization(s Serializer) Option {
 	if s == nil {
 		panic(errors.New("nil Serializer"))

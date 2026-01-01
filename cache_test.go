@@ -126,10 +126,10 @@ func TestCache_Set(t *testing.T) {
 
 	cache := New(client)
 
-	err := cache.Set(context.Background(), "key123", "value123")
+	err := cache.Set(context.Background(), "key123", "value123", 0)
 	assert.NoError(t, err)
 
-	err = cache.Set(context.Background(), "key456", "value456")
+	err = cache.Set(context.Background(), "key456", "value456", 0)
 	assert.NoError(t, err)
 
 	b, err := client.Get(context.Background(), "key123").Bytes()
@@ -147,7 +147,7 @@ func TestCache_SetTTL(t *testing.T) {
 
 	cache := New(client)
 
-	err := cache.SetWithTTL(context.Background(), "key123", "value123", time.Second*1)
+	err := cache.Set(context.Background(), "key123", "value123", time.Second*1)
 	assert.NoError(t, err)
 
 	count, err := client.Exists(context.Background(), "key123").Result()
@@ -192,7 +192,7 @@ func TestCache_SetIfPresent(t *testing.T) {
 	assert.NoError(t, err)
 	assert.False(t, ok)
 
-	err = cache.Set(context.Background(), "key123", "value123")
+	err = cache.Set(context.Background(), "key123", "value123", 0)
 	assert.NoError(t, err)
 
 	ok, err = cache.SetIfPresent(context.Background(), "key123", "value123", 0)
@@ -263,68 +263,6 @@ func TestCache_MSet(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-func TestCache_MSetWithTTL(t *testing.T) {
-	setup()
-	defer tearDown()
-
-	type person struct {
-		FirstName string
-		LastName  string
-		Birthdate time.Time
-	}
-
-	data := map[string]any{
-		"key123": person{
-			FirstName: "Bob",
-			LastName:  "Dole",
-			Birthdate: time.Date(1960, 10, 28, 0, 0, 0, 0, time.Local),
-		},
-		"key 456": person{
-			FirstName: "Bill",
-			LastName:  "Clinton",
-			Birthdate: time.Date(1960, 10, 28, 0, 0, 0, 0, time.Local),
-		},
-		"key789": person{
-			FirstName: "Jimmy",
-			LastName:  "Dean",
-			Birthdate: time.Date(1960, 10, 28, 0, 0, 0, 0, time.Local),
-		},
-	}
-
-	cache := New(client)
-
-	err := cache.MSetWithTTL(context.Background(), data, 0)
-	assert.NoError(t, err)
-
-	results, err := client.MGet(context.Background(), "key123", "key456", "key789").Result()
-	assert.NoError(t, err)
-	assert.Equal(t, 3, len(results))
-
-	res, err := client.Get(context.Background(), "key123").Result()
-	assert.NoError(t, err)
-
-	expected := person{
-		FirstName: "Bob",
-		LastName:  "Dole",
-		Birthdate: time.Date(1960, 10, 28, 0, 0, 0, 0, time.Local),
-	}
-
-	var p person
-	err = msgpack.Unmarshal([]byte(res), &p)
-	assert.NoError(t, err)
-	assert.Equal(t, expected, p)
-
-	err = client.Del(context.Background(), "key123", "key456", "key789").Err()
-	assert.NoError(t, err)
-
-	err = cache.MSetWithTTL(context.Background(), data, time.Minute*10)
-	assert.NoError(t, err)
-
-	ttl, err := client.TTL(context.Background(), "key123").Result()
-	assert.NoError(t, err)
-	assert.Less(t, time.Minute*9, ttl)
-}
-
 func TestCache_Delete(t *testing.T) {
 	setup()
 	defer tearDown()
@@ -343,20 +281,22 @@ func TestCache_Delete(t *testing.T) {
 	assert.ErrorIs(t, err, ErrKeyNotFound)
 }
 
+type gobSerializer struct{}
+
+func (g gobSerializer) Marshal(v any) ([]byte, error) {
+	var buffer bytes.Buffer
+	err := gob.NewEncoder(&buffer).Encode(v)
+	return buffer.Bytes(), err
+}
+
+func (g gobSerializer) Unmarshal(b []byte, v any) error {
+	reader := bytes.NewReader(b)
+	return gob.NewDecoder(reader).Decode(v)
+}
+
 func TestNewCache_CustomSerialization(t *testing.T) {
 	setup()
 	defer tearDown()
-
-	marshaller := Marshaller(func(v any) ([]byte, error) {
-		var buffer bytes.Buffer
-		err := gob.NewEncoder(&buffer).Encode(v)
-		return buffer.Bytes(), err
-	})
-
-	unmarshaller := Unmarshaller(func(b []byte, v any) error {
-		reader := bytes.NewReader(b)
-		return gob.NewDecoder(reader).Decode(v)
-	})
 
 	type Person struct {
 		FirstName  string
@@ -365,13 +305,13 @@ func TestNewCache_CustomSerialization(t *testing.T) {
 		Age        int
 	}
 
-	cache := New(client, Serialization(marshaller, unmarshaller))
+	cache := New(client, Serialization(gobSerializer{}))
 	err := cache.Set(context.Background(), "person1", Person{
 		FirstName:  "Billy",
 		MiddleName: "Joel",
 		LastName:   "Bob",
 		Age:        99,
-	})
+	}, 0)
 	assert.NoError(t, err)
 
 	var p Person
@@ -493,7 +433,7 @@ func TestMGetValues(t *testing.T) {
 	}
 
 	cache := New(client)
-	results, err := MGetValues[name](context.Background(), cache, "key123", "key456")
+	results, err := MGet[name](context.Background(), cache, "key123", "key456")
 	assert.NoError(t, err)
 	assert.ElementsMatch(t, []name{
 		{
@@ -539,7 +479,7 @@ func TestMGetValuesBatch(t *testing.T) {
 	}
 
 	cache := New(client, BatchMultiGets(1000))
-	results, err := MGetValues[name](context.Background(), cache, keys...)
+	results, err := MGet[name](context.Background(), cache, keys...)
 	assert.NoError(t, err)
 	assert.Equal(t, 10000, len(results))
 	assert.Equal(t, expected, results)
@@ -571,7 +511,7 @@ func TestUpsertTTL(t *testing.T) {
 	})
 
 	cache := New(client)
-	err := UpsertTTL[name](context.Background(), cache, "BillyBob", arg, cb, 0)
+	err := Upsert[name](context.Background(), cache, "BillyBob", arg, cb, 0)
 	assert.NoError(t, err)
 	assert.Equal(t, 1, called)
 
@@ -592,7 +532,7 @@ func TestCache_Keys(t *testing.T) {
 
 	for i := 0; i < 10; i++ {
 		key := fmt.Sprintf("%d", i)
-		err := rdb.Set(context.Background(), key, key)
+		err := rdb.Set(context.Background(), key, key, 0)
 		assert.NoError(t, err)
 	}
 
@@ -658,33 +598,7 @@ func TestCache_Expire(t *testing.T) {
 	assert.ErrorIs(t, err, ErrKeyNotFound)
 }
 
-func TestCache_ExtendTTL(t *testing.T) {
-	setup()
-	defer tearDown()
-
-	rdb := New(client)
-
-	err := client.Set(context.Background(), "test-nottl", "test", InfiniteTTL).Err()
-	assert.NoError(t, err)
-
-	err = client.Set(context.Background(), "test-ttl", "test", time.Second*300).Err()
-	assert.NoError(t, err)
-
-	err = rdb.ExtendTTL(context.Background(), "test-nottl", time.Second*60)
-	assert.NoError(t, err)
-	ttl := client.TTL(context.Background(), "test-nottl").Val()
-	assert.Equal(t, time.Second*59, ttl)
-
-	err = rdb.ExtendTTL(context.Background(), "test-ttl", time.Second*120)
-	assert.NoError(t, err)
-	ttl = client.TTL(context.Background(), "test-ttl").Val()
-	assert.Equal(t, time.Second*420, ttl)
-
-	err = rdb.ExtendTTL(context.Background(), "random", time.Hour*1)
-	assert.ErrorIs(t, err, ErrKeyNotFound)
-}
-
-func TestCache_ScanKeys(t *testing.T) {
+func TestCache_Scan(t *testing.T) {
 	setup()
 	defer tearDown()
 
@@ -697,11 +611,11 @@ func TestCache_ScanKeys(t *testing.T) {
 
 	rdb := New(client)
 
-	keys, err := rdb.ScanKeys(context.Background(), "user:*")
+	keys, err := rdb.Scan(context.Background(), "user:*", 0)
 	assert.NoError(t, err)
 	assert.ElementsMatch(t, []string{"user:123", "user:456", "user:789"}, keys)
 
-	keys, err = rdb.ScanKeys(context.Background(), "system:*")
+	keys, err = rdb.Scan(context.Background(), "system:*", 0)
 	assert.NoError(t, err)
 	assert.ElementsMatch(t, []string{"system:123", "system:456", "system:789"}, keys)
 }
