@@ -8,6 +8,7 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	cache "github.com/jkratz55/redis-cache/v2"
+	"github.com/jkratz55/redis-cache/v2/compression/lz4"
 )
 
 type Person struct {
@@ -32,8 +33,8 @@ func main() {
 	}()
 
 	rdb := cache.NewTyped[Person](client,
-		cache.GZip(),
-		cache.JSON(),
+		cache.Serialization(cache.JsonSerializer{}),
+		cache.Compression(lz4.NewCodec()),
 		cache.BatchMultiGets(500))
 
 	if err := rdb.Set(context.Background(), "person", Person{

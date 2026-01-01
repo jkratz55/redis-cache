@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/redis/go-redis/v9"
@@ -20,13 +21,13 @@ func main() {
 		Addr: "localhost:6379",
 	})
 
-	c := rcache.NewCache(client)
+	c := rcache.New(client)
 
 	if err := c.Set(context.Background(), "person", Person{
 		FirstName: "Biily",
 		LastName:  "Bob",
 		Age:       45,
-	}); err != nil {
+	}, 0); err != nil {
 		panic("ohhhhh snap!")
 	}
 
@@ -40,7 +41,7 @@ func main() {
 		panic("ohhh snap!")
 	}
 
-	if err := c.Get(context.Background(), "person", &p); err != rcache.ErrKeyNotFound {
+	if err := c.Get(context.Background(), "person", &p); !errors.Is(err, rcache.ErrKeyNotFound) {
 		panic("ohhhhh snap, this key should be gone!")
 	}
 
@@ -52,7 +53,7 @@ func main() {
 	})
 	retries := 3
 	for i := 0; i < retries; i++ {
-		err := rcache.Upsert[Person](context.Background(), c, "BillyBob", p, cb)
+		err := rcache.Upsert[Person](context.Background(), c, "BillyBob", p, cb, 0)
 		if rcache.IsRetryable(err) {
 			continue
 		}

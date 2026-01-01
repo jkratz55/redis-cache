@@ -2,11 +2,13 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/redis/go-redis/v9"
 
 	rcache "github.com/jkratz55/redis-cache/v2"
+	"github.com/jkratz55/redis-cache/v2/compression/lz4"
 )
 
 type Person struct {
@@ -20,13 +22,14 @@ func main() {
 		Addr: "localhost:6379",
 	})
 
-	c := rcache.New(client, rcache.GZip())
+	codec := lz4.NewCodec()
+	c := rcache.New(client, rcache.Compression(codec))
 
 	if err := c.Set(context.Background(), "person", Person{
 		FirstName: "Biily",
 		LastName:  "Bob",
 		Age:       45,
-	}); err != nil {
+	}, 0); err != nil {
 		panic("ohhhhh snap!")
 	}
 
@@ -40,7 +43,7 @@ func main() {
 		panic("ohhh snap!")
 	}
 
-	if err := c.Get(context.Background(), "person", &p); err != rcache.ErrKeyNotFound {
+	if err := c.Get(context.Background(), "person", &p); !errors.Is(err, rcache.ErrKeyNotFound) {
 		panic("ohhhhh snap, this key should be gone!")
 	}
 }
