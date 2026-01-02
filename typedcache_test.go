@@ -1,9 +1,7 @@
 package cache
 
 import (
-	"bytes"
 	"context"
-	"encoding/gob"
 	"fmt"
 	"testing"
 	"time"
@@ -255,7 +253,7 @@ func TestTypedCache_MGet(t *testing.T) {
 	}
 
 	rdb := NewTyped[name](client)
-	results, err := rdb.MGet(context.Background(), "key123", "key456")
+	results, err := rdb.MGetMap(context.Background(), "key123", "key456")
 	assert.NoError(t, err)
 	assert.Equal(t, map[string]name{
 		"key123": {
@@ -301,7 +299,7 @@ func TestTypedCache_MGetBatch(t *testing.T) {
 	}
 
 	rdb := NewTyped[name](client, BatchMultiGets(1000))
-	results, err := rdb.MGet(context.Background(), keys...)
+	results, err := rdb.MGetMap(context.Background(), keys...)
 	assert.NoError(t, err)
 	assert.Equal(t, 10000, len(results))
 	assert.Equal(t, MultiResult[name](expected), results)
@@ -329,17 +327,6 @@ func TestTypedCache_CustomSerialization(t *testing.T) {
 	setup()
 	defer tearDown()
 
-	marshaller := Marshaller(func(v any) ([]byte, error) {
-		var buffer bytes.Buffer
-		err := gob.NewEncoder(&buffer).Encode(v)
-		return buffer.Bytes(), err
-	})
-
-	unmarshaller := Unmarshaller(func(b []byte, v any) error {
-		reader := bytes.NewReader(b)
-		return gob.NewDecoder(reader).Decode(v)
-	})
-
 	type Person struct {
 		FirstName  string
 		MiddleName string
@@ -347,7 +334,7 @@ func TestTypedCache_CustomSerialization(t *testing.T) {
 		Age        int
 	}
 
-	rdb := NewTyped[Person](client, Serialization(marshaller, unmarshaller))
+	rdb := NewTyped[Person](client, Serialization(gobSerializer{}))
 	err := rdb.Set(context.Background(), "person1", Person{
 		FirstName:  "Billy",
 		MiddleName: "Joel",

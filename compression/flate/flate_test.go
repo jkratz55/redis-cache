@@ -14,10 +14,10 @@ func TestCodec(t *testing.T) {
 		Level: flate.BestCompression,
 	}
 
-	compressed, err := codec.Flate([]byte(testStr))
+	compressed, err := codec.Compress([]byte(testStr))
 	assert.NoError(t, err)
 
-	decompressed, err := codec.Deflate(compressed)
+	decompressed, err := codec.Decompress(compressed)
 	assert.NoError(t, err)
 	assert.Equal(t, testStr, string(decompressed))
 }

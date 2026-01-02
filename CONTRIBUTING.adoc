@@ -1,0 +1,45 @@
+= Contributing
+
+Contributions to this project are welcome, whether it be reporting a bug, suggesting an enhancement, or contributing code. However, I do want to set some realistic expectations. This is a side project for me. I have a full-time job and personal life. It may be a few days before I respond to issues, comments, or pull requests. If it's taking some time to get a response, please be patient. It is challenging enough not to get burned out in this industry, and the last thing I want to do is getting burnt out with open source.
+
+If you are interested in contributing, please read through the guidelines below.
+
+== General Guidelines
+
+* Be professional and constructive in discussions.
+* If you’re proposing a non-trivial change, please start with an issue/discussion first so we can align on approach and scope.
+
+=== Reporting a Bug
+
+When reporting a bug, it is important to provide as much detail as possible. Preferably with a minimal example to reproduce the issue. This allows me to find and debug the issue quickly rather than trying to guess and replicate.
+
+* Open a GitHub issue and label it `bug`.
+* Include a minimal example/snippet to reproduce the issue (or a repo/branch if that’s easier).
+* Include:
+** Redis Cache version
+** Redis version
+** Go version
+** OS/architecture (if relevant)
+* Include actual vs expected behavior, plus any error logs/stack traces.
+
+=== Suggesting an Enhancement
+
+If you have ideas for enhancements please open a GitHub issue with the label `enhancement`. The enhancement proposal should include the following:
+
+* The problem statement, what problem is this proposal solving?
+* Would this introduce breaking changes?
+* If possible, a draft of the proposed API changes or new APIs
+
+=== Contributing Code
+
+Code contributions are welcome, but in the interest of both your time and mine, a GitHub issue/discussion should be started before opening a pull request. This provides an opportunity to understand the intent and scope of the changes before time/effort is spent on something that might not be merged. Contributors are also welcome to request to work on open issues that have already been triaged.
+
+==== Pull Request Guidelines
+
+Before opening a PR, please ensure:
+
+* Tests pass (`go test ./...`) and new/changed behavior includes tests where practical
+* Public API changes are clearly described, including migration notes if applicable
+* Breaking changes are explicitly called out
+* Documentation is updated when behavior or usage changes
+* The PR description links the relevant issue (if one exists)

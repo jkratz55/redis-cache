@@ -14,10 +14,10 @@ func TestCodec(t *testing.T) {
 	// Looping to test for re-using objects from sync.Pool
 	for i := 0; i < 10; i++ {
 		testStr := "This is a test string. Hopefully it flates and then deflates to the same value!"
-		compressed, err := codec.Flate([]byte(testStr))
+		compressed, err := codec.Compress([]byte(testStr))
 		assert.NoError(t, err)
 
-		decompressed, err := codec.Deflate(compressed)
+		decompressed, err := codec.Decompress(compressed)
 		assert.NoError(t, err)
 		assert.Equal(t, testStr, string(decompressed))
 	}

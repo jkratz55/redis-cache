@@ -10,11 +10,11 @@ func NewCodec() *Codec {
 	return &Codec{}
 }
 
-func (c Codec) Flate(data []byte) ([]byte, error) {
+func (c *Codec) Compress(data []byte) ([]byte, error) {
 	compressed := snappy.Encode(nil, data)
 	return compressed, nil
 }
 
-func (c Codec) Deflate(data []byte) ([]byte, error) {
+func (c *Codec) Decompress(data []byte) ([]byte, error) {
 	return snappy.Decode(nil, data)
 }

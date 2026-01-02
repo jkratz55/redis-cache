@@ -19,7 +19,7 @@ type Codec struct {
 	Level int
 }
 
-func (c Codec) Flate(data []byte) ([]byte, error) {
+func (c *Codec) Compress(data []byte) ([]byte, error) {
 	b := &bytes.Buffer{}
 	w, err := flate.NewWriter(b, c.Level)
 	if err != nil {
@@ -32,7 +32,7 @@ func (c Codec) Flate(data []byte) ([]byte, error) {
 	return b.Bytes(), nil
 }
 
-func (c Codec) Deflate(data []byte) ([]byte, error) {
+func (c *Codec) Decompress(data []byte) ([]byte, error) {
 	buffer := &bytes.Buffer{}
 	r := flate.NewReader(bytes.NewReader(data))
 	_, err := io.Copy(buffer, r)

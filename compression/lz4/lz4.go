@@ -20,7 +20,7 @@ func NewCodec() *Codec {
 	}
 }
 
-func (c *Codec) Flate(data []byte) ([]byte, error) {
+func (c *Codec) Compress(data []byte) ([]byte, error) {
 	var buffer bytes.Buffer
 	lz4Writer, _ := c.writerPool.Get().(*lz4.Writer)
 	if lz4Writer != nil {
@@ -45,7 +45,7 @@ func (c *Codec) Flate(data []byte) ([]byte, error) {
 	return buffer.Bytes(), err
 }
 
-func (c *Codec) Deflate(data []byte) ([]byte, error) {
+func (c *Codec) Decompress(data []byte) ([]byte, error) {
 	reader := bytes.NewReader(data)
 	lz4Reader, _ := c.readerPool.Get().(*lz4.Reader)
 	if lz4Reader != nil {

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"reflect"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -19,42 +20,40 @@ import (
 //
 // The zero-value of TypedCache is not usable. Use NewTyped to create a new instance.
 type TypedCache[T any] struct {
-	redis        RedisClient
-	marshaller   Marshaller
-	unmarshaller Unmarshaller
-	codec        Codec
-	mgetBatch    int // zero-value indicates no batching
-	hooksMixin
+	redis      RedisClient
+	serializer Serializer
+	codec      CompressionCodec
+	mgetBatch  int // zero-value indicates no batching
+	isPtr      bool
 }
 
+// NewTyped creates and initializes a new TypedCache instance.
 func NewTyped[T any](client RedisClient, opts ...Option) *TypedCache[T] {
 	if client == nil {
-		panic(fmt.Errorf("a valid redis client is required, illegal use of api"))
+		panic(errors.New("client cannot be nil"))
 	}
+
 	cache := &TypedCache[T]{
-		redis:        client,
-		marshaller:   DefaultMarshaller(),
-		unmarshaller: DefaultUnmarshaller(),
-		codec:        nopCodec{},
+		redis:      client,
+		serializer: MessagePackSerializer{},
+		codec:      nopCodec{},
 	}
 
 	for _, opt := range opts {
 		opt(cache)
 	}
 
-	cache.hooksMixin = hooksMixin{
-		initial: hooks{
-			marshal:    cache.marshaller,
-			unmarshall: cache.unmarshaller,
-			compress:   cache.codec.Flate,
-			decompress: cache.codec.Deflate,
-		},
-	}
-	cache.chain()
+	t := reflect.TypeOf((*T)(nil)).Elem()
+	cache.isPtr = t.Kind() == reflect.Ptr
 
 	return cache
 }
 
+// Get retrieves the value for the given key from the cache.
+//
+// If the key does not exist, ErrKeyNotFound will be returned. If the operation/command to Redis failed,
+// the value could not be unmarshalled, or the value was compressed and could not be decompressed, the
+// error will be returned.
 func (c *TypedCache[T]) Get(ctx context.Context, key string) (T, error) {
 	var res T
 
@@ -65,16 +64,16 @@ func (c *TypedCache[T]) Get(ctx context.Context, key string) (T, error) {
 		}
 		return res, fmt.Errorf("redis: %w", err)
 	}
-	data, err = c.hooksMixin.current.decompress(data)
-	if err != nil {
-		return res, fmt.Errorf("decompress value: %w", err)
-	}
-	if err := c.hooksMixin.current.unmarshall(data, &res); err != nil {
-		return res, fmt.Errorf("unmarshall value to type %T: %w", res, err)
-	}
-	return res, nil
+	return c.decompressAndUnmarshal(data)
 }
 
+// GetAndExpire retrieves the value for the given key from the cache and sets the expiration time for the key.
+//
+// If the key does not exist, ErrKeyNotFound will be returned. If the operation/command to Redis failed,
+// the value could not be unmarshalled, or the value was compressed and could not be decompressed, the
+// error will be returned.
+//
+// A ttl value of 0 will remove the TTL on the key if there is one.
 func (c *TypedCache[T]) GetAndExpire(ctx context.Context, key string, ttl time.Duration) (T, error) {
 	var res T
 
@@ -85,16 +84,14 @@ func (c *TypedCache[T]) GetAndExpire(ctx context.Context, key string, ttl time.D
 		}
 		return res, fmt.Errorf("redis: %w", err)
 	}
-	data, err = c.hooksMixin.current.decompress(data)
-	if err != nil {
-		return res, fmt.Errorf("decompress value: %w", err)
-	}
-	if err := c.hooksMixin.current.unmarshall(data, &res); err != nil {
-		return res, fmt.Errorf("unmarshall value to type %T: %w", res, err)
-	}
-	return res, nil
+	return c.decompressAndUnmarshal(data)
 }
 
+// GetAndDelete retrieves the value for the given key from the cache and deletes the key from the cache.
+//
+// If the key does not exist, ErrKeyNotFound will be returned. If the operation/command to Redis failed,
+// the value could not be unmarshalled, or the value was compressed and could not be decompressed, the
+// error will be returned.
 func (c *TypedCache[T]) GetAndDelete(ctx context.Context, key string) (T, error) {
 	var res T
 
@@ -105,17 +102,56 @@ func (c *TypedCache[T]) GetAndDelete(ctx context.Context, key string) (T, error)
 		}
 		return res, fmt.Errorf("redis: %w", err)
 	}
-	data, err = c.hooksMixin.current.decompress(data)
-	if err != nil {
-		return res, fmt.Errorf("decompress value: %w", err)
-	}
-	if err := c.hooksMixin.current.unmarshall(data, &res); err != nil {
-		return res, fmt.Errorf("unmarshall value to type %T: %w", res, err)
-	}
-	return res, nil
+	return c.decompressAndUnmarshal(data)
 }
 
-func (c *TypedCache[T]) MGet(ctx context.Context, keys ...string) (MultiResult[T], error) {
+// MGet retrieves multiple values from Redis for the given keys.
+func (c *TypedCache[T]) MGet(ctx context.Context, keys ...string) ([]T, error) {
+	batch := c.mgetBatch
+	if batch == 0 {
+		batch = math.MaxInt
+	}
+	chunks := chunk(keys, batch)
+
+	pipe := c.redis.Pipeline()
+	cmds := make([]*redis.SliceCmd, 0, len(chunks))
+	for i := 0; i < len(chunks); i++ {
+		cmds = append(cmds, pipe.MGet(ctx, chunks[i]...))
+	}
+
+	_, err := pipe.Exec(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("redis: %w", err)
+	}
+
+	resultValues := make([]T, 0, len(keys))
+	for i := 0; i < len(cmds); i++ {
+		results, err := cmds[i].Result()
+		if err != nil {
+			return nil, fmt.Errorf("redis: %w", err)
+		}
+		for _, res := range results {
+			if res == nil || res == redis.Nil {
+				// Some or all of the requested keys may not exist. Skip iterations
+				// where the key wasn't found
+				continue
+			}
+			str, ok := res.(string)
+			if !ok {
+				return nil, fmt.Errorf("unexpected value type from Redis: expected %T but got %T", str, res)
+			}
+			val, err := c.decompressAndUnmarshal([]byte(str))
+			if err != nil {
+				return nil, err
+			}
+			resultValues = append(resultValues, val)
+		}
+	}
+
+	return resultValues, nil
+}
+
+func (c *TypedCache[T]) MGetMap(ctx context.Context, keys ...string) (MultiResult[T], error) {
 	batch := c.mgetBatch
 	if batch == 0 {
 		batch = math.MaxInt
@@ -149,13 +185,9 @@ func (c *TypedCache[T]) MGet(ctx context.Context, keys ...string) (MultiResult[T
 			if !ok {
 				return nil, fmt.Errorf("unexpected value type from Redis: expected %T but got %T", str, res)
 			}
-			data, err := c.hooksMixin.current.decompress([]byte(str))
+			val, err := c.decompressAndUnmarshal([]byte(str))
 			if err != nil {
-				return nil, fmt.Errorf("decompress value: %w", err)
-			}
-			var val T
-			if err := c.hooksMixin.current.unmarshall(data, &val); err != nil {
-				return nil, fmt.Errorf("unmarshall value to type %T: %w", val, err)
+				return nil, err
 			}
 			key := chunks[i][j]
 			resultMap[key] = val
@@ -166,11 +198,11 @@ func (c *TypedCache[T]) MGet(ctx context.Context, keys ...string) (MultiResult[T
 }
 
 func (c *TypedCache[T]) Set(ctx context.Context, key string, val T, ttl time.Duration) error {
-	data, err := c.hooksMixin.current.marshal(val)
+	data, err := c.serializer.Marshal(val)
 	if err != nil {
 		return fmt.Errorf("marshall value: %w", err)
 	}
-	data, err = c.hooksMixin.current.compress(data)
+	data, err = c.codec.Compress(data)
 	if err != nil {
 		return fmt.Errorf("compress value: %w", err)
 	}
@@ -182,11 +214,11 @@ func (c *TypedCache[T]) Set(ctx context.Context, key string, val T, ttl time.Dur
 }
 
 func (c *TypedCache[T]) SetIfAbsent(ctx context.Context, key string, val T, ttl time.Duration) (bool, error) {
-	data, err := c.hooksMixin.current.marshal(val)
+	data, err := c.serializer.Marshal(val)
 	if err != nil {
 		return false, fmt.Errorf("marshall value: %w", err)
 	}
-	data, err = c.hooksMixin.current.compress(data)
+	data, err = c.codec.Compress(data)
 	if err != nil {
 		return false, fmt.Errorf("compress value: %w", err)
 	}
@@ -198,11 +230,11 @@ func (c *TypedCache[T]) SetIfAbsent(ctx context.Context, key string, val T, ttl 
 }
 
 func (c *TypedCache[T]) SetIfPresent(ctx context.Context, key string, val T, ttl time.Duration) (bool, error) {
-	data, err := c.hooksMixin.current.marshal(val)
+	data, err := c.serializer.Marshal(val)
 	if err != nil {
 		return false, fmt.Errorf("marshall value: %w", err)
 	}
-	data, err = c.hooksMixin.current.compress(data)
+	data, err = c.codec.Compress(data)
 	if err != nil {
 		return false, fmt.Errorf("compress value: %w", err)
 	}
@@ -218,11 +250,11 @@ func (c *TypedCache[T]) MSet(ctx context.Context, values map[string]T) error {
 	// and compressing the values.
 	rawData := make(map[string]any)
 	for k, v := range values {
-		val, err := c.hooksMixin.current.marshal(v)
+		val, err := c.serializer.Marshal(v)
 		if err != nil {
 			return fmt.Errorf("marshal value: %w", err)
 		}
-		val, err = c.hooksMixin.current.compress(val)
+		val, err = c.codec.Compress(val)
 		if err != nil {
 			return fmt.Errorf("compress value: %w", err)
 		}
@@ -308,18 +340,37 @@ func (c *TypedCache[T]) Client() redis.UniversalClient {
 	return c.redis.(redis.UniversalClient)
 }
 
-func (c *TypedCache[T]) setMarshaller(marshaller Marshaller) {
-	c.marshaller = marshaller
+func (c *TypedCache[T]) setSerializer(serializer Serializer) {
+	c.serializer = serializer
 }
 
-func (c *TypedCache[T]) setUnmarshaller(unmarshaller Unmarshaller) {
-	c.unmarshaller = unmarshaller
-}
-
-func (c *TypedCache[T]) setCodec(codec Codec) {
+func (c *TypedCache[T]) setCodec(codec CompressionCodec) {
 	c.codec = codec
 }
 
 func (c *TypedCache[T]) setMGetBatch(i int) {
 	c.mgetBatch = i
+}
+
+func (c *TypedCache[T]) decompressAndUnmarshal(data []byte) (T, error) {
+	var res T
+
+	data, err := c.codec.Decompress(data)
+	if err != nil {
+		return res, fmt.Errorf("decompress value: %w", err)
+	}
+	if c.isPtr {
+		t := reflect.TypeOf((*T)(nil)).Elem()
+		ptr := reflect.New(t.Elem()).Interface()
+		if err := c.serializer.Unmarshal(data, ptr); err != nil {
+			return res, fmt.Errorf("unmarshal value: %w", err)
+		}
+		res = ptr.(T)
+		return res, nil
+	}
+
+	if err := c.serializer.Unmarshal(data, &res); err != nil {
+		return res, fmt.Errorf("unmarshal value: %w", err)
+	}
+	return res, nil
 }
