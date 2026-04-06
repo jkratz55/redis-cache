@@ -89,9 +89,11 @@ func main() {
 		}
 	}()
 
+	serializer := cacheotel.NewInstrumentedSerializer(cache.MessagePackSerializer{})
+
 	// Create instance of the instrumented cache instead of cache.Cache. This will automatically
 	// capture execution time of not only the client, but compression and serialization.
-	rdb := cacheotel.InstrumentCache(cache.New(client))
+	rdb := cacheotel.InstrumentCache(cache.New(client, cache.Serialization(serializer)))
 
 	ctx := context.Background()
 

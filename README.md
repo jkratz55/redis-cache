@@ -19,7 +19,7 @@ Please see [CONTRIBUTING.md](CONTRIBUTING.md) for details.
 
 ## Requirements
 
-* Go 1.24+ 
+* Go 1.25+ 
 * Redis 7+
 
 ## Getting Redis Cache

@@ -22,8 +22,8 @@
 #### Improvements
 
 * Updated dependencies:
-    * `github.com/redis/go-redis/v9` to `v9.17.2`
-    * `go.opentelemetry.io/otel` to `v1.39.0`
+    * `github.com/redis/go-redis/v9` to `v9.18.0`
+    * `go.opentelemetry.io/otel` to `v1.43.0`
     * `google.golang.org/protobuf` to `1.36.11`
     * `github.com/klauspost/compress` to `v1.18.2`
 * Significant increase in unit test coverage.
