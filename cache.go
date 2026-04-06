@@ -46,6 +46,7 @@ type RedisClient interface {
 	TTL(ctx context.Context, key string) *redis.DurationCmd
 	Expire(ctx context.Context, key string, expiration time.Duration) *redis.BoolCmd
 	Pipeline() redis.Pipeliner
+	Close() error
 }
 
 // Cache is a thin abstraction over the go-redis client that provides serialization, compression
