@@ -21,7 +21,7 @@ import (
 func Init(opts ...Option) {
 	conf := newConfig()
 	for _, opt := range opts {
-		opt(conf)
+		opt.apply(conf)
 	}
 
 	meter := conf.meterProvider.Meter(scope)
