@@ -44,11 +44,15 @@ func Init(opts ...Option) {
 	}
 }
 
+// InstrumentedCache is a wrapper around cache.Cache that provides instrumentation for operations.
+//
+// The zero-value is not usable. Use InstrumentCache to create an instance.
 type InstrumentedCache struct {
 	next              *cache.Cache
 	executionDuration metric.Float64Histogram
 }
 
+// InstrumentCache returns an InstrumentedCache that wraps the provided cache.Cache.
 func InstrumentCache(c *cache.Cache) *InstrumentedCache {
 	return &InstrumentedCache{
 		next:              c,
@@ -472,12 +476,16 @@ type TypedCache[T any] interface {
 	Scan(ctx context.Context, pattern string, batch int64) ([]string, error)
 }
 
+// InstrumentedTypedCache is a wrapper around a TypedCache that adds instrumentation.
+//
+// The zero-value is not usable. Use InstrumentTypedCache to create an instance.
 type InstrumentedTypedCache[T any] struct {
 	next              TypedCache[T]
 	executionDuration metric.Float64Histogram
 	mgetKeys          metric.Int64Histogram
 }
 
+// InstrumentTypedCache returns a new InstrumentedTypedCache that wraps the given TypedCache.
 func InstrumentTypedCache[T any](c TypedCache[T]) *InstrumentedTypedCache[T] {
 	return &InstrumentedTypedCache[T]{
 		next:              c,

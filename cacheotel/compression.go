@@ -10,12 +10,18 @@ import (
 	cache "github.com/jkratz55/redis-cache/v2"
 )
 
+// InstrumentedCompressionCodec wraps a CompressionCodec and instruments it with OpenTelemetry metrics.
+//
+// The zero value for InstrumentedCompressionCodec is not usable. Use NewInstrumentedCompressionCodec
+// to create a new instance.
 type InstrumentedCompressionCodec struct {
 	codec cache.CompressionCodec
 	dur   metric.Float64Histogram
 	errs  metric.Int64Counter
 }
 
+// NewInstrumentedCompressionCodec returns a new InstrumentedCompressionCodec that wraps the given
+// CompressionCodec.
 func NewInstrumentedCompressionCodec(codec cache.CompressionCodec, opts ...CompressionOption) *InstrumentedCompressionCodec {
 	conf := newCommonConfig()
 	for _, opt := range opts {

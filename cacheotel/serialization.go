@@ -10,12 +10,17 @@ import (
 	cache "github.com/jkratz55/redis-cache/v2"
 )
 
+// InstrumentedSerializer wraps a cache.Serializer and instruments it with OpenTelemetry metrics.
+//
+// The zero value for InstrumentedSerializer is not usable. Use NewInstrumentedSerializer
+// to create a new instance.
 type InstrumentedSerializer struct {
 	serializer cache.Serializer
 	duration   metric.Float64Histogram
 	errs       metric.Int64Counter
 }
 
+// NewInstrumentedSerializer returns a new InstrumentedSerializer that wraps the given Serializer.
 func NewInstrumentedSerializer(serializer cache.Serializer, opts ...SerializerOption) *InstrumentedSerializer {
 	conf := newCommonConfig()
 	for _, opt := range opts {
