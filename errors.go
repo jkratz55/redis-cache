@@ -23,3 +23,7 @@ func (e RetryableError) IsRetryable() bool {
 func (e RetryableError) Error() string {
 	return e.cause.Error()
 }
+
+func (e RetryableError) Unwrap() error {
+	return e.cause
+}
