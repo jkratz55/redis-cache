@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math"
 	"reflect"
 	"time"
 
@@ -107,16 +106,45 @@ func (c *TypedCache[T]) GetAndDelete(ctx context.Context, key string) (T, error)
 
 // MGet retrieves multiple values from Redis for the given keys.
 func (c *TypedCache[T]) MGet(ctx context.Context, keys ...string) ([]T, error) {
-	batch := c.mgetBatch
-	if batch == 0 {
-		batch = math.MaxInt
+	numKeys := len(keys)
+	if numKeys == 0 {
+		return nil, nil
 	}
-	chunks := chunk(keys, batch)
 
+	if c.mgetBatch == 0 || numKeys <= c.mgetBatch {
+		results, err := c.redis.MGet(ctx, keys...).Result()
+		if err != nil {
+			return nil, fmt.Errorf("redis: %w", err)
+		}
+		resultValues := make([]T, 0, numKeys)
+		for _, res := range results {
+			if res == nil || res == redis.Nil {
+				// Some or all of the requested keys may not exist. Skip iterations
+				// where the key wasn't found
+				continue
+			}
+			str, ok := res.(string)
+			if !ok {
+				return nil, fmt.Errorf("unexpected value type from Redis: expected %T but got %T", str, res)
+			}
+			val, err := c.decompressAndUnmarshal([]byte(str))
+			if err != nil {
+				return nil, err
+			}
+			resultValues = append(resultValues, val)
+		}
+		return resultValues, nil
+	}
+
+	numBatches := (numKeys + c.mgetBatch - 1) / c.mgetBatch
 	pipe := c.redis.Pipeline()
-	cmds := make([]*redis.SliceCmd, 0, len(chunks))
-	for i := 0; i < len(chunks); i++ {
-		cmds = append(cmds, pipe.MGet(ctx, chunks[i]...))
+	cmds := make([]*redis.SliceCmd, 0, numBatches)
+	for i := 0; i < numKeys; i += c.mgetBatch {
+		end := i + c.mgetBatch
+		if end > numKeys {
+			end = numKeys
+		}
+		cmds = append(cmds, pipe.MGet(ctx, keys[i:end]...))
 	}
 
 	_, err := pipe.Exec(ctx)
@@ -125,8 +153,8 @@ func (c *TypedCache[T]) MGet(ctx context.Context, keys ...string) ([]T, error) {
 	}
 
 	resultValues := make([]T, 0, len(keys))
-	for i := 0; i < len(cmds); i++ {
-		results, err := cmds[i].Result()
+	for _, cmd := range cmds {
+		results, err := cmd.Result()
 		if err != nil {
 			return nil, fmt.Errorf("redis: %w", err)
 		}
@@ -152,16 +180,45 @@ func (c *TypedCache[T]) MGet(ctx context.Context, keys ...string) ([]T, error) {
 }
 
 func (c *TypedCache[T]) MGetMap(ctx context.Context, keys ...string) (MultiResult[T], error) {
-	batch := c.mgetBatch
-	if batch == 0 {
-		batch = math.MaxInt
+	numKeys := len(keys)
+	if numKeys == 0 {
+		return nil, nil
 	}
-	chunks := chunk(keys, batch)
 
+	if c.mgetBatch == 0 || numKeys <= c.mgetBatch {
+		results, err := c.redis.MGet(ctx, keys...).Result()
+		if err != nil {
+			return nil, fmt.Errorf("redis: %w", err)
+		}
+		resultMap := make(map[string]T, numKeys)
+		for i, res := range results {
+			if res == nil || res == redis.Nil {
+				// Some or all of the requested keys may not exist. Skip iterations
+				// where the key wasn't found
+				continue
+			}
+			str, ok := res.(string)
+			if !ok {
+				return nil, fmt.Errorf("unexpected value type from Redis: expected %T but got %T", str, res)
+			}
+			val, err := c.decompressAndUnmarshal([]byte(str))
+			if err != nil {
+				return nil, err
+			}
+			resultMap[keys[i]] = val
+		}
+		return resultMap, nil
+	}
+
+	numBatches := (numKeys + c.mgetBatch - 1) / c.mgetBatch
 	pipe := c.redis.Pipeline()
-	cmds := make([]*redis.SliceCmd, 0, len(chunks))
-	for i := 0; i < len(chunks); i++ {
-		cmds = append(cmds, pipe.MGet(ctx, chunks[i]...))
+	cmds := make([]*redis.SliceCmd, 0, numBatches)
+	for i := 0; i < numKeys; i += c.mgetBatch {
+		end := i + c.mgetBatch
+		if end > numKeys {
+			end = numKeys
+		}
+		cmds = append(cmds, pipe.MGet(ctx, keys[i:end]...))
 	}
 
 	_, err := pipe.Exec(ctx)
@@ -170,8 +227,8 @@ func (c *TypedCache[T]) MGetMap(ctx context.Context, keys ...string) (MultiResul
 	}
 
 	resultMap := make(map[string]T, len(keys))
-	for i := 0; i < len(cmds); i++ {
-		results, err := cmds[i].Result()
+	for i, cmd := range cmds {
+		results, err := cmd.Result()
 		if err != nil {
 			return nil, fmt.Errorf("redis: %w", err)
 		}
@@ -189,7 +246,7 @@ func (c *TypedCache[T]) MGetMap(ctx context.Context, keys ...string) (MultiResul
 			if err != nil {
 				return nil, err
 			}
-			key := chunks[i][j]
+			key := keys[i*c.mgetBatch+j]
 			resultMap[key] = val
 		}
 	}

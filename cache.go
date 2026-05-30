@@ -474,12 +474,16 @@ func MGetMap[R any](ctx context.Context, c *Cache, keys ...string) (MultiResult[
 // fetching all keys in a single MGET command.
 func mGetMapBatch[R any](ctx context.Context, c *Cache, keys ...string) (MultiResult[R], error) {
 
-	chunks := chunk(keys, c.mgetBatch)
-
 	pipe := c.redis.Pipeline()
-	cmds := make([]*redis.SliceCmd, 0, len(chunks))
-	for i := 0; i < len(chunks); i++ {
-		cmds = append(cmds, pipe.MGet(ctx, chunks[i]...))
+	numKeys := len(keys)
+	numBatches := (numKeys + c.mgetBatch - 1) / c.mgetBatch
+	cmds := make([]*redis.SliceCmd, 0, numBatches)
+	for i := 0; i < numKeys; i += c.mgetBatch {
+		end := i + c.mgetBatch
+		if end > numKeys {
+			end = numKeys
+		}
+		cmds = append(cmds, pipe.MGet(ctx, keys[i:end]...))
 	}
 
 	_, err := pipe.Exec(ctx)
@@ -488,8 +492,8 @@ func mGetMapBatch[R any](ctx context.Context, c *Cache, keys ...string) (MultiRe
 	}
 
 	resultMap := make(map[string]R)
-	for i := 0; i < len(cmds); i++ {
-		results, err := cmds[i].Result()
+	for i, cmd := range cmds {
+		results, err := cmd.Result()
 		if err != nil {
 			return nil, fmt.Errorf("redis: %w", err)
 		}
@@ -511,7 +515,7 @@ func mGetMapBatch[R any](ctx context.Context, c *Cache, keys ...string) (MultiRe
 			if err := c.serializer.Unmarshal(data, &val); err != nil {
 				return nil, fmt.Errorf("unmarshall value to type %T: %w", val, err)
 			}
-			key := chunks[i][j]
+			key := keys[i*c.mgetBatch+j]
 			resultMap[key] = val
 		}
 	}
@@ -563,12 +567,17 @@ func MGet[T any](ctx context.Context, c *Cache, keys ...string) ([]T, error) {
 }
 
 func mGetBatch[T any](ctx context.Context, c *Cache, keys ...string) ([]T, error) {
-	chunks := chunk(keys, c.mgetBatch)
 	pipe := c.redis.Pipeline()
-	cmds := make([]*redis.SliceCmd, 0, len(chunks))
+	numKeys := len(keys)
+	numBatches := (numKeys + c.mgetBatch - 1) / c.mgetBatch
+	cmds := make([]*redis.SliceCmd, 0, numBatches)
 
-	for i := 0; i < len(chunks); i++ {
-		cmds = append(cmds, pipe.MGet(ctx, chunks[i]...))
+	for i := 0; i < numKeys; i += c.mgetBatch {
+		end := i + c.mgetBatch
+		if end > numKeys {
+			end = numKeys
+		}
+		cmds = append(cmds, pipe.MGet(ctx, keys[i:end]...))
 	}
 
 	_, err := pipe.Exec(ctx)
@@ -577,8 +586,8 @@ func mGetBatch[T any](ctx context.Context, c *Cache, keys ...string) ([]T, error
 	}
 
 	values := make([]T, 0, len(keys))
-	for i := 0; i < len(cmds); i++ {
-		results, err := cmds[i].Result()
+	for _, cmd := range cmds {
+		results, err := cmd.Result()
 		if err != nil {
 			return nil, fmt.Errorf("redis: %w", err)
 		}
