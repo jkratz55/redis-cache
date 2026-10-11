@@ -9,10 +9,6 @@ github.com/alicebob/miniredis/v2/metro
 github.com/alicebob/miniredis/v2/proto
 github.com/alicebob/miniredis/v2/server
 github.com/alicebob/miniredis/v2/size
-# github.com/andybalholm/brotli v1.2.6
-## explicit; go 1.22
-github.com/andybalholm/brotli
-github.com/andybalholm/brotli/matchfinder
 # github.com/beorn7/perks v1.0.1
 ## explicit; go 1.11
 github.com/beorn7/perks/quantile

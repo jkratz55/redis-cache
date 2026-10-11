@@ -10,6 +10,7 @@
 * `ThroughCache` has been removed and replaced with a more robust `ReadThrough` implementation.
 * Refactored `cacheotel` package for OpenTelemetry metrics, simplifying configuration and removing several internal components.
 * Updated minimum Go version to 1.24.
+* Removed Brotli compression support. The `compression/brotli` package and the `github.com/andybalholm/brotli` dependency have been removed because Brotli is too slow for caching workloads. Switch to `compression/zstd` or `compression/s2` instead. Data previously stored with Brotli compression cannot be read by other codecs and should be expired or rewritten.
 
 #### New Features
 
