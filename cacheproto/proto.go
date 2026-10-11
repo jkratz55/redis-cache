@@ -24,3 +24,8 @@ func (p ProtobufSerializer) Unmarshal(bytes []byte, dst any) error {
 	}
 	return proto.Unmarshal(bytes, msg)
 }
+
+// FormatID returns the reserved format ID for Protobuf (3), matching cache.SerializerProtobuf.
+func (p ProtobufSerializer) FormatID() uint8 {
+	return 3
+}

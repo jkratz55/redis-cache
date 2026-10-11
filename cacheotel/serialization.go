@@ -2,6 +2,7 @@ package cacheotel
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -16,12 +17,27 @@ import (
 // to create a new instance.
 type InstrumentedSerializer struct {
 	serializer cache.Serializer
+	id         uint8
 	duration   metric.Float64Histogram
 	errs       metric.Int64Counter
 }
 
 // NewInstrumentedSerializer returns a new InstrumentedSerializer that wraps the given Serializer.
+//
+// The InstrumentedSerializer reports the format ID of the wrapped Serializer. If the
+// wrapped Serializer is nil or doesn't have a format ID, NewInstrumentedSerializer
+// panics. Custom Serializer implementations can be assigned a format ID by
+// implementing cache.FormatIdentifier or by wrapping them with cache.SerializerWithID.
 func NewInstrumentedSerializer(serializer cache.Serializer, opts ...SerializerOption) *InstrumentedSerializer {
+	if serializer == nil {
+		panic(fmt.Errorf("nil Serializer"))
+	}
+	id, ok := cache.FormatIDOf(serializer)
+	if !ok {
+		panic(fmt.Errorf("Serializer %T has no format id: implement FormatID() uint8 returning an id in the range %d-255 or wrap it with cache.SerializerWithID",
+			serializer, cache.MinCustomFormatID))
+	}
+
 	conf := newCommonConfig()
 	for _, opt := range opts {
 		opt.applySerializer(conf)
@@ -37,6 +53,7 @@ func NewInstrumentedSerializer(serializer cache.Serializer, opts ...SerializerOp
 
 	return &InstrumentedSerializer{
 		serializer: serializer,
+		id:         id,
 		duration:   duration,
 		errs:       errs,
 	}
@@ -68,4 +85,10 @@ func (i *InstrumentedSerializer) Unmarshal(bytes []byte, v any) error {
 		i.errs.Add(ctx, 1, metric.WithAttributes(attribute.String("operation", "unmarshal")))
 	}
 	return err
+}
+
+// FormatID returns the format ID of the wrapped Serializer since instrumentation
+// doesn't alter the encoded bytes.
+func (i *InstrumentedSerializer) FormatID() uint8 {
+	return i.id
 }

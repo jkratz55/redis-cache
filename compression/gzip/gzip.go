@@ -70,3 +70,8 @@ func (c *Codec) Decompress(data []byte) ([]byte, error) {
 	_, err = io.Copy(&buffer, gzipReader)
 	return buffer.Bytes(), err
 }
+
+// FormatID returns the reserved format ID for Gzip (2), matching cache.CodecGzip.
+func (c *Codec) FormatID() uint8 {
+	return 2
+}

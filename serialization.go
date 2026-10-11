@@ -10,6 +10,10 @@ import (
 // application and Redis.
 //
 // Implementations of Serializer must be safe for concurrent use.
+//
+// Implementations must also have a format ID, which is stored alongside every
+// cached value, either by implementing FormatIdentifier or by being wrapped with
+// SerializerWithID.
 type Serializer interface {
 	Marshal(any) ([]byte, error)
 	Unmarshal([]byte, any) error
@@ -26,6 +30,11 @@ func (j *JsonSerializer) Unmarshal(bytes []byte, dst any) error {
 	return json.Unmarshal(bytes, dst)
 }
 
+// FormatID returns SerializerJSON.
+func (j *JsonSerializer) FormatID() uint8 {
+	return SerializerJSON
+}
+
 // MessagePackSerializer is a Serializer that uses MessagePack for marshaling and unmarshalling data.
 type MessagePackSerializer struct{}
 
@@ -35,4 +44,9 @@ func (m *MessagePackSerializer) Marshal(data any) ([]byte, error) {
 
 func (m *MessagePackSerializer) Unmarshal(bytes []byte, dst any) error {
 	return msgpack.Unmarshal(bytes, dst)
+}
+
+// FormatID returns SerializerMsgPack.
+func (m *MessagePackSerializer) FormatID() uint8 {
+	return SerializerMsgPack
 }

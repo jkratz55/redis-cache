@@ -2,6 +2,7 @@ package cacheotel
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -16,13 +17,29 @@ import (
 // to create a new instance.
 type InstrumentedCompressionCodec struct {
 	codec cache.CompressionCodec
+	id    uint8
 	dur   metric.Float64Histogram
 	errs  metric.Int64Counter
 }
 
 // NewInstrumentedCompressionCodec returns a new InstrumentedCompressionCodec that wraps the given
 // CompressionCodec.
+//
+// The InstrumentedCompressionCodec reports the format ID of the wrapped CompressionCodec.
+// If the wrapped CompressionCodec is nil or doesn't have a format ID,
+// NewInstrumentedCompressionCodec panics. Custom CompressionCodec implementations can be
+// assigned a format ID by implementing cache.FormatIdentifier or by wrapping them with
+// cache.CodecWithID.
 func NewInstrumentedCompressionCodec(codec cache.CompressionCodec, opts ...CompressionOption) *InstrumentedCompressionCodec {
+	if codec == nil {
+		panic(fmt.Errorf("nil CompressionCodec"))
+	}
+	id, ok := cache.FormatIDOf(codec)
+	if !ok {
+		panic(fmt.Errorf("CompressionCodec %T has no format id: implement FormatID() uint8 returning an id in the range %d-255 or wrap it with cache.CodecWithID",
+			codec, cache.MinCustomFormatID))
+	}
+
 	conf := newCommonConfig()
 	for _, opt := range opts {
 		opt.applyCompression(conf)
@@ -38,6 +55,7 @@ func NewInstrumentedCompressionCodec(codec cache.CompressionCodec, opts ...Compr
 
 	return &InstrumentedCompressionCodec{
 		codec: codec,
+		id:    id,
 		dur:   dur,
 		errs:  errs,
 	}
@@ -69,4 +87,10 @@ func (i *InstrumentedCompressionCodec) Decompress(data []byte) ([]byte, error) {
 		i.errs.Add(ctx, 1, metric.WithAttributes(attribute.String("operation", "decompress")))
 	}
 	return res, err
+}
+
+// FormatID returns the format ID of the wrapped CompressionCodec since instrumentation
+// doesn't alter the compressed bytes.
+func (i *InstrumentedCompressionCodec) FormatID() uint8 {
+	return i.id
 }

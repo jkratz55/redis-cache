@@ -8,6 +8,7 @@ import (
 	tracenoop "go.opentelemetry.io/otel/trace/noop"
 
 	cache "github.com/jkratz55/redis-cache/v2"
+	"github.com/jkratz55/redis-cache/v2/compression/gzip"
 )
 
 func TestOptions(t *testing.T) {
@@ -26,7 +27,7 @@ func TestOptions(t *testing.T) {
 
 	t.Run("Serializer options", func(t *testing.T) {
 		// This tests that common options can be passed to NewInstrumentedSerializer
-		s := NewInstrumentedSerializer(cache.JsonSerializer{},
+		s := NewInstrumentedSerializer(&cache.JsonSerializer{},
 			WithMeterProvider(mp),
 			WithDurationBoundaries(0.1, 0.2),
 		)
@@ -35,7 +36,7 @@ func TestOptions(t *testing.T) {
 
 	t.Run("Compression options", func(t *testing.T) {
 		// This tests that common options can be passed to NewInstrumentedCompressionCodec
-		c := NewInstrumentedCompressionCodec(nil,
+		c := NewInstrumentedCompressionCodec(gzip.NewCodec(6),
 			WithMeterProvider(mp),
 			WithDurationBoundaries(0.1, 0.2),
 		)

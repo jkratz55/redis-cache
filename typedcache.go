@@ -19,28 +19,40 @@ import (
 //
 // The zero-value of TypedCache is not usable. Use NewTyped to create a new instance.
 type TypedCache[T any] struct {
-	redis      RedisClient
-	serializer Serializer
-	codec      CompressionCodec
-	mgetBatch  int // zero-value indicates no batching
-	isPtr      bool
+	redis     RedisClient
+	formats   *formats
+	mgetBatch int // zero-value indicates no batching
+	isPtr     bool
+
+	// formatOptions collects the serialization and compression configuration
+	// while options are applied. It is not used after construction.
+	formatOptions
 }
 
 // NewTyped creates and initializes a new TypedCache instance.
+//
+// Every value is stored with a small header identifying the Serializer and
+// CompressionCodec used to write it. This allows values written with a different
+// configuration to be read as long as their Serializer and CompressionCodec are
+// registered, see DecodeSerializers and DecodeCompression.
+//
+// NewTyped panics if the client is nil or if a Serializer or CompressionCodec
+// doesn't have a valid format ID.
 func NewTyped[T any](client RedisClient, opts ...Option) *TypedCache[T] {
 	if client == nil {
 		panic(errors.New("client cannot be nil"))
 	}
 
 	cache := &TypedCache[T]{
-		redis:      client,
-		serializer: &MessagePackSerializer{},
-		codec:      nopCodec{},
+		redis:         client,
+		formatOptions: defaultFormatOptions(),
 	}
 
 	for _, opt := range opts {
 		opt(cache)
 	}
+	cache.formats = cache.formatOptions.build()
+	cache.formatOptions = formatOptions{}
 
 	t := reflect.TypeFor[T]()
 	cache.isPtr = t.Kind() == reflect.Pointer
@@ -249,13 +261,9 @@ func (c *TypedCache[T]) MGetMap(ctx context.Context, keys ...string) (MultiResul
 }
 
 func (c *TypedCache[T]) Set(ctx context.Context, key string, val T, ttl time.Duration) error {
-	data, err := c.serializer.Marshal(val)
+	data, err := c.formats.encode(val)
 	if err != nil {
-		return fmt.Errorf("marshall value: %w", err)
-	}
-	data, err = c.codec.Compress(data)
-	if err != nil {
-		return fmt.Errorf("compress value: %w", err)
+		return err
 	}
 	err = c.redis.Set(ctx, key, data, ttl).Err()
 	if err != nil {
@@ -265,13 +273,9 @@ func (c *TypedCache[T]) Set(ctx context.Context, key string, val T, ttl time.Dur
 }
 
 func (c *TypedCache[T]) SetIfAbsent(ctx context.Context, key string, val T, ttl time.Duration) (bool, error) {
-	data, err := c.serializer.Marshal(val)
+	data, err := c.formats.encode(val)
 	if err != nil {
-		return false, fmt.Errorf("marshall value: %w", err)
-	}
-	data, err = c.codec.Compress(data)
-	if err != nil {
-		return false, fmt.Errorf("compress value: %w", err)
+		return false, err
 	}
 	ok, err := c.redis.SetNX(ctx, key, data, ttl).Result()
 	if err != nil {
@@ -281,13 +285,9 @@ func (c *TypedCache[T]) SetIfAbsent(ctx context.Context, key string, val T, ttl 
 }
 
 func (c *TypedCache[T]) SetIfPresent(ctx context.Context, key string, val T, ttl time.Duration) (bool, error) {
-	data, err := c.serializer.Marshal(val)
+	data, err := c.formats.encode(val)
 	if err != nil {
-		return false, fmt.Errorf("marshall value: %w", err)
-	}
-	data, err = c.codec.Compress(data)
-	if err != nil {
-		return false, fmt.Errorf("compress value: %w", err)
+		return false, err
 	}
 	ok, err := c.redis.SetXX(ctx, key, data, ttl).Result()
 	if err != nil {
@@ -301,13 +301,9 @@ func (c *TypedCache[T]) MSet(ctx context.Context, values map[string]T) error {
 	// and compressing the values.
 	rawData := make(map[string]any)
 	for k, v := range values {
-		val, err := c.serializer.Marshal(v)
+		val, err := c.formats.encode(v)
 		if err != nil {
-			return fmt.Errorf("marshal value: %w", err)
-		}
-		val, err = c.codec.Compress(val)
-		if err != nil {
-			return fmt.Errorf("compress value: %w", err)
+			return err
 		}
 		rawData[k] = val
 	}
@@ -391,14 +387,6 @@ func (c *TypedCache[T]) Client() redis.UniversalClient {
 	return c.redis.(redis.UniversalClient)
 }
 
-func (c *TypedCache[T]) setSerializer(serializer Serializer) {
-	c.serializer = serializer
-}
-
-func (c *TypedCache[T]) setCodec(codec CompressionCodec) {
-	c.codec = codec
-}
-
 func (c *TypedCache[T]) setMGetBatch(i int) {
 	c.mgetBatch = i
 }
@@ -406,22 +394,18 @@ func (c *TypedCache[T]) setMGetBatch(i int) {
 func (c *TypedCache[T]) decompressAndUnmarshal(data []byte) (T, error) {
 	var res T
 
-	data, err := c.codec.Decompress(data)
-	if err != nil {
-		return res, fmt.Errorf("decompress value: %w", err)
-	}
 	if c.isPtr {
 		t := reflect.TypeFor[T]()
 		ptr := reflect.New(t.Elem()).Interface()
-		if err := c.serializer.Unmarshal(data, ptr); err != nil {
-			return res, fmt.Errorf("unmarshal value: %w", err)
+		if err := c.formats.decode(data, ptr); err != nil {
+			return res, err
 		}
 		res = ptr.(T)
 		return res, nil
 	}
 
-	if err := c.serializer.Unmarshal(data, &res); err != nil {
-		return res, fmt.Errorf("unmarshal value: %w", err)
+	if err := c.formats.decode(data, &res); err != nil {
+		return res, err
 	}
 	return res, nil
 }

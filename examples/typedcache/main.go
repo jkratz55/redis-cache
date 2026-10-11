@@ -33,7 +33,7 @@ func main() {
 	}()
 
 	rdb := cache.NewTyped[Person](client,
-		cache.Serialization(cache.JsonSerializer{}),
+		cache.Serialization(&cache.JsonSerializer{}),
 		cache.Compression(lz4.NewCodec()),
 		cache.BatchMultiGets(500))
 

@@ -38,3 +38,8 @@ func (c *Codec) Decompress(data []byte) ([]byte, error) {
 	_, err := io.Copy(buffer, r)
 	return buffer.Bytes(), err
 }
+
+// FormatID returns the reserved format ID for Flate (1), matching cache.CodecFlate.
+func (c *Codec) FormatID() uint8 {
+	return 1
+}

@@ -18,3 +18,8 @@ func (c *Codec) Compress(data []byte) ([]byte, error) {
 func (c *Codec) Decompress(data []byte) ([]byte, error) {
 	return snappy.Decode(nil, data)
 }
+
+// FormatID returns the reserved format ID for Snappy (5), matching cache.CodecSnappy.
+func (c *Codec) FormatID() uint8 {
+	return 5
+}

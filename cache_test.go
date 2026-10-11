@@ -12,6 +12,8 @@ import (
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
 	"github.com/vmihailenco/msgpack/v5"
+
+	"github.com/jkratz55/redis-cache/v2/compression/gzip"
 )
 
 var server *miniredis.Miniredis
@@ -160,7 +162,7 @@ func TestCache_Set(t *testing.T) {
 	assert.NoError(t, err)
 
 	var s string
-	err = msgpack.Unmarshal(b, &s)
+	err = msgpack.Unmarshal(assertHeader(t, b, SerializerMsgPack, CodecNone), &s)
 	assert.NoError(t, err)
 	assert.Equal(t, "value123", s)
 }
@@ -201,7 +203,7 @@ func TestCache_SetIfAbsent(t *testing.T) {
 	assert.NoError(t, err)
 
 	var s string
-	err = msgpack.Unmarshal(b, &s)
+	err = msgpack.Unmarshal(assertHeader(t, b, SerializerMsgPack, CodecNone), &s)
 	assert.NoError(t, err)
 	assert.Equal(t, "value123", s)
 }
@@ -227,7 +229,7 @@ func TestCache_SetIfPresent(t *testing.T) {
 	assert.NoError(t, err)
 
 	var s string
-	err = msgpack.Unmarshal(b, &s)
+	err = msgpack.Unmarshal(assertHeader(t, b, SerializerMsgPack, CodecNone), &s)
 	assert.NoError(t, err)
 	assert.Equal(t, "value123", s)
 }
@@ -279,7 +281,7 @@ func TestCache_MSet(t *testing.T) {
 	}
 
 	var p person
-	err = msgpack.Unmarshal([]byte(res), &p)
+	err = msgpack.Unmarshal(assertHeader(t, []byte(res), SerializerMsgPack, CodecNone), &p)
 	assert.NoError(t, err)
 	assert.Equal(t, expected, p)
 
@@ -318,6 +320,21 @@ func (g gobSerializer) Unmarshal(b []byte, v any) error {
 	return gob.NewDecoder(reader).Decode(v)
 }
 
+func (g gobSerializer) FormatID() uint8 {
+	return 130
+}
+
+// assertHeader asserts the value starts with the format header for the given
+// serializer and codec IDs and returns the payload following the header.
+func assertHeader(t *testing.T, b []byte, serializerID, codecID uint8) []byte {
+	t.Helper()
+	if !assert.GreaterOrEqual(t, len(b), headerSize) {
+		return nil
+	}
+	assert.Equal(t, []byte{formatMagic, formatVersion, serializerID, codecID}, b[:headerSize])
+	return b[headerSize:]
+}
+
 func TestNewCache_CustomSerialization(t *testing.T) {
 	setup()
 	defer tearDown()
@@ -347,6 +364,20 @@ func TestNewCache_CustomSerialization(t *testing.T) {
 		LastName:   "Bob",
 		Age:        99,
 	}, p)
+}
+
+func TestNewCache_SerializerWithoutID(t *testing.T) {
+	assert.PanicsWithError(t,
+		"Serializer cache.noIDSerializer has no format id: implement FormatID() uint8 returning an id in the range 128-255 or wrap it with cache.SerializerWithID",
+		func() {
+			New(client, Serialization(noIDSerializer{}))
+		})
+	assert.Panics(t, func() {
+		New(client, DecodeCompression(noIDCodec{}))
+	})
+	assert.NotPanics(t, func() {
+		New(client, Serialization(SerializerWithID(140, noIDSerializer{})))
+	})
 }
 
 func TestMGet(t *testing.T) {
@@ -542,7 +573,7 @@ func TestUpsertTTL(t *testing.T) {
 	raw, err := client.Get(context.Background(), "BillyBob").Result()
 	assert.NoError(t, err)
 	var actual name
-	err = msgpack.Unmarshal([]byte(raw), &actual)
+	err = msgpack.Unmarshal(assertHeader(t, []byte(raw), SerializerMsgPack, CodecNone), &actual)
 	assert.NoError(t, err)
 
 	assert.Equal(t, arg, actual)
@@ -643,3 +674,164 @@ func TestCache_Scan(t *testing.T) {
 	assert.NoError(t, err)
 	assert.ElementsMatch(t, []string{"system:123", "system:456", "system:789"}, keys)
 }
+
+func TestCache_SwitchFormats(t *testing.T) {
+	setup()
+	defer tearDown()
+
+	type person struct {
+		FirstName string
+		LastName  string
+		Birthdate time.Time
+	}
+
+	ctx := context.Background()
+	expected := person{
+		FirstName: "Bob",
+		LastName:  "Dole",
+		Birthdate: time.Date(1960, 10, 28, 0, 0, 0, 0, time.UTC),
+	}
+
+	writer := New(client, Serialization(&JsonSerializer{}), Compression(gzip.NewCodec(6)))
+	for _, key := range []string{"key1", "key2", "key3"} {
+		assert.NoError(t, writer.Set(ctx, key, expected, 0))
+	}
+
+	for _, batch := range []int{0, 2} {
+		t.Run(fmt.Sprintf("batch=%d", batch), func(t *testing.T) {
+			opts := []Option{
+				Serialization(&MessagePackSerializer{}),
+				Compression(xorTestCodec{}),
+				DecodeCompression(gzip.NewCodec(6)),
+			}
+			if batch > 0 {
+				opts = append(opts, BatchMultiGets(batch))
+			}
+			reader := New(client, opts...)
+
+			var p person
+			assert.NoError(t, reader.Get(ctx, "key1", &p))
+			assert.Equal(t, expected, p)
+
+			p = person{}
+			assert.NoError(t, reader.GetAndExpire(ctx, "key1", &p, time.Minute))
+			assert.Equal(t, expected, p)
+
+			values, err := MGet[person](ctx, reader, "key1", "key2", "key3", "missing")
+			assert.NoError(t, err)
+			assert.Equal(t, []person{expected, expected, expected}, values)
+
+			m, err := MGetMap[person](ctx, reader, "key1", "key2", "key3")
+			assert.NoError(t, err)
+			assert.Equal(t, MultiResult[person]{"key1": expected, "key2": expected, "key3": expected}, m)
+
+			// The new instance writes in its own format, which the old one can't read
+			// unless it registers it.
+			assert.NoError(t, reader.Set(ctx, "new", expected, 0))
+			raw, err := client.Get(ctx, "new").Bytes()
+			assert.NoError(t, err)
+			assertHeader(t, raw, SerializerMsgPack, xorTestCodec{}.FormatID())
+			err = writer.Get(ctx, "new", &p)
+			assert.ErrorIs(t, err, ErrUnsupportedFormat)
+		})
+	}
+
+	reader := New(client, Compression(xorTestCodec{}), DecodeCompression(gzip.NewCodec(6)))
+	var p person
+	assert.NoError(t, reader.GetAndDelete(ctx, "key1", &p))
+	assert.Equal(t, expected, p)
+	assert.ErrorIs(t, reader.Get(ctx, "key1", &p), ErrKeyNotFound)
+}
+
+func TestCache_UnsupportedFormat(t *testing.T) {
+	setup()
+	defer tearDown()
+
+	ctx := context.Background()
+	writer := New(client, Compression(gzip.NewCodec(6)))
+	assert.NoError(t, writer.Set(ctx, "key1", "value1", 0))
+	assert.NoError(t, writer.Set(ctx, "key2", "value2", 0))
+
+	for _, batch := range []int{0, 1} {
+		opts := []Option{}
+		if batch > 0 {
+			opts = append(opts, BatchMultiGets(batch))
+		}
+		reader := New(client, opts...)
+
+		var s string
+		err := reader.Get(ctx, "key1", &s)
+		assert.ErrorIs(t, err, ErrUnsupportedFormat)
+		assert.ErrorContains(t, err, "codec id 2")
+
+		_, err = MGet[string](ctx, reader, "key1", "key2")
+		assert.ErrorIs(t, err, ErrUnsupportedFormat)
+
+		_, err = MGetMap[string](ctx, reader, "key1", "key2")
+		assert.ErrorIs(t, err, ErrUnsupportedFormat)
+	}
+}
+
+func TestCache_LegacyValues(t *testing.T) {
+	setup()
+	defer tearDown()
+
+	type person struct {
+		FirstName string
+		LastName  string
+		Birthdate time.Time
+	}
+
+	ctx := context.Background()
+	expected := person{
+		FirstName: "Bob",
+		LastName:  "Dole",
+		Birthdate: time.Date(1960, 10, 28, 0, 0, 0, 0, time.UTC),
+	}
+
+	// Values written by previous versions of the library have no header.
+	raw, err := (&JsonSerializer{}).Marshal(expected)
+	assert.NoError(t, err)
+	raw, err = gzip.NewCodec(6).Compress(raw)
+	assert.NoError(t, err)
+	for _, key := range []string{"key1", "key2", "key3"} {
+		assert.NoError(t, client.Set(ctx, key, raw, 0).Err())
+	}
+
+	for _, batch := range []int{0, 2} {
+		opts := []Option{Serialization(&JsonSerializer{}), Compression(gzip.NewCodec(6))}
+		if batch > 0 {
+			opts = append(opts, BatchMultiGets(batch))
+		}
+		c := New(client, opts...)
+
+		var p person
+		assert.NoError(t, c.Get(ctx, "key1", &p))
+		assert.Equal(t, expected, p)
+
+		results, err := MGetMap[person](ctx, c, "key1", "key2", "key3")
+		assert.NoError(t, err)
+		assert.Equal(t, MultiResult[person]{"key1": expected, "key2": expected, "key3": expected}, results)
+	}
+
+	// Upsert reads the legacy value and writes it back with the header.
+	c := New(client, Serialization(&JsonSerializer{}), Compression(gzip.NewCodec(6)))
+	err = Upsert[person](ctx, c, "key1", person{}, func(found bool, oldValue person, newValue person) person {
+		assert.True(t, found)
+		assert.Equal(t, expected, oldValue)
+		return oldValue
+	}, 0)
+	assert.NoError(t, err)
+	stored, err := client.Get(ctx, "key1").Bytes()
+	assert.NoError(t, err)
+	assertHeader(t, stored, SerializerJSON, CodecGzip)
+}
+
+// xorTestCodec is a custom codec used to verify custom format IDs.
+type xorTestCodec struct{}
+
+func (xorTestCodec) Compress(data []byte) ([]byte, error) { return xor(data), nil }
+
+func (xorTestCodec) Decompress(data []byte) ([]byte, error) { return xor(data), nil }
+
+func (xorTestCodec) FormatID() uint8 { return 201 }

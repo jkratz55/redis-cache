@@ -2,6 +2,10 @@ package cache
 
 // CompressionCodec is an interface type that defines the behavior for compressing and
 // decompressing data.
+//
+// Implementations must be safe for concurrent use and must have a format ID, which
+// is stored alongside every cached value, either by implementing FormatIdentifier
+// or by being wrapped with CodecWithID.
 type CompressionCodec interface {
 	Compress(data []byte) ([]byte, error)
 	Decompress(data []byte) ([]byte, error)
@@ -17,4 +21,8 @@ func (n nopCodec) Compress(data []byte) ([]byte, error) {
 
 func (n nopCodec) Decompress(data []byte) ([]byte, error) {
 	return data, nil
+}
+
+func (n nopCodec) FormatID() uint8 {
+	return CodecNone
 }

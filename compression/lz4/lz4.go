@@ -62,3 +62,8 @@ func (c *Codec) Decompress(data []byte) ([]byte, error) {
 	_, err := io.Copy(&buffer, lz4Reader)
 	return buffer.Bytes(), err
 }
+
+// FormatID returns the reserved format ID for LZ4 (3), matching cache.CodecLZ4.
+func (c *Codec) FormatID() uint8 {
+	return 3
+}

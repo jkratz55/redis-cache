@@ -57,28 +57,40 @@ type RedisClient interface {
 //
 // The zero-value of Cache is not usable. Use New to create a new instance.
 type Cache struct {
-	redis      RedisClient
-	serializer Serializer
-	codec      CompressionCodec
-	mgetBatch  int // zero-value indicates no batching
+	redis     RedisClient
+	formats   *formats
+	mgetBatch int // zero-value indicates no batching
+
+	// formatOptions collects the serialization and compression configuration
+	// while options are applied. It is not used after construction.
+	formatOptions
 }
 
 // New creates and initializes a new Cache instance.
 //
 // By default msgpack is used for marshalling and unmarshalling the entry values. There is no
 // compression by default, but it can be enabled by using an Option.
+//
+// Every value is stored with a small header identifying the Serializer and
+// CompressionCodec used to write it. This allows values written with a different
+// configuration to be read as long as their Serializer and CompressionCodec are
+// registered, see DecodeSerializers and DecodeCompression.
+//
+// New panics if the client is nil or if a Serializer or CompressionCodec doesn't
+// have a valid format ID.
 func New(client RedisClient, opts ...Option) *Cache {
 	if client == nil {
 		panic(fmt.Errorf("client cannot be nil"))
 	}
 	cache := &Cache{
-		redis:      client,
-		serializer: &MessagePackSerializer{},
-		codec:      nopCodec{},
+		redis:         client,
+		formatOptions: defaultFormatOptions(),
 	}
 	for _, opt := range opts {
 		opt(cache)
 	}
+	cache.formats = cache.formatOptions.build()
+	cache.formatOptions = formatOptions{}
 
 	return cache
 }
@@ -106,14 +118,7 @@ func (c *Cache) Get(ctx context.Context, key string, v any) error {
 		}
 		return fmt.Errorf("redis: %w", err)
 	}
-	data, err = c.codec.Decompress(data)
-	if err != nil {
-		return fmt.Errorf("decompress value: %w", err)
-	}
-	if err := c.serializer.Unmarshal(data, v); err != nil {
-		return fmt.Errorf("unmarshall value: %w", err)
-	}
-	return nil
+	return c.formats.decode(data, v)
 }
 
 // GetAndExpire retrieves a value from Redis for the given key and sets the TTL on the key.
@@ -142,14 +147,7 @@ func (c *Cache) GetAndExpire(ctx context.Context, key string, v any, ttl time.Du
 		}
 		return fmt.Errorf("redis: %w", err)
 	}
-	data, err := c.codec.Decompress(val)
-	if err != nil {
-		return fmt.Errorf("decompress value: %w", err)
-	}
-	if err := c.serializer.Unmarshal(data, v); err != nil {
-		return fmt.Errorf("unmarshall value: %w", err)
-	}
-	return nil
+	return c.formats.decode(val, v)
 }
 
 // GetAndDelete retrieves a value from Redis for the given key and deletes the key from Redis.
@@ -167,14 +165,7 @@ func (c *Cache) GetAndDelete(ctx context.Context, key string, v any) error {
 		}
 		return fmt.Errorf("redis: %w", err)
 	}
-	data, err := c.codec.Decompress(val)
-	if err != nil {
-		return fmt.Errorf("decompress value: %w", err)
-	}
-	if err := c.serializer.Unmarshal(data, v); err != nil {
-		return fmt.Errorf("unmarshall value: %w", err)
-	}
-	return nil
+	return c.formats.decode(val, v)
 }
 
 // Keys retrieves all the keys in Redis/Cache
@@ -190,13 +181,9 @@ func (c *Cache) Keys(ctx context.Context) ([]string, error) {
 //
 // Set will overwrite an existing value for the key if it already exists.
 func (c *Cache) Set(ctx context.Context, key string, v any, ttl time.Duration) error {
-	data, err := c.serializer.Marshal(v)
+	data, err := c.formats.encode(v)
 	if err != nil {
-		return fmt.Errorf("marshall value: %w", err)
-	}
-	data, err = c.codec.Compress(data)
-	if err != nil {
-		return fmt.Errorf("compress value: %w", err)
+		return err
 	}
 	err = c.redis.Set(ctx, key, data, ttl).Err()
 	if err != nil {
@@ -211,13 +198,9 @@ func (c *Cache) Set(ctx context.Context, key string, v any, ttl time.Duration) e
 //
 // If the TTL is 0 the entry will not expire.
 func (c *Cache) SetIfAbsent(ctx context.Context, key string, v any, ttl time.Duration) (bool, error) {
-	data, err := c.serializer.Marshal(v)
+	data, err := c.formats.encode(v)
 	if err != nil {
-		return false, fmt.Errorf("marshall value: %w", err)
-	}
-	data, err = c.codec.Compress(data)
-	if err != nil {
-		return false, fmt.Errorf("compress value: %w", err)
+		return false, err
 	}
 	ok, err := c.redis.SetNX(ctx, key, data, ttl).Result()
 	if err != nil {
@@ -232,13 +215,9 @@ func (c *Cache) SetIfAbsent(ctx context.Context, key string, v any, ttl time.Dur
 //
 // If the TTL is 0 the entry will not expire.
 func (c *Cache) SetIfPresent(ctx context.Context, key string, v any, ttl time.Duration) (bool, error) {
-	data, err := c.serializer.Marshal(v)
+	data, err := c.formats.encode(v)
 	if err != nil {
-		return false, fmt.Errorf("marshall value: %w", err)
-	}
-	data, err = c.codec.Compress(data)
-	if err != nil {
-		return false, fmt.Errorf("compress value: %w", err)
+		return false, err
 	}
 	ok, err := c.redis.SetXX(ctx, key, data, ttl).Result()
 	if err != nil {
@@ -255,13 +234,9 @@ func (c *Cache) MSet(ctx context.Context, keyvalues map[string]any) error {
 	// and compressing the values.
 	rawData := make(map[string]any)
 	for k, v := range keyvalues {
-		val, err := c.serializer.Marshal(v)
+		val, err := c.formats.encode(v)
 		if err != nil {
-			return fmt.Errorf("marshal value: %w", err)
-		}
-		val, err = c.codec.Compress(val)
-		if err != nil {
-			return fmt.Errorf("compress value: %w", err)
+			return err
 		}
 		rawData[k] = val
 	}
@@ -377,14 +352,6 @@ func (c *Cache) Client() RedisClient {
 	return c.redis
 }
 
-func (c *Cache) setSerializer(serializer Serializer) {
-	c.serializer = serializer
-}
-
-func (c *Cache) setCodec(codec CompressionCodec) {
-	c.codec = codec
-}
-
 func (c *Cache) setMGetBatch(i int) {
 	c.mgetBatch = i
 }
@@ -456,13 +423,9 @@ func MGetMap[R any](ctx context.Context, c *Cache, keys ...string) (MultiResult[
 		if !ok {
 			return nil, fmt.Errorf("unexpected value type from Redis: expected %T but got %T", str, res)
 		}
-		data, err := c.codec.Decompress([]byte(str))
-		if err != nil {
-			return nil, fmt.Errorf("decompress value: %w", err)
-		}
 		var val R
-		if err := c.serializer.Unmarshal(data, &val); err != nil {
-			return nil, fmt.Errorf("unmarshall value to type %T: %w", val, err)
+		if err := c.formats.decode([]byte(str), &val); err != nil {
+			return nil, fmt.Errorf("decode value to type %T: %w", val, err)
 		}
 		resultMap[keys[i]] = val
 	}
@@ -504,13 +467,9 @@ func mGetMapBatch[R any](ctx context.Context, c *Cache, keys ...string) (MultiRe
 			if !ok {
 				return nil, fmt.Errorf("unexpected value type from Redis: expected %T but got %T", str, res)
 			}
-			data, err := c.codec.Decompress([]byte(str))
-			if err != nil {
-				return nil, fmt.Errorf("decompress value: %w", err)
-			}
 			var val R
-			if err := c.serializer.Unmarshal(data, &val); err != nil {
-				return nil, fmt.Errorf("unmarshall value to type %T: %w", val, err)
+			if err := c.formats.decode([]byte(str), &val); err != nil {
+				return nil, fmt.Errorf("decode value to type %T: %w", val, err)
 			}
 			key := keys[i*c.mgetBatch+j]
 			resultMap[key] = val
@@ -550,13 +509,9 @@ func MGet[T any](ctx context.Context, c *Cache, keys ...string) ([]T, error) {
 		if !ok {
 			return nil, fmt.Errorf("unexpected value type from Redis: expected %T but got %T", str, res)
 		}
-		data, err := c.codec.Decompress([]byte(str))
-		if err != nil {
-			return nil, fmt.Errorf("decompress value: %w", err)
-		}
 		var val T
-		if err := c.serializer.Unmarshal(data, &val); err != nil {
-			return nil, fmt.Errorf("unmarshall value to type %T: %w", val, err)
+		if err := c.formats.decode([]byte(str), &val); err != nil {
+			return nil, fmt.Errorf("decode value to type %T: %w", val, err)
 		}
 		values = append(values, val)
 	}
@@ -596,13 +551,9 @@ func mGetBatch[T any](ctx context.Context, c *Cache, keys ...string) ([]T, error
 			if !ok {
 				return nil, fmt.Errorf("unexpected value type from Redis: expected %T but got %T", str, res)
 			}
-			data, err := c.codec.Decompress([]byte(str))
-			if err != nil {
-				return nil, fmt.Errorf("decompress value: %w", err)
-			}
 			var val T
-			if err := c.serializer.Unmarshal(data, &val); err != nil {
-				return nil, fmt.Errorf("unmarshall value to type %T: %w", val, err)
+			if err := c.formats.decode([]byte(str), &val); err != nil {
+				return nil, fmt.Errorf("decode value to type %T: %w", val, err)
 			}
 			values = append(values, val)
 		}
@@ -662,13 +613,9 @@ func Upsert[T any](ctx context.Context, c *Cache, key string, val T, cb UpsertCa
 		}
 		newVal := cb(found, oldVal, val)
 		_, err = tx.TxPipelined(ctx, func(pipe redis.Pipeliner) error {
-			binaryValue, err := c.serializer.Marshal(newVal)
+			data, err := c.formats.encode(newVal)
 			if err != nil {
-				return fmt.Errorf("marshal value: %w", err)
-			}
-			data, err := c.codec.Compress(binaryValue)
-			if err != nil {
-				return fmt.Errorf("compress value: %w", err)
+				return err
 			}
 			return pipe.Set(ctx, key, data, ttl).Err()
 		})

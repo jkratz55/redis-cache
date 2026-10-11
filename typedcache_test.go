@@ -9,6 +9,8 @@ import (
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
 	"github.com/vmihailenco/msgpack/v5"
+
+	"github.com/jkratz55/redis-cache/v2/compression/gzip"
 )
 
 func TestNewTyped(t *testing.T) {
@@ -98,7 +100,7 @@ func TestTypedCache_Set(t *testing.T) {
 	assert.NoError(t, err)
 
 	var s string
-	err = msgpack.Unmarshal(b, &s)
+	err = msgpack.Unmarshal(assertHeader(t, b, SerializerMsgPack, CodecNone), &s)
 	assert.NoError(t, err)
 	assert.Equal(t, "value123", s)
 }
@@ -139,7 +141,7 @@ func TestTypedCache_SetIfAbsent(t *testing.T) {
 	assert.NoError(t, err)
 
 	var s string
-	err = msgpack.Unmarshal(b, &s)
+	err = msgpack.Unmarshal(assertHeader(t, b, SerializerMsgPack, CodecNone), &s)
 	assert.NoError(t, err)
 	assert.Equal(t, "value123", s)
 }
@@ -165,7 +167,7 @@ func TestTypedCache_SetIfPresent(t *testing.T) {
 	assert.NoError(t, err)
 
 	var s string
-	err = msgpack.Unmarshal(b, &s)
+	err = msgpack.Unmarshal(assertHeader(t, b, SerializerMsgPack, CodecNone), &s)
 	assert.NoError(t, err)
 	assert.Equal(t, "value123", s)
 }
@@ -217,7 +219,7 @@ func TestTypedCache_MSet(t *testing.T) {
 	}
 
 	var p person
-	err = msgpack.Unmarshal([]byte(res), &p)
+	err = msgpack.Unmarshal(assertHeader(t, []byte(res), SerializerMsgPack, CodecNone), &p)
 	assert.NoError(t, err)
 	assert.Equal(t, expected, p)
 
@@ -435,4 +437,151 @@ func TestTypedCache_Client(t *testing.T) {
 	cl := rdb.Client()
 	_, ok := cl.(*redis.Client)
 	assert.True(t, ok)
+}
+
+func TestTypedCache_SwitchFormats(t *testing.T) {
+	setup()
+	defer tearDown()
+
+	ctx := context.Background()
+	expected := formatTestPerson{FirstName: "Bob", LastName: "Dole", Age: 45}
+
+	writer := NewTyped[formatTestPerson](client, Serialization(&JsonSerializer{}), Compression(gzip.NewCodec(6)))
+	for _, key := range []string{"key1", "key2", "key3"} {
+		assert.NoError(t, writer.Set(ctx, key, expected, 0))
+	}
+
+	for _, batch := range []int{0, 2} {
+		t.Run(fmt.Sprintf("batch=%d", batch), func(t *testing.T) {
+			opts := []Option{
+				Serialization(&MessagePackSerializer{}),
+				Compression(xorTestCodec{}),
+				DecodeCompression(gzip.NewCodec(6)),
+			}
+			if batch > 0 {
+				opts = append(opts, BatchMultiGets(batch))
+			}
+			reader := NewTyped[formatTestPerson](client, opts...)
+
+			p, err := reader.Get(ctx, "key1")
+			assert.NoError(t, err)
+			assert.Equal(t, expected, p)
+
+			p, err = reader.GetAndExpire(ctx, "key1", time.Minute)
+			assert.NoError(t, err)
+			assert.Equal(t, expected, p)
+
+			values, err := reader.MGet(ctx, "key1", "key2", "key3", "missing")
+			assert.NoError(t, err)
+			assert.Equal(t, []formatTestPerson{expected, expected, expected}, values)
+
+			m, err := reader.MGetMap(ctx, "key1", "key2", "key3")
+			assert.NoError(t, err)
+			assert.Equal(t, MultiResult[formatTestPerson]{"key1": expected, "key2": expected, "key3": expected}, m)
+
+			ptrReader := NewTyped[*formatTestPerson](client, opts...)
+			ptr, err := ptrReader.Get(ctx, "key2")
+			assert.NoError(t, err)
+			assert.Equal(t, &expected, ptr)
+
+			ptrs, err := ptrReader.MGet(ctx, "key1", "key2")
+			assert.NoError(t, err)
+			assert.Equal(t, []*formatTestPerson{&expected, &expected}, ptrs)
+
+			// The new instance writes in its own format, which the old one can't read.
+			assert.NoError(t, reader.Set(ctx, "new", expected, 0))
+			raw, err := client.Get(ctx, "new").Bytes()
+			assert.NoError(t, err)
+			assertHeader(t, raw, SerializerMsgPack, xorTestCodec{}.FormatID())
+			_, err = writer.Get(ctx, "new")
+			assert.ErrorIs(t, err, ErrUnsupportedFormat)
+		})
+	}
+
+	reader := NewTyped[formatTestPerson](client, Compression(xorTestCodec{}), DecodeCompression(gzip.NewCodec(6)))
+	p, err := reader.GetAndDelete(ctx, "key1")
+	assert.NoError(t, err)
+	assert.Equal(t, expected, p)
+	_, err = reader.Get(ctx, "key1")
+	assert.ErrorIs(t, err, ErrKeyNotFound)
+}
+
+func TestTypedCache_UnsupportedFormat(t *testing.T) {
+	setup()
+	defer tearDown()
+
+	ctx := context.Background()
+	writer := NewTyped[string](client, Compression(gzip.NewCodec(6)))
+	assert.NoError(t, writer.Set(ctx, "key1", "value1", 0))
+	assert.NoError(t, writer.Set(ctx, "key2", "value2", 0))
+
+	for _, batch := range []int{0, 1} {
+		opts := []Option{}
+		if batch > 0 {
+			opts = append(opts, BatchMultiGets(batch))
+		}
+		reader := NewTyped[string](client, opts...)
+
+		_, err := reader.Get(ctx, "key1")
+		assert.ErrorIs(t, err, ErrUnsupportedFormat)
+		assert.ErrorContains(t, err, "codec id 2")
+
+		_, err = reader.MGet(ctx, "key1", "key2")
+		assert.ErrorIs(t, err, ErrUnsupportedFormat)
+
+		_, err = reader.MGetMap(ctx, "key1", "key2")
+		assert.ErrorIs(t, err, ErrUnsupportedFormat)
+	}
+}
+
+func TestTypedCache_LegacyValues(t *testing.T) {
+	setup()
+	defer tearDown()
+
+	ctx := context.Background()
+	expected := formatTestPerson{FirstName: "Bob", LastName: "Dole", Age: 45}
+
+	// Values written by previous versions of the library have no header.
+	raw, err := (&JsonSerializer{}).Marshal(expected)
+	assert.NoError(t, err)
+	raw, err = gzip.NewCodec(6).Compress(raw)
+	assert.NoError(t, err)
+	for _, key := range []string{"key1", "key2", "key3"} {
+		assert.NoError(t, client.Set(ctx, key, raw, 0).Err())
+	}
+
+	for _, batch := range []int{0, 2} {
+		opts := []Option{Serialization(&JsonSerializer{}), Compression(gzip.NewCodec(6))}
+		if batch > 0 {
+			opts = append(opts, BatchMultiGets(batch))
+		}
+		c := NewTyped[formatTestPerson](client, opts...)
+
+		p, err := c.Get(ctx, "key1")
+		assert.NoError(t, err)
+		assert.Equal(t, expected, p)
+
+		values, err := c.MGet(ctx, "key1", "key2", "key3")
+		assert.NoError(t, err)
+		assert.Equal(t, []formatTestPerson{expected, expected, expected}, values)
+
+		m, err := c.MGetMap(ctx, "key1", "key2", "key3")
+		assert.NoError(t, err)
+		assert.Equal(t, MultiResult[formatTestPerson]{"key1": expected, "key2": expected, "key3": expected}, m)
+	}
+}
+
+func TestNewTyped_SerializerWithoutID(t *testing.T) {
+	assert.Panics(t, func() {
+		NewTyped[string](client, Serialization(noIDSerializer{}))
+	})
+	assert.Panics(t, func() {
+		NewTyped[string](client, Compression(noIDCodec{}))
+	})
+	assert.Panics(t, func() {
+		NewTyped[string](client, DecodeSerializers(noIDSerializer{}))
+	})
+	assert.NotPanics(t, func() {
+		NewTyped[string](client, Serialization(SerializerWithID(140, noIDSerializer{})), Compression(CodecWithID(141, noIDCodec{})))
+	})
 }

@@ -8,6 +8,8 @@ import (
 type configurable interface {
 	setSerializer(Serializer)
 	setCodec(CompressionCodec)
+	addDecodeSerializers(...Serializer)
+	addDecodeCodecs(...CompressionCodec)
 	setMGetBatch(int)
 }
 
@@ -17,7 +19,9 @@ type Option func(c configurable)
 // Serialization allows for the marshalling and unmarshalling behavior to be
 // customized for the Cache.
 //
-// A valid Serializer must be provided. Providing nil will immediately panic.
+// A valid Serializer must be provided. Providing nil will immediately panic. The
+// Serializer must have a format ID (see FormatIdentifier and SerializerWithID),
+// otherwise New and NewTyped will panic.
 func Serialization(s Serializer) Option {
 	if s == nil {
 		panic(errors.New("nil Serializer"))
@@ -30,12 +34,56 @@ func Serialization(s Serializer) Option {
 // Compression allows for the values to be flated and deflated to conserve bandwidth
 // and memory at the cost of higher CPU time. Compression accepts a CompressionCodec to handle
 // compressing and decompressing the data to/from Redis.
+//
+// A valid CompressionCodec must be provided. Providing nil will immediately panic.
+// The CompressionCodec must have a format ID (see FormatIdentifier and CodecWithID),
+// otherwise New and NewTyped will panic.
 func Compression(codec CompressionCodec) Option {
 	if codec == nil {
 		panic(fmt.Errorf("nil CompressionCodec"))
 	}
 	return func(c configurable) {
 		c.setCodec(codec)
+	}
+}
+
+// DecodeSerializers registers additional Serializer implementations that are only
+// used to read values previously written with them. This allows the configured
+// Serializer to be changed while existing entries remain readable.
+//
+// The configured Serializer and the built-in MessagePackSerializer and
+// JsonSerializer are always available for reading and don't need to be registered.
+//
+// Every Serializer must have a unique format ID, otherwise New and NewTyped will
+// panic. Providing nil will immediately panic.
+func DecodeSerializers(s ...Serializer) Option {
+	for _, serializer := range s {
+		if serializer == nil {
+			panic(errors.New("nil Serializer"))
+		}
+	}
+	return func(c configurable) {
+		c.addDecodeSerializers(s...)
+	}
+}
+
+// DecodeCompression registers additional CompressionCodec implementations that are
+// only used to read values previously written with them. This allows the configured
+// CompressionCodec to be changed while existing entries remain readable.
+//
+// The configured CompressionCodec and no compression are always available for
+// reading and don't need to be registered.
+//
+// Every CompressionCodec must have a unique format ID, otherwise New and NewTyped
+// will panic. Providing nil will immediately panic.
+func DecodeCompression(codecs ...CompressionCodec) Option {
+	for _, codec := range codecs {
+		if codec == nil {
+			panic(errors.New("nil CompressionCodec"))
+		}
+	}
+	return func(c configurable) {
+		c.addDecodeCodecs(codecs...)
 	}
 }
 
@@ -46,4 +94,43 @@ func BatchMultiGets(batchSize int) Option {
 	return func(c configurable) {
 		c.setMGetBatch(batchSize)
 	}
+}
+
+// formatOptions collects the Serializer and CompressionCodec configuration while
+// options are applied. It is embedded by Cache and TypedCache and only used during
+// construction to build the formats registry.
+type formatOptions struct {
+	serializer         Serializer
+	codec              CompressionCodec
+	decodeSerializers  []Serializer
+	decodeCompressions []CompressionCodec
+}
+
+func defaultFormatOptions() formatOptions {
+	return formatOptions{
+		serializer: &MessagePackSerializer{},
+		codec:      nopCodec{},
+	}
+}
+
+func (o *formatOptions) setSerializer(s Serializer) {
+	o.serializer = s
+}
+
+func (o *formatOptions) setCodec(c CompressionCodec) {
+	o.codec = c
+}
+
+func (o *formatOptions) addDecodeSerializers(s ...Serializer) {
+	o.decodeSerializers = append(o.decodeSerializers, s...)
+}
+
+func (o *formatOptions) addDecodeCodecs(c ...CompressionCodec) {
+	o.decodeCompressions = append(o.decodeCompressions, c...)
+}
+
+// build creates the formats registry from the collected configuration. It panics
+// if the configuration is invalid.
+func (o *formatOptions) build() *formats {
+	return newFormats(o.serializer, o.codec, o.decodeSerializers, o.decodeCompressions)
 }

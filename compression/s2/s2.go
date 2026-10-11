@@ -18,3 +18,8 @@ func (c *Codec) Compress(data []byte) ([]byte, error) {
 func (c *Codec) Decompress(data []byte) ([]byte, error) {
 	return s2.Decode(nil, data)
 }
+
+// FormatID returns the reserved format ID for S2 (4), matching cache.CodecS2.
+func (c *Codec) FormatID() uint8 {
+	return 4
+}
