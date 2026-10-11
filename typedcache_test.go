@@ -289,7 +289,7 @@ func TestTypedCache_MGetBatch(t *testing.T) {
 	expected := make(map[string]name)
 
 	keys := make([]string, 0, 10000)
-	for i := 0; i < 10000; i++ {
+	for i := range 10000 {
 		key := fmt.Sprintf("key%d", i)
 		keys = append(keys, key)
 		expected[key] = testVal

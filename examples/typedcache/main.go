@@ -58,7 +58,7 @@ func main() {
 	fmt.Println("deleted")
 
 	keys := make([]string, 0)
-	for i := 0; i < 10000; i++ {
+	for i := range 10000 {
 		keys = append(keys, fmt.Sprintf("key%d", i))
 	}
 

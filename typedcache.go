@@ -34,7 +34,7 @@ func NewTyped[T any](client RedisClient, opts ...Option) *TypedCache[T] {
 
 	cache := &TypedCache[T]{
 		redis:      client,
-		serializer: MessagePackSerializer{},
+		serializer: &MessagePackSerializer{},
 		codec:      nopCodec{},
 	}
 
@@ -42,8 +42,8 @@ func NewTyped[T any](client RedisClient, opts ...Option) *TypedCache[T] {
 		opt(cache)
 	}
 
-	t := reflect.TypeOf((*T)(nil)).Elem()
-	cache.isPtr = t.Kind() == reflect.Ptr
+	t := reflect.TypeFor[T]()
+	cache.isPtr = t.Kind() == reflect.Pointer
 
 	return cache
 }
@@ -140,10 +140,7 @@ func (c *TypedCache[T]) MGet(ctx context.Context, keys ...string) ([]T, error) {
 	pipe := c.redis.Pipeline()
 	cmds := make([]*redis.SliceCmd, 0, numBatches)
 	for i := 0; i < numKeys; i += c.mgetBatch {
-		end := i + c.mgetBatch
-		if end > numKeys {
-			end = numKeys
-		}
+		end := min(i+c.mgetBatch, numKeys)
 		cmds = append(cmds, pipe.MGet(ctx, keys[i:end]...))
 	}
 
@@ -214,10 +211,7 @@ func (c *TypedCache[T]) MGetMap(ctx context.Context, keys ...string) (MultiResul
 	pipe := c.redis.Pipeline()
 	cmds := make([]*redis.SliceCmd, 0, numBatches)
 	for i := 0; i < numKeys; i += c.mgetBatch {
-		end := i + c.mgetBatch
-		if end > numKeys {
-			end = numKeys
-		}
+		end := min(i+c.mgetBatch, numKeys)
 		cmds = append(cmds, pipe.MGet(ctx, keys[i:end]...))
 	}
 
@@ -417,7 +411,7 @@ func (c *TypedCache[T]) decompressAndUnmarshal(data []byte) (T, error) {
 		return res, fmt.Errorf("decompress value: %w", err)
 	}
 	if c.isPtr {
-		t := reflect.TypeOf((*T)(nil)).Elem()
+		t := reflect.TypeFor[T]()
 		ptr := reflect.New(t.Elem()).Interface()
 		if err := c.serializer.Unmarshal(data, ptr); err != nil {
 			return res, fmt.Errorf("unmarshal value: %w", err)

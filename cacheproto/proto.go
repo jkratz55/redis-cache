@@ -9,7 +9,7 @@ import (
 // ProtobufSerializer is an implementation of Serializer that uses Protobuf to marshal and unmarshal data.
 type ProtobufSerializer struct{}
 
-func (p ProtobufSerializer) Marshal(data interface{}) ([]byte, error) {
+func (p ProtobufSerializer) Marshal(data any) ([]byte, error) {
 	msg, ok := data.(proto.Message)
 	if !ok {
 		return nil, fmt.Errorf("%T is not an implementation of proto.Message", data)
@@ -17,7 +17,7 @@ func (p ProtobufSerializer) Marshal(data interface{}) ([]byte, error) {
 	return proto.Marshal(msg)
 }
 
-func (p ProtobufSerializer) Unmarshal(bytes []byte, dst interface{}) error {
+func (p ProtobufSerializer) Unmarshal(bytes []byte, dst any) error {
 	msg, ok := dst.(proto.Message)
 	if !ok {
 		return fmt.Errorf("%T is not an implementation of proto.Message", dst)

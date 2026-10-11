@@ -100,8 +100,7 @@ func TestWriteThrough(t *testing.T) {
 
 			if tt.expectErr {
 				assert.Error(t, err)
-				var wtErr *WriteThroughError
-				if errors.As(err, &wtErr) {
+				if wtErr, ok := errors.AsType[*WriteThroughError](err); ok {
 					assert.Equal(t, tt.sourceUpdated, wtErr.SourceUpdated)
 				} else {
 					t.Errorf("expected *WriteThroughError, got %T", err)

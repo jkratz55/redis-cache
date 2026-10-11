@@ -12,7 +12,7 @@ func TestCodec(t *testing.T) {
 	codec := NewCodec(flate.BestCompression)
 
 	// Looping to test for re-using objects from sync.Pool
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		testStr := "This is a test string. Hopefully it flates and then deflates to the same value!"
 		compressed, err := codec.Compress([]byte(testStr))
 		assert.NoError(t, err)

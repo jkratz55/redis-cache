@@ -1,7 +1,7 @@
 package cache
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 
 	"github.com/vmihailenco/msgpack/v5"
 )
@@ -11,28 +11,28 @@ import (
 //
 // Implementations of Serializer must be safe for concurrent use.
 type Serializer interface {
-	Marshal(interface{}) ([]byte, error)
-	Unmarshal([]byte, interface{}) error
+	Marshal(any) ([]byte, error)
+	Unmarshal([]byte, any) error
 }
 
 // JsonSerializer is a Serializer that uses JSON for marshaling and unmarshalling data.
 type JsonSerializer struct{}
 
-func (j JsonSerializer) Marshal(data interface{}) ([]byte, error) {
+func (j *JsonSerializer) Marshal(data any) ([]byte, error) {
 	return json.Marshal(data)
 }
 
-func (j JsonSerializer) Unmarshal(bytes []byte, dst interface{}) error {
+func (j *JsonSerializer) Unmarshal(bytes []byte, dst any) error {
 	return json.Unmarshal(bytes, dst)
 }
 
 // MessagePackSerializer is a Serializer that uses MessagePack for marshaling and unmarshalling data.
 type MessagePackSerializer struct{}
 
-func (m MessagePackSerializer) Marshal(data interface{}) ([]byte, error) {
+func (m *MessagePackSerializer) Marshal(data any) ([]byte, error) {
 	return msgpack.Marshal(data)
 }
 
-func (m MessagePackSerializer) Unmarshal(bytes []byte, dst interface{}) error {
+func (m *MessagePackSerializer) Unmarshal(bytes []byte, dst any) error {
 	return msgpack.Unmarshal(bytes, dst)
 }

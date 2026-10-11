@@ -49,10 +49,10 @@ type RedisClient interface {
 	Close() error
 }
 
-// Cache is a thin abstraction over the go-redis client that provides serialization, compression
+// Cache is a thin abstraction over the go-redis client that provides serialization, compression,
 // and batching of MGET operations.
 //
-// By default, msgpack is used for marshalling and unmarshalling the entry values. There is no
+// By default, msgpack is used for marshaling and unmarshalling the entry values. There is no
 // compression by default, but it can be enabled by using an Option in New.
 //
 // The zero-value of Cache is not usable. Use New to create a new instance.
@@ -73,7 +73,7 @@ func New(client RedisClient, opts ...Option) *Cache {
 	}
 	cache := &Cache{
 		redis:      client,
-		serializer: MessagePackSerializer{},
+		serializer: &MessagePackSerializer{},
 		codec:      nopCodec{},
 	}
 	for _, opt := range opts {
@@ -479,10 +479,7 @@ func mGetMapBatch[R any](ctx context.Context, c *Cache, keys ...string) (MultiRe
 	numBatches := (numKeys + c.mgetBatch - 1) / c.mgetBatch
 	cmds := make([]*redis.SliceCmd, 0, numBatches)
 	for i := 0; i < numKeys; i += c.mgetBatch {
-		end := i + c.mgetBatch
-		if end > numKeys {
-			end = numKeys
-		}
+		end := min(i+c.mgetBatch, numKeys)
 		cmds = append(cmds, pipe.MGet(ctx, keys[i:end]...))
 	}
 
@@ -542,7 +539,7 @@ func MGet[T any](ctx context.Context, c *Cache, keys ...string) ([]T, error) {
 	}
 
 	values := make([]T, 0, len(keys))
-	for i := 0; i < len(results); i++ {
+	for i := range results {
 		res := results[i]
 		if res == nil || res == redis.Nil {
 			// Some or all of the requested keys may not exist. Skip iterations
@@ -573,10 +570,7 @@ func mGetBatch[T any](ctx context.Context, c *Cache, keys ...string) ([]T, error
 	cmds := make([]*redis.SliceCmd, 0, numBatches)
 
 	for i := 0; i < numKeys; i += c.mgetBatch {
-		end := i + c.mgetBatch
-		if end > numKeys {
-			end = numKeys
-		}
+		end := min(i+c.mgetBatch, numKeys)
 		cmds = append(cmds, pipe.MGet(ctx, keys[i:end]...))
 	}
 
@@ -591,7 +585,7 @@ func mGetBatch[T any](ctx context.Context, c *Cache, keys ...string) ([]T, error
 		if err != nil {
 			return nil, fmt.Errorf("redis: %w", err)
 		}
-		for j := 0; j < len(results); j++ {
+		for j := range results {
 			res := results[j]
 			if res == nil || res == redis.Nil {
 				// Some or all of the requested keys may not exist. Skip iterations

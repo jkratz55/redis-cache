@@ -42,7 +42,7 @@ func NewInstrumentedSerializer(serializer cache.Serializer, opts ...SerializerOp
 	}
 }
 
-func (i *InstrumentedSerializer) Marshal(v interface{}) ([]byte, error) {
+func (i *InstrumentedSerializer) Marshal(v any) ([]byte, error) {
 	start := time.Now()
 	data, err := i.serializer.Marshal(v)
 	ctx := context.Background()
@@ -56,7 +56,7 @@ func (i *InstrumentedSerializer) Marshal(v interface{}) ([]byte, error) {
 	return data, err
 }
 
-func (i *InstrumentedSerializer) Unmarshal(bytes []byte, v interface{}) error {
+func (i *InstrumentedSerializer) Unmarshal(bytes []byte, v any) error {
 	start := time.Now()
 	err := i.serializer.Unmarshal(bytes, v)
 	ctx := context.Background()

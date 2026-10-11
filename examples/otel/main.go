@@ -98,7 +98,7 @@ func main() {
 	ctx := context.Background()
 
 	// Perform some Redis operations to capture instrumentation
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		err := rdb.Set(ctx, fmt.Sprintf("key%d", i), fmt.Sprintf("value%d", i), 0)
 		if err != nil {
 			panic(err)

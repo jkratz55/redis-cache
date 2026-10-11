@@ -184,7 +184,7 @@ func TestReadThroughSingleFlight(t *testing.T) {
 	results := make([]string, numRequests)
 	errs := make([]error, numRequests)
 
-	for i := 0; i < numRequests; i++ {
+	for i := range numRequests {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
@@ -197,7 +197,7 @@ func TestReadThroughSingleFlight(t *testing.T) {
 	wg.Wait()
 
 	assert.Equal(t, 1, loaderCalls)
-	for i := 0; i < numRequests; i++ {
+	for i := range numRequests {
 		assert.NoError(t, errs[i])
 		assert.Equal(t, "world", results[i])
 	}
@@ -240,7 +240,7 @@ func TestReadThroughSingleFlight_LoaderError(t *testing.T) {
 	numRequests := 5
 	errs := make([]error, numRequests)
 
-	for i := 0; i < numRequests; i++ {
+	for i := range numRequests {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
@@ -252,7 +252,7 @@ func TestReadThroughSingleFlight_LoaderError(t *testing.T) {
 	wg.Wait()
 
 	assert.Equal(t, 1, loaderCalls)
-	for i := 0; i < numRequests; i++ {
+	for i := range numRequests {
 		assert.Error(t, errs[i])
 		assert.Contains(t, errs[i].Error(), expectedErr.Error())
 	}
