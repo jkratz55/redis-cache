@@ -1,12 +1,16 @@
+// Package zstd implements a cache.CompressionCodec using Zstandard.
 package zstd
 
 import (
 	"errors"
+	"fmt"
+	"slices"
 	"sync"
 
 	"github.com/klauspost/compress/zstd"
 
 	cache "github.com/jkratz55/redis-cache/v2"
+	"github.com/jkratz55/redis-cache/v2/compression/internal/limit"
 )
 
 // ErrClosed is returned by Compress and Decompress once Close has been called.
@@ -37,8 +41,9 @@ type options struct {
 }
 
 // WithMaxDecodedSize limits the size of decompressed values to n bytes. Values
-// that would decompress to more than n bytes fail to decompress, which protects
-// against corrupt or malicious values exhausting memory.
+// that would decompress to more than n bytes fail to decompress with an error
+// wrapping cache.ErrMaxDecodedSizeExceeded, which protects against corrupt or
+// malicious values exhausting memory.
 //
 // By default, there is no limit beyond the limits of the zstd decoder.
 func WithMaxDecodedSize(n uint64) Option {
@@ -47,7 +52,8 @@ func WithMaxDecodedSize(n uint64) Option {
 	}
 }
 
-// NewCodec creates a new Codec with the specified compression level.
+// NewCodec creates a new Codec with the specified compression level. It returns an
+// error if the zstd encoder or decoder can't be created.
 func NewCodec(level zstd.EncoderLevel, opts ...Option) (*Codec, error) {
 	var o options
 	for _, opt := range opts {
@@ -85,15 +91,30 @@ func NewCodec(level zstd.EncoderLevel, opts ...Option) (*Codec, error) {
 	}, nil
 }
 
+// Compress returns data compressed with zstd. It returns ErrClosed once Close has
+// been called.
 func (c *Codec) Compress(data []byte) ([]byte, error) {
+	return c.AppendCompress(nil, data)
+}
+
+// AppendCompress appends data compressed with zstd to dst and returns the extended
+// slice. It returns ErrClosed once Close has been called.
+func (c *Codec) AppendCompress(dst, data []byte) ([]byte, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	if c.closed {
 		return nil, ErrClosed
 	}
-	return c.encoder.EncodeAll(data, nil), nil
+	// EncodeAll only sizes the output for small values when dst is empty, so the
+	// same is done here for a dst holding a prefix.
+	if len(data) < 1<<20 {
+		dst = slices.Grow(dst, len(data))
+	}
+	return c.encoder.EncodeAll(data, dst), nil
 }
 
+// Decompress returns the data decompressed from zstd compressed data. It returns
+// ErrClosed once Close has been called.
 func (c *Codec) Decompress(data []byte) ([]byte, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -102,10 +123,16 @@ func (c *Codec) Decompress(data []byte) ([]byte, error) {
 	}
 	out, err := c.decoder.DecodeAll(data, nil)
 	if err != nil {
+		// The decoder enforces the limit through its maximum memory and window
+		// size.
+		if c.maxDecodedSize > 0 &&
+			(errors.Is(err, zstd.ErrDecoderSizeExceeded) || errors.Is(err, zstd.ErrWindowSizeExceeded)) {
+			return nil, fmt.Errorf("%w: %w", limit.Exceeded(c.maxDecodedSize), err)
+		}
 		return nil, err
 	}
 	if c.maxDecodedSize > 0 && uint64(len(out)) > c.maxDecodedSize {
-		return nil, zstd.ErrDecoderSizeExceeded
+		return nil, fmt.Errorf("%w: %w", limit.Exceeded(c.maxDecodedSize), zstd.ErrDecoderSizeExceeded)
 	}
 	return out, nil
 }

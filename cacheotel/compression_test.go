@@ -7,6 +7,7 @@ import (
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
+	"go.opentelemetry.io/otel/attribute"
 
 	cache "github.com/jkratz55/redis-cache/v2"
 	"github.com/jkratz55/redis-cache/v2/compression/gzip"
@@ -101,4 +102,46 @@ func TestInstrumentedCompressionCodec_CacheWritesInnerFormatID(t *testing.T) {
 	s, err = plain.Get(ctx, "key")
 	assert.NoError(t, err)
 	assert.Equal(t, "value", s)
+}
+
+func TestInstrumentedCompressionCodec_Metrics(t *testing.T) {
+	mp, reader := newTestMeterProvider(t)
+	name := attribute.String("cache.name", "users")
+	c := NewInstrumentedCompressionCodec(gzip.NewCodec(6), WithMeterProvider(mp), WithAttributes(name))
+
+	compressed, err := c.Compress([]byte("value"))
+	assert.NoError(t, err)
+	// gzip.Codec implements cache.CompressAppender, so it is forwarded.
+	out, err := c.AppendCompress([]byte("prefix"), []byte("value"))
+	assert.NoError(t, err)
+	assert.Equal(t, append([]byte("prefix"), compressed...), out)
+
+	_, err = c.Decompress(compressed)
+	assert.NoError(t, err)
+	_, err = c.Decompress([]byte("corrupt"))
+	assert.Error(t, err)
+
+	metrics := collect(t, reader)
+	codec := attribute.String("cache.codec", "gzip")
+	compress := attribute.String("operation", "compress")
+	decompress := attribute.String("operation", "decompress")
+	duration := metrics["cache.compression.duration"]
+	assert.Equal(t, uint64(2), histogramCount(t, duration, name, codec, compress, attribute.Bool("success", true)))
+	assert.Equal(t, uint64(1), histogramCount(t, duration, name, codec, decompress, attribute.Bool("success", true)))
+	assert.Equal(t, uint64(1), histogramCount(t, duration, name, codec, decompress, attribute.Bool("success", false)))
+	assert.Equal(t, int64(1), counterValue(t, metrics["cache.compression.errors"], name, codec, decompress))
+}
+
+func TestInstrumentedCompressionCodec_AppendCompressFallback(t *testing.T) {
+	mp, reader := newTestMeterProvider(t)
+	// cache.CodecWithID forwards AppendCompress, noIDCodec doesn't implement it.
+	c := NewInstrumentedCompressionCodec(cache.CodecWithID(201, noIDCodec{}), WithMeterProvider(mp))
+
+	out, err := c.AppendCompress([]byte("prefix:"), []byte("value"))
+	assert.NoError(t, err)
+	assert.Equal(t, "prefix:value", string(out))
+
+	duration := collect(t, reader)["cache.compression.duration"]
+	assert.Equal(t, uint64(1), histogramCount(t, duration, attribute.String("cache.codec", "201"),
+		attribute.String("operation", "compress"), attribute.Bool("success", true)))
 }

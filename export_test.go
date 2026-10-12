@@ -1,5 +1,9 @@
 package cache
 
+import (
+	"context"
+)
+
 const (
 	// HeaderSizeForTest exposes headerSize to external test packages.
 	HeaderSizeForTest = headerSize
@@ -22,12 +26,12 @@ func NewFormatsForTest(s Serializer, c CompressionCodec, extraS []Serializer, ex
 
 // Encode exposes formats.encode to external test packages.
 func (f *FormatsForTest) Encode(v any) ([]byte, error) {
-	return f.f.encode(v)
+	return f.f.encode(context.Background(), v)
 }
 
 // Decode exposes formats.decode to external test packages.
 func (f *FormatsForTest) Decode(data []byte, dst any) error {
-	return f.f.decode(data, dst)
+	return f.f.decode(context.Background(), data, dst)
 }
 
 // NopCodecForTest exposes nopCodec to external test packages.

@@ -144,7 +144,94 @@ func TestFailoverOpts(t *testing.T) {
 		assert.True(t, recoveredCalled)
 		opts.OnCheckFailure("test", nil)
 		assert.True(t, checkFailureCalled)
+
+		var healthChecked bool
+		opts.SetHealthCheck(func(ctx context.Context, client RedisClient) error {
+			healthChecked = true
+			return nil
+		})
+		assert.NoError(t, opts.HealthCheck(context.Background(), nil))
+		assert.True(t, healthChecked)
 	})
+
+	t.Run("default health check", func(t *testing.T) {
+		assert.NotNil(t, FailoverOptions().HealthCheck)
+
+		opts := &FailoverOpts{}
+		opts.init()
+		assert.NotNil(t, opts.HealthCheck)
+	})
+}
+
+func TestFailoverClient_HealthCheck(t *testing.T) {
+	s1 := miniredis.RunT(t)
+	s2 := miniredis.RunT(t)
+
+	// The primary answers PING but rejects writes.
+	c1 := &controlledClient{Client: redis.NewClient(&redis.Options{Addr: s1.Addr()})}
+	c2 := &controlledClient{Client: redis.NewClient(&redis.Options{Addr: s2.Addr()})}
+	readOnly := errors.New("READONLY You can't write against a read only replica")
+
+	var checks sync.Map
+	opts := &FailoverOpts{
+		CheckInterval:    5 * time.Millisecond,
+		CheckTimeout:     2 * time.Millisecond,
+		FailureThreshold: 1,
+		HealthCheck: func(ctx context.Context, client RedisClient) error {
+			checks.Store(client, true)
+			if _, ok := ctx.Deadline(); !ok {
+				return errors.New("health check without deadline")
+			}
+			if client == c1 {
+				return readOnly
+			}
+			return client.Set(ctx, "health:canary", "ok", time.Minute).Err()
+		},
+	}
+
+	fc := newFailoverClient(c1, c2, time.Millisecond, opts)
+	defer fc.Close()
+
+	assert.Eventually(t, fc.IsSecondary, time.Second, 5*time.Millisecond)
+	_, primaryChecked := checks.Load(c1)
+	_, secondaryChecked := checks.Load(c2)
+	assert.True(t, primaryChecked)
+	assert.True(t, secondaryChecked)
+	assert.True(t, s2.Exists("health:canary"))
+}
+
+func TestFailoverClient_HealthCheckPanic(t *testing.T) {
+	s1 := miniredis.RunT(t)
+	s2 := miniredis.RunT(t)
+
+	c1 := &controlledClient{Client: redis.NewClient(&redis.Options{Addr: s1.Addr()})}
+	c2 := &controlledClient{Client: redis.NewClient(&redis.Options{Addr: s2.Addr()})}
+
+	var primaryErr atomic.Value
+	opts := &FailoverOpts{
+		CheckInterval:    5 * time.Millisecond,
+		CheckTimeout:     2 * time.Millisecond,
+		FailureThreshold: 1,
+		HealthCheck: func(ctx context.Context, client RedisClient) error {
+			if client == c1 {
+				panic("boom")
+			}
+			return nil
+		},
+		OnCheckFailure: func(client string, err error) {
+			if client == "primary" {
+				primaryErr.Store(err)
+			}
+		},
+	}
+
+	fc := newFailoverClient(c1, c2, time.Millisecond, opts)
+	defer fc.Close()
+
+	// The panic counts as a failed health check instead of crashing the process.
+	assert.Eventually(t, fc.IsSecondary, time.Second, 5*time.Millisecond)
+	err, _ := primaryErr.Load().(error)
+	assert.ErrorContains(t, err, "health check panic: boom")
 }
 
 func TestFailoverClient_FailoverAndRecovery(t *testing.T) {

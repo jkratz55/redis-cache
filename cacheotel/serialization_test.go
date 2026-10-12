@@ -9,6 +9,7 @@ import (
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
 	"github.com/vmihailenco/msgpack/v5"
+	"go.opentelemetry.io/otel/attribute"
 
 	cache "github.com/jkratz55/redis-cache/v2"
 )
@@ -130,4 +131,54 @@ func TestInstrumentedSerializer_CacheWritesInnerFormatID(t *testing.T) {
 	s, err = plain.Get(ctx, "key")
 	assert.NoError(t, err)
 	assert.Equal(t, "value", s)
+}
+
+func TestInstrumentedSerializer_Metrics(t *testing.T) {
+	mp, reader := newTestMeterProvider(t)
+	name := attribute.String("cache.name", "users")
+	s := NewInstrumentedSerializer(&cache.MessagePackSerializer{}, WithMeterProvider(mp), WithAttributes(name))
+
+	data, err := s.Marshal("value")
+	assert.NoError(t, err)
+	// MessagePackSerializer implements cache.MarshalAppender, so it is forwarded.
+	out, err := s.AppendMarshal([]byte("prefix"), "value")
+	assert.NoError(t, err)
+	assert.Equal(t, append([]byte("prefix"), data...), out)
+	_, err = s.Marshal(make(chan int))
+	assert.Error(t, err)
+
+	var val string
+	assert.NoError(t, s.Unmarshal(data, &val))
+	assert.Error(t, s.Unmarshal([]byte{0xC1}, &val))
+
+	metrics := collect(t, reader)
+	serializer := attribute.String("cache.serializer", "msgpack")
+	marshal := attribute.String("operation", "marshal")
+	unmarshal := attribute.String("operation", "unmarshal")
+	duration := metrics["cache.serialization.duration"]
+	assert.Equal(t, uint64(2), histogramCount(t, duration, name, serializer, marshal, attribute.Bool("success", true)))
+	assert.Equal(t, uint64(1), histogramCount(t, duration, name, serializer, marshal, attribute.Bool("success", false)))
+	assert.Equal(t, uint64(1), histogramCount(t, duration, name, serializer, unmarshal, attribute.Bool("success", true)))
+	assert.Equal(t, uint64(1), histogramCount(t, duration, name, serializer, unmarshal, attribute.Bool("success", false)))
+	assert.Equal(t, defaultDurationBoundaries, histogramBounds(t, duration))
+
+	errs := metrics["cache.serialization.errors"]
+	assert.Equal(t, int64(1), counterValue(t, errs, name, serializer, marshal))
+	assert.Equal(t, int64(1), counterValue(t, errs, name, serializer, unmarshal))
+}
+
+func TestInstrumentedSerializer_AppendMarshalFallback(t *testing.T) {
+	mp, reader := newTestMeterProvider(t)
+	// JsonSerializer doesn't implement cache.MarshalAppender.
+	s := NewInstrumentedSerializer(&cache.JsonSerializer{}, WithMeterProvider(mp))
+
+	out, err := s.AppendMarshal([]byte("prefix:"), "value")
+	assert.NoError(t, err)
+	assert.Equal(t, `prefix:"value"`, string(out))
+	_, err = s.AppendMarshal(nil, make(chan int))
+	assert.Error(t, err)
+
+	duration := collect(t, reader)["cache.serialization.duration"]
+	assert.Equal(t, uint64(1), histogramCount(t, duration, attribute.String("cache.serializer", "json"),
+		attribute.String("operation", "marshal"), attribute.Bool("success", true)))
 }

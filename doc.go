@@ -34,4 +34,24 @@
 // format by any service sharing the same Redis data. Codecs layered on top of
 // another codec (e.g. encryption over gzip) must declare their own ID. IDs are only
 // discovered through FormatID, Unwrap is never followed.
+//
+// # Decompression Limits
+//
+// Values read from a Redis shared with other services can be corrupt or crafted to
+// decompress to a very large size. The built-in CompressionCodecs have no limit by
+// default, but accept a WithMaxDecodedSize option, and fail with an error wrapping
+// ErrMaxDecodedSizeExceeded for values exceeding it.
+//
+// # Redis Cluster
+//
+// Commands on several keys, used by MGet, MGetMap, MSet and Delete, fail with a
+// CROSSSLOT error unless every key is in the same hash slot. BatchMultiGets doesn't
+// group keys by slot. Flush and FlushDB only flush a single node of a cluster, while
+// Keys and Scan scan every master.
+//
+// # Instrumentation
+//
+// Hooks configured with the Instrumentation option are invoked on lookups, when
+// values are encoded and decoded, and by ReadThroughSingleFlight. The cacheotel
+// package records them as OpenTelemetry metrics.
 package cache

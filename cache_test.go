@@ -44,6 +44,16 @@ type errorRedisClient struct {
 	RedisClient
 	getErr error
 	setErr error
+	delErr error
+}
+
+func (m *errorRedisClient) Del(ctx context.Context, keys ...string) *redis.IntCmd {
+	if m.delErr != nil {
+		cmd := redis.NewIntCmd(ctx)
+		cmd.SetErr(m.delErr)
+		return cmd
+	}
+	return m.RedisClient.Del(ctx, keys...)
 }
 
 func (m *errorRedisClient) Get(ctx context.Context, key string) *redis.StringCmd {
@@ -818,11 +828,74 @@ func TestCache_ErrorWrapping(t *testing.T) {
 			c := New(client, opts...)
 
 			_, err := MGet[string](ctx, c, "good", "bad")
-			assert.ErrorContains(t, err, `decode key "bad"`)
+			assert.ErrorContains(t, err, `decode key "bad" to type string`)
 			_, err = MGetMap[string](ctx, c, "good", "bad")
-			assert.ErrorContains(t, err, `decode key "bad"`)
+			assert.ErrorContains(t, err, `decode key "bad" to type string`)
 		}
 	})
+}
+
+func TestCache_MGetPartialResults(t *testing.T) {
+	setup()
+	defer tearDown()
+
+	ctx := context.Background()
+	writer := New(client)
+	keys := make([]string, 0, 10)
+	for i := range 10 {
+		key := fmt.Sprintf("key%d", i)
+		keys = append(keys, key)
+		assert.NoError(t, writer.Set(ctx, key, key, 0))
+	}
+	// A corrupt value and a value in a format that isn't registered.
+	assert.NoError(t, client.Set(ctx, "key3", []byte{0xC1, 0x01, SerializerMsgPack, CodecNone, 0xC1}, 0).Err())
+	assert.NoError(t, client.Set(ctx, "key7", []byte{0xC1, 0x01, 250, CodecNone, 0x01}, 0).Err())
+	keys = append(keys, "missing")
+
+	for _, batch := range []int{0, 1, 4} {
+		t.Run(fmt.Sprintf("batch=%d", batch), func(t *testing.T) {
+			c := New(client, BatchMultiGets(batch))
+
+			values, err := MGet[string](ctx, c, keys...)
+			assertMultiKeyError(t, err)
+			assert.Equal(t, []string{"key0", "key1", "key2", "key4", "key5", "key6", "key8", "key9"}, values)
+
+			m, err := MGetMap[string](ctx, c, keys...)
+			assertMultiKeyError(t, err)
+			assert.Len(t, m, 8)
+			for _, key := range []string{"key0", "key1", "key2", "key4", "key5", "key6", "key8", "key9"} {
+				assert.Equal(t, key, m[key])
+			}
+		})
+	}
+
+	t.Run("redis error", func(t *testing.T) {
+		s := miniredis.RunT(t)
+		rdb := redis.NewClient(&redis.Options{Addr: s.Addr()})
+		defer rdb.Close()
+		s.SetError("boom")
+
+		values, err := MGet[string](ctx, New(rdb), "a", "b")
+		assert.EqualError(t, err, "redis: boom")
+		assert.Nil(t, values)
+		m, err := MGetMap[string](ctx, New(rdb), "a", "b")
+		assert.EqualError(t, err, "redis: boom")
+		assert.Nil(t, m)
+	})
+}
+
+// assertMultiKeyError asserts err is a *MultiKeyError for key3, which is corrupt,
+// and key7, which was written in a format that isn't registered.
+func assertMultiKeyError(t *testing.T, err error) {
+	t.Helper()
+	mkErr, ok := errors.AsType[*MultiKeyError](err)
+	if !assert.True(t, ok, "expected *MultiKeyError, got %T", err) {
+		return
+	}
+	assert.Len(t, mkErr.Errors, 2)
+	assert.ErrorContains(t, mkErr.Errors["key3"], `decode key "key3" to type string`)
+	assert.ErrorIs(t, mkErr.Errors["key7"], ErrUnsupportedFormat)
+	assert.ErrorIs(t, err, ErrUnsupportedFormat)
 }
 
 func mustMsgpack(t *testing.T, v any) []byte {

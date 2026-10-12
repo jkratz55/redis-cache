@@ -5,6 +5,8 @@ import (
 	"encoding/gob"
 	"errors"
 	"fmt"
+	"maps"
+	"slices"
 	"strings"
 	"testing"
 
@@ -867,5 +869,165 @@ func BenchmarkDecodeBaseline(b *testing.B) {
 		if err := s.Unmarshal(raw, &dst); err != nil {
 			b.Fatal(err)
 		}
+	}
+}
+
+// TestFormats_EncodeMatchesCompress asserts encoding values directly after the
+// header, with MarshalAppender and CompressAppender, writes the same bytes as
+// prefixing the header to the output of Marshal and Compress.
+func TestFormats_EncodeMatchesCompress(t *testing.T) {
+	person := benchmarkDocument()
+	serializers := map[string]cache.Serializer{
+		"msgpack": &cache.MessagePackSerializer{},
+		"json":    &cache.JsonSerializer{},
+		"custom":  customSerializer{},
+	}
+	for sName, s := range serializers {
+		for cName, c := range builtinCodecs(t) {
+			t.Run(sName+"/"+cName, func(t *testing.T) {
+				sID, _ := cache.FormatIDOf(s)
+				cID, _ := cache.FormatIDOf(c)
+				data, err := s.Marshal(person)
+				assert.NoError(t, err)
+				compressed, err := c.Compress(data)
+				assert.NoError(t, err)
+
+				f := cache.NewFormatsForTest(s, c, nil, nil)
+				encoded, err := f.Encode(person)
+				assert.NoError(t, err)
+				assert.Equal(t, compressed, assertHeader(t, encoded, sID, cID))
+
+				var decoded formatTestDocument
+				assert.NoError(t, f.Decode(encoded, &decoded))
+				assert.Equal(t, person, decoded)
+			})
+		}
+	}
+}
+
+// limitedCodecs returns the built-in codecs with a limit of 1 MiB on the size of
+// decompressed values.
+func limitedCodecs(t testing.TB) []cache.CompressionCodec {
+	const limit = 1 << 20
+	zstdCodec, err := zstd.NewCodec(kzstd.SpeedDefault, zstd.WithMaxDecodedSize(limit))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = zstdCodec.Close() })
+	return []cache.CompressionCodec{
+		flate.NewCodec(-1, flate.WithMaxDecodedSize(limit)),
+		gzip.NewCodec(6, gzip.WithMaxDecodedSize(limit)),
+		lz4.NewCodec(lz4.WithMaxDecodedSize(limit)),
+		s2.NewCodec(s2.WithMaxDecodedSize(limit)),
+		snappy.NewCodec(snappy.WithMaxDecodedSize(limit)),
+		zstdCodec,
+	}
+}
+
+// FuzzDecode decodes arbitrary values, as a value read from a Redis shared with
+// other services can be corrupt or crafted. Decoding must never panic, and must
+// reset the destination if it fails. The codecs limit the size of decompressed
+// values, so the fuzzer doesn't run out of memory.
+//
+// The seed corpus holds a value for every serializer and codec pair, legacy
+// values, and values with a corrupt or unsupported header.
+func FuzzDecode(f *testing.F) {
+	codecs := limitedCodecs(f)
+	serializers := []cache.Serializer{&cache.MessagePackSerializer{}, &cache.JsonSerializer{}}
+
+	person := formatTestPerson{FirstName: "Billy", LastName: "Bob", Age: 45}
+	for _, s := range serializers {
+		for _, c := range append(codecs, cache.NopCodecForTest()) {
+			data, err := cache.NewFormatsForTest(s, c, nil, nil).Encode(person)
+			if err != nil {
+				f.Fatal(err)
+			}
+			f.Add(data)
+		}
+	}
+	legacy, err := msgpack.Marshal(person)
+	if err != nil {
+		f.Fatal(err)
+	}
+	f.Add(legacy)
+	f.Add([]byte{})
+	f.Add([]byte{cache.FormatMagicForTest, cache.FormatVersionForTest, cache.SerializerMsgPack, cache.CodecGzip})
+	f.Add([]byte{cache.FormatMagicForTest, cache.FormatVersionForTest, 250, cache.CodecNone, 0x01})
+	f.Add([]byte{cache.FormatMagicForTest, cache.FormatVersionForTest, cache.SerializerMsgPack, cache.CodecS2,
+		0xff, 0xff, 0xff, 0xff, 0x0f, 0x00})
+
+	reader := cache.NewFormatsForTest(&cache.MessagePackSerializer{}, cache.NopCodecForTest(),
+		[]cache.Serializer{cacheproto.ProtobufSerializer{}}, codecs)
+
+	f.Fuzz(func(t *testing.T, data []byte) {
+		var p formatTestPerson
+		if err := reader.Decode(data, &p); err != nil {
+			assert.Zero(t, p)
+		}
+		var str string
+		if err := reader.Decode(data, &str); err != nil {
+			assert.Zero(t, str)
+		}
+		msg := &wrapperspb.StringValue{}
+		if err := reader.Decode(data, msg); err != nil {
+			assert.True(t, proto.Equal(&wrapperspb.StringValue{}, msg))
+		}
+	})
+}
+
+// formatTestDocument is a value of about 1 KiB used to benchmark the codecs.
+type formatTestDocument struct {
+	ID       int
+	Title    string
+	Body     string
+	Tags     []string
+	Revision int
+}
+
+func benchmarkDocument() formatTestDocument {
+	return formatTestDocument{
+		ID:       42,
+		Title:    "Caching structured values in Redis",
+		Body:     strings.Repeat("Redis Cache stores Go values in Redis as bytes. ", 20),
+		Tags:     []string{"redis", "cache", "go", "serialization", "compression"},
+		Revision: 7,
+	}
+}
+
+func BenchmarkEncodeCodecs(b *testing.B) {
+	codecs := builtinCodecs(b)
+	doc := benchmarkDocument()
+	for _, name := range slices.Sorted(maps.Keys(codecs)) {
+		b.Run(name, func(b *testing.B) {
+			f := cache.NewFormatsForTest(&cache.MessagePackSerializer{}, codecs[name], nil, nil)
+			b.ReportAllocs()
+			for b.Loop() {
+				if _, err := f.Encode(doc); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+	}
+}
+
+func BenchmarkDecodeCodecs(b *testing.B) {
+	codecs := builtinCodecs(b)
+	doc := benchmarkDocument()
+	for _, name := range slices.Sorted(maps.Keys(codecs)) {
+		b.Run(name, func(b *testing.B) {
+			f := cache.NewFormatsForTest(&cache.MessagePackSerializer{}, codecs[name], nil, nil)
+			data, err := f.Encode(doc)
+			if err != nil {
+				b.Fatal(err)
+			}
+			b.SetBytes(int64(len(data)))
+			b.ReportAllocs()
+			var dst formatTestDocument
+			for b.Loop() {
+				if err := f.Decode(data, &dst); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
 	}
 }

@@ -17,7 +17,7 @@ This document serves as the operational manual and architectural guide for AI ag
 - **Pipelined Batching**: Optional transparent batch chunking for `MGet` and `MGetMap` operations via `BatchMultiGets(batchSize)`.
 - **Cache Patterns**: Built-in support for Read-Through (with optional single-flight thundering-herd protection) and Write-Through (synchronous or asynchronous).
 - **High Availability**: Built-in `FailoverClient` providing automatic failover and recovery across primary and secondary Redis instances.
-- **Observability**: OpenTelemetry metrics for serialization and compression via the `cacheotel` package. Redis command tracing and metrics come from instrumenting the Redis client itself (e.g. `redisotel`).
+- **Observability**: `Hooks` (configured with the `Instrumentation` option) report cache hits and misses, value sizes, decode errors, and single-flight loads. The `cacheotel` package records them, serialization and compression durations, and the active `FailoverClient` side as OpenTelemetry metrics. Redis command tracing and metrics come from instrumenting the Redis client itself (e.g. `redisotel`).
 
 ---
 
@@ -29,21 +29,24 @@ This document serves as the operational manual and architectural guide for AI ag
 ├── cache_test.go         # Unit tests for Cache using miniredis
 ├── typedcache.go         # TypedCache[T] generic implementation
 ├── typedcache_test.go    # Unit tests for TypedCache[T]
-├── serialization.go      # Serializer interface, JsonSerializer, MessagePackSerializer
-├── codec.go              # CompressionCodec interface and nopCodec default
+├── serialization.go      # Serializer interface, optional MarshalAppender/StrictUnmarshaler, JsonSerializer, MessagePackSerializer
+├── serialization_test.go # Unit tests for serializers
+├── codec.go              # CompressionCodec interface, optional CompressAppender, ErrMaxDecodedSizeExceeded, nopCodec default
+├── codec_test.go         # Unit tests for codec helpers
 ├── format.go             # Value header, format IDs, and the serializer/codec registry
 ├── format_test.go        # Format tests (external cache_test package, uses the built-in codecs)
 ├── export_test.go        # Exposes unexported identifiers to external tests (contains no tests)
 ├── option.go             # Functional options for Cache and TypedCache configuration
 ├── option_test.go        # Unit tests for options
+├── hooks.go              # Hooks invoked by Cache and TypedCache for instrumentation
+├── hooks_test.go         # Unit tests for hooks
 ├── readthrough.go        # ReadThrough and ReadThroughSingleFlight implementations
 ├── readthrough_test.go   # Unit tests for read-through patterns
 ├── writethrough.go       # WriteThrough implementation and WriteThroughError
 ├── writethrough_test.go  # Unit tests for write-through patterns
 ├── failover.go           # FailoverClient for primary/secondary Redis redundancy
 ├── failover_test.go      # Unit tests for FailoverClient
-├── logger.go             # Logger interface and SlogLogger adapter
-├── errors.go             # Retryable error interfaces and helpers (IsRetryable)
+├── errors.go             # RetryableError, IsRetryable, and MultiKeyError
 ├── errors_test.go        # Unit tests for error helpers
 ├── version.go            # Library version string (v2.0.0)
 ├── doc.go                # Package documentation
@@ -53,9 +56,12 @@ This document serves as the operational manual and architectural guide for AI ag
 ├── cacheotel/            # OpenTelemetry instrumentation package
 │   ├── serialization.go  # InstrumentedSerializer
 │   ├── compression.go    # InstrumentedCompressionCodec
+│   ├── hooks.go          # NewHooks: cache.Hooks recording metrics
+│   ├── failover.go       # ObserveFailoverClient: active FailoverClient side gauge
 │   ├── options.go        # Telemetry configuration options
-│   └── otel.go           # Instrumentation scope name
+│   └── otel.go           # Package doc, instrumentation scope name, shared helpers
 ├── compression/          # Compression codec implementations
+│   ├── internal/limit/   # Decompressed size limits shared by the codecs
 │   ├── flate/            # Deflate/Flate codec
 │   ├── gzip/             # Gzip codec
 │   ├── lz4/              # LZ4 codec
@@ -88,7 +94,8 @@ Both types require initialization via their constructor functions (`New` / `NewT
 Both `Cache` and `TypedCache` accept functional options implementing `Option func(c configurable)`:
 - `cache.Serialization(s Serializer)`: Sets serialization strategy (default: `MessagePackSerializer`).
 - `cache.Compression(c CompressionCodec)`: Sets compression codec (default: `nopCodec`).
-- `cache.BatchMultiGets(batchSize int)`: Configures automatic chunking of large multi-key get commands via Redis pipelines.
+- `cache.BatchMultiGets(batchSize int)`: Configures automatic chunking of large multi-key get commands via Redis pipelines. Keys are split by count, not by Redis Cluster hash slot.
+- `cache.Instrumentation(h Hooks)`: Sets the `Hooks` invoked on lookups, encodes, decodes, and single-flight loads. Hooks run synchronously in the caller's goroutine and their panics are recovered.
 
 ### 3.3 Serialization (`Serializer`)
 Defined in `serialization.go`:
@@ -99,10 +106,11 @@ type Serializer interface {
 }
 ```
 - `MessagePackSerializer`: Fast binary serialization using MessagePack.
-- `JsonSerializer`: Standard JSON serialization.
 - `cacheproto.ProtobufSerializer`: Serializes types implementing `google.golang.org/protobuf/proto.Message`.
 
-Serializers whose `Unmarshal` tolerates input it didn't produce (e.g. Protobuf keeps unknown fields) should also implement the optional `StrictUnmarshaler` interface. It is used when a value with a format header fails to decode and is retried as a headerless legacy value, so corrupt values aren't mistaken for legacy ones. Wrappers that don't alter the bytes (e.g. the `cacheotel` wrappers) must forward the wrapped component's format ID, implement `Unwrap()`, and forward `UnmarshalStrict`.
+- `JsonSerializer`: JSON serialization with `encoding/json/v2` default options, which differ from `encoding/json` used by v1.x and the release candidates (e.g. `time.Duration` isn't supported without a format option and names are matched case-sensitively). This is a documented breaking change; teams needing `encoding/json` semantics bring their own serializer with a custom format ID.
+
+Serializers whose `Unmarshal` tolerates input it didn't produce (e.g. Protobuf keeps unknown fields) should also implement the optional `StrictUnmarshaler` interface. It is used when a value with a format header fails to decode and is retried as a headerless legacy value, so corrupt values aren't mistaken for legacy ones. Serializers can implement the optional `MarshalAppender` interface (`AppendMarshal`) so values are serialized directly after the format header without a copy. Wrappers that don't alter the bytes (e.g. the `cacheotel` wrappers) must forward the wrapped component's format ID, implement `Unwrap()`, forward `UnmarshalStrict`, and should forward `AppendMarshal`/`AppendCompress`.
 
 ### 3.4 Compression (`CompressionCodec`)
 Defined in `codec.go`:
@@ -112,20 +120,27 @@ type CompressionCodec interface {
     Decompress(data []byte) ([]byte, error)
 }
 ```
-Available implementations are located under `compression/<algorithm>/` (e.g., `compression/gzip.New()`, `compression/zstd.New()`, etc.).
+Available implementations are located under `compression/<algorithm>/`: `flate.NewCodec(level, opts...)`, `gzip.NewCodec(level, opts...)`, `lz4.NewCodec(opts...)`, `s2.NewCodec(opts...)`, `snappy.NewCodec(opts...)`, and `zstd.NewCodec(level, opts...)`, which also returns an error. Every built-in codec:
+- Accepts `WithMaxDecodedSize(n)`. There is no limit by default; values exceeding a limit fail with an error wrapping `cache.ErrMaxDecodedSizeExceeded`. Streaming codecs enforce the limit while decompressing through `compression/internal/limit`, block codecs (S2, Snappy) check the declared size before allocating.
+- Implements the optional `CompressAppender` interface (`AppendCompress`), so values are compressed directly after the format header without a copy.
 
 ### 3.5 Read-Through & Write-Through
 - **`ReadThrough[T]`**: Synchronous fetch from Redis. On cache miss, executes `LoaderFunc[T]`, caches the result, and returns. Redis errors do not fail the call (invokes `OnCacheError` hook).
-- **`ReadThroughSingleFlight[T]`**: Deduplicates concurrent loads of the same cache key, preventing duplicate backend queries during cache stampedes. The shared load is canceled once no caller is waiting for it anymore.
-- **`WriteThrough[T]`**: Updates system of record via `WriteThroughWriter[T]`, then updates Redis synchronously or asynchronously (`UpdateCacheAsync: true`). Returns `*WriteThroughError` allowing callers to verify if the primary source succeeded despite cache failures (`err.SourceUpdated`).
+- **`ReadThroughSingleFlight[T]`**: Deduplicates concurrent loads of the same cache key, preventing duplicate backend queries during cache stampedes. Loads are only shared per `*Cache` and per type `T` (each `Cache` owns its `flightGroup`, keyed by `flightKey{type, key}`). The shared load is canceled once no caller is waiting for it anymore.
+- **`WriteThrough[T]`**: Updates system of record via `WriteThroughWriter[T]`, then updates Redis synchronously or asynchronously (`UpdateCacheAsync: true`). If the cache update fails, the key is deleted so the previous value isn't served; this is best effort since the delete can fail too. Returns `*WriteThroughError` allowing callers to verify if the primary source succeeded despite cache failures (`err.SourceUpdated`).
+- User callbacks invoked from goroutines started by the library (async updates, the shared single-flight load) are wrapped with `safeCall`, so a panicking callback can't crash the process.
 
 ### 3.6 Failover Client (`FailoverClient`)
-Wraps a primary and secondary `RedisClient`. Conducts periodic health checks (`Ping`) in a background goroutine. Automatically switches traffic to secondary upon `FailureThreshold` consecutive check failures, and recovers back to primary after `SuccessThreshold` consecutive successes.
+Wraps a primary and secondary `RedisClient`. Conducts periodic health checks (`PING` by default, customizable with `FailoverOpts.HealthCheck`) in a background goroutine. Automatically switches traffic to secondary upon `FailureThreshold` consecutive check failures, and recovers back to primary after `SuccessThreshold` consecutive successes. The active client is a single atomic pointer, which `IsPrimary`, `IsSecondary`, and `Active` all derive from.
+
+Commands are only sent to the active client. The primary and secondary are expected to be active-active replicated (e.g. Redis Enterprise Active-Active); without replication, values served after switching are stale. `FailoverClient` owns both clients and `Close` closes them.
 
 ### 3.7 OpenTelemetry Instrumentation (`cacheotel`)
 Wraps `Serializer` and `CompressionCodec` instances (`NewInstrumentedSerializer`, `NewInstrumentedCompressionCodec`) to record:
-- Histograms: `cache.serialization.duration` and `cache.compression.duration` with attributes `operation` and `success`.
-- Counters: `cache.serialization.errors` and `cache.compression.errors` with attribute `operation`.
+- Histograms: `cache.serialization.duration` and `cache.compression.duration` with attributes `cache.serializer`/`cache.codec`, `operation`, and `success`. Default buckets range from 10µs to 50ms.
+- Counters: `cache.serialization.errors` and `cache.compression.errors` with attributes `cache.serializer`/`cache.codec` and `operation`.
+
+`NewHooks` returns `cache.Hooks` recording `cache.lookups`, `cache.value.size`, `cache.value.serialized_size`, `cache.decode.errors`, and `cache.singleflight.calls` with the context of the cache operation. `ObserveFailoverClient` registers the `cache.failover.active` gauge. `WithAttributes` adds attributes, such as a cache name, to every measurement. Attribute sets are computed once at construction so recording doesn't allocate.
 
 The wrappers forward the format ID of the component they wrap, so values they write are readable by uninstrumented instances.
 
@@ -154,6 +169,12 @@ go test -race ./...
 # Run specific package tests
 go test -v -race ./compression/zstd
 go test -v -race .
+
+# Fuzz decoding of untrusted values
+go test -run '^$' -fuzz '^FuzzDecode$' -fuzztime 1m .
+
+# Benchmark encoding and decoding with every codec
+go test -run '^$' -bench 'Encode|Decode' -benchmem .
 ```
 
 ### Testing Guidelines
@@ -168,7 +189,7 @@ go test -v -race .
   client := redis.NewClient(&redis.Options{Addr: server.Addr()})
   defer client.Close()
   ```
-- **Assertions**: Standardize on `github.com/stretchr/testify/assert` and `github.com/stretchr/testify/require`.
+- **Assertions**: Standardize on `github.com/stretchr/testify/assert` and `github.com/stretchr/testify/require`. Dependencies are vendored and `require` isn't vendored yet, so use `assert` unless `vendor/` is updated.
 - **Error Conditions**: Test cache miss (`ErrKeyNotFound`), corrupt data unmarshaling errors, nil client panics, and TTL expiration behavior.
 - **Test File Layout**: Test files mirror implementation files. Every test for `foo.go` lives in `foo_test.go`, e.g. `format.go` → `format_test.go`. Don't add files such as `foo_external_test.go` or `foo_legacy_test.go`.
   - A file has a single package clause, so if any test for `foo.go` needs the external `cache_test` package, the whole `foo_test.go` uses `package cache_test`. This is required for tests that import `compression/*` or `cacheproto`, since those packages import `cache`, and for tests that need types declared outside the module's packages.
@@ -196,6 +217,7 @@ When modifying or extending this codebase, adhere to the following rules:
 4. **Error Handling Conventions**:
    - Sentinel error `ErrKeyNotFound` is returned when a requested key does not exist. Do not leak raw `redis.Nil`.
    - Wrap internal Redis and serialization errors using `fmt.Errorf("redis: %w", err)` or `fmt.Errorf("marshal value: %w", err)` to preserve unwrap chains.
+   - Multi-key reads (`MGet`, `MGetMap`) return the values that could be decoded along with a `*MultiKeyError` holding the error of each key that couldn't. A Redis error fails the whole call with a nil result.
 
 5. **Panics vs. Returned Errors**:
    - Constructors (`New`, `NewTyped`, `Serialization(nil)`, `Compression(nil)`) should panic on invalid setup/nil arguments to fail fast at startup.

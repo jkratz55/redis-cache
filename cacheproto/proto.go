@@ -1,3 +1,4 @@
+// Package cacheproto implements a cache.Serializer for Protobuf messages.
 package cacheproto
 
 import (
@@ -11,6 +12,7 @@ import (
 // ProtobufSerializer is an implementation of Serializer that uses Protobuf to marshal and unmarshal data.
 type ProtobufSerializer struct{}
 
+// Marshal returns the Protobuf encoding of data, which must implement proto.Message.
 func (p ProtobufSerializer) Marshal(data any) ([]byte, error) {
 	msg, ok := data.(proto.Message)
 	if !ok {
@@ -19,6 +21,9 @@ func (p ProtobufSerializer) Marshal(data any) ([]byte, error) {
 	return proto.Marshal(msg)
 }
 
+// Unmarshal decodes the Protobuf encoded bytes into dst, which must implement
+// proto.Message. Fields that aren't defined by the message type of dst are kept as
+// unknown fields, see UnmarshalStrict.
 func (p ProtobufSerializer) Unmarshal(bytes []byte, dst any) error {
 	msg, ok := dst.(proto.Message)
 	if !ok {

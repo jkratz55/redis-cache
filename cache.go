@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"sync"
 	"time"
 
@@ -70,6 +71,9 @@ type Cache struct {
 	formats   *formats
 	mgetBatch int // zero-value indicates no batching
 
+	// flights deduplicates the loads of ReadThroughSingleFlight.
+	flights flightGroup
+
 	// formatOptions collects the serialization and compression configuration
 	// while options are applied. It is not used after construction.
 	formatOptions
@@ -120,14 +124,11 @@ func New(client RedisClient, opts ...Option) *Cache {
 //	  // handle error
 //	}
 func (c *Cache) Get(ctx context.Context, key string, v any) error {
-	data, err := c.redis.Get(ctx, key).Bytes()
+	data, err := readValue(ctx, c.formats, c.redis.Get(ctx, key))
 	if err != nil {
-		if errors.Is(err, redis.Nil) {
-			return ErrKeyNotFound
-		}
-		return fmt.Errorf("redis: %w", err)
+		return err
 	}
-	return c.formats.decode(data, v)
+	return c.formats.decode(ctx, data, v)
 }
 
 // GetAndExpire retrieves a value from Redis for the given key and sets the TTL on the key.
@@ -147,14 +148,11 @@ func (c *Cache) GetAndExpire(ctx context.Context, key string, v any, ttl time.Du
 	if err != nil {
 		return err
 	}
-	val, err := c.redis.GetEx(ctx, key, ttl).Bytes()
+	data, err := readValue(ctx, c.formats, c.redis.GetEx(ctx, key, ttl))
 	if err != nil {
-		if errors.Is(err, redis.Nil) {
-			return ErrKeyNotFound
-		}
-		return fmt.Errorf("redis: %w", err)
+		return err
 	}
-	return c.formats.decode(val, v)
+	return c.formats.decode(ctx, data, v)
 }
 
 // GetAndDelete retrieves a value from Redis for the given key and deletes the key from Redis.
@@ -165,20 +163,33 @@ func (c *Cache) GetAndExpire(ctx context.Context, key string, v any, ttl time.Du
 //
 // The destination type v should be a pointer to the desired type.
 func (c *Cache) GetAndDelete(ctx context.Context, key string, v any) error {
-	val, err := c.redis.GetDel(ctx, key).Bytes()
+	data, err := readValue(ctx, c.formats, c.redis.GetDel(ctx, key))
 	if err != nil {
-		if errors.Is(err, redis.Nil) {
-			return ErrKeyNotFound
-		}
-		return fmt.Errorf("redis: %w", err)
+		return err
 	}
-	return c.formats.decode(val, v)
+	return c.formats.decode(ctx, data, v)
 }
 
-// Keys retrieves all the keys in Redis/Cache
+// readValue returns the value read by cmd, a command reading a single key, and
+// reports the lookup to the OnLookup hook. ErrKeyNotFound is returned if the key
+// doesn't exist.
+func readValue(ctx context.Context, f *formats, cmd *redis.StringCmd) ([]byte, error) {
+	data, err := cmd.Bytes()
+	switch {
+	case errors.Is(err, redis.Nil):
+		f.hooks.lookup(ctx, 0, 1)
+		return nil, ErrKeyNotFound
+	case err != nil:
+		return nil, fmt.Errorf("redis: %w", err)
+	}
+	f.hooks.lookup(ctx, 1, 0)
+	return data, nil
+}
+
+// Keys retrieves all the keys in Redis/Cache.
 //
 // Note: Keys under the hood is using the Redis SCAN command instead of KEYS, which is more efficient,
-// but this is still an expensive operation.
+// but this is still an expensive operation. Every key is held in memory at once.
 func (c *Cache) Keys(ctx context.Context) ([]string, error) {
 	return c.Scan(ctx, "*", 1000)
 }
@@ -193,7 +204,7 @@ func (c *Cache) Set(ctx context.Context, key string, v any, ttl time.Duration) e
 	if err != nil {
 		return err
 	}
-	data, err := c.formats.encode(v)
+	data, err := c.formats.encode(ctx, v)
 	if err != nil {
 		return err
 	}
@@ -215,7 +226,7 @@ func (c *Cache) SetIfAbsent(ctx context.Context, key string, v any, ttl time.Dur
 	if err != nil {
 		return false, err
 	}
-	data, err := c.formats.encode(v)
+	data, err := c.formats.encode(ctx, v)
 	if err != nil {
 		return false, err
 	}
@@ -237,7 +248,7 @@ func (c *Cache) SetIfPresent(ctx context.Context, key string, v any, ttl time.Du
 	if err != nil {
 		return false, err
 	}
-	data, err := c.formats.encode(v)
+	data, err := c.formats.encode(ctx, v)
 	if err != nil {
 		return false, err
 	}
@@ -261,7 +272,7 @@ func (c *Cache) MSet(ctx context.Context, keyvalues map[string]any) error {
 	// and compressing the values.
 	rawData := make(map[string]any)
 	for k, v := range keyvalues {
-		val, err := c.formats.encode(v)
+		val, err := c.formats.encode(ctx, v)
 		if err != nil {
 			return err
 		}
@@ -276,11 +287,18 @@ func (c *Cache) MSet(ctx context.Context, keyvalues map[string]any) error {
 }
 
 // Delete removes entries from the cache for a given set of keys.
+//
+// Delete uses a single DEL command, so on Redis Cluster all keys must be in the same hash slot,
+// otherwise Redis returns a CROSSSLOT error.
 func (c *Cache) Delete(ctx context.Context, keys ...string) error {
 	return wrapRedisErr(c.redis.Del(ctx, keys...).Err())
 }
 
-// Flush flushes the cache deleting all keys/entries.
+// Flush flushes the cache deleting all keys/entries with the FLUSHDB command.
+//
+// FLUSHDB deletes every key of the Redis database, including keys that weren't written by this Cache.
+// On Redis Cluster, a *redis.ClusterClient sends FLUSHDB to a single master, so Flush only deletes the
+// keys stored on that node. Use ForEachMaster on the *redis.ClusterClient to flush every node.
 func (c *Cache) Flush(ctx context.Context) error {
 	return wrapRedisErr(c.redis.FlushDB(ctx).Err())
 }
@@ -288,6 +306,9 @@ func (c *Cache) Flush(ctx context.Context) error {
 // FlushAsync flushes the cache deleting all keys/entries asynchronously. Only keys that were present
 // when FLUSH ASYNC command was received by Redis will be deleted. Any keys created during an asynchronous
 // flush will be unaffected.
+//
+// Like Flush, FlushAsync deletes every key of the Redis database and only flushes a single node of a
+// Redis Cluster.
 func (c *Cache) FlushAsync(ctx context.Context) error {
 	return wrapRedisErr(c.redis.FlushDBAsync(ctx).Err())
 }
@@ -531,87 +552,37 @@ func (mr MultiResult[T]) IsEmpty() bool {
 //
 // If a key doesn't exist in Redis it will not be present in the result map.
 //
+// If the values of some keys can't be decoded, for example because they are corrupt or were written in
+// a format that isn't registered, those keys aren't present in the result map either. MGetMap then
+// returns the values of the other keys along with a *MultiKeyError holding the error of every key that
+// couldn't be decoded. If the Redis command fails, MGetMap returns a nil map and the error.
+//
 // MGetMap is useful when you want to fetch multiple keys and their relationship between each other
 // is important. For example, if you want to fetch a user's profile and their friends, you can use
 // MGetMap to fetch both the profile and the friends in a single operation. If you just want the values
 // and don't care about the relationship between the keys, use MGet instead.
+//
+// MGetMap uses the MGET command. On Redis Cluster, a single MGET command can only read keys of the same
+// hash slot, otherwise Redis returns a CROSSSLOT error. Use hash tags, such as "{user:1}:profile" and
+// "{user:1}:friends", to store related keys in the same slot. BatchMultiGets splits keys by count, not
+// by slot, so it doesn't lift this restriction.
 func MGetMap[R any](ctx context.Context, c *Cache, keys ...string) (MultiResult[R], error) {
-
-	// If batching is enabled and the number of keys exceeds the batch size use
-	// multiple MGET commands in a pipeline.
-	if c.mgetBatch > 0 && len(keys) > c.mgetBatch {
-		return mGetMapBatch[R](ctx, c, keys...)
-	}
-
-	results, err := c.redis.MGet(ctx, keys...).Result()
+	results, err := mget(ctx, c.redis, c.mgetBatch, keys)
 	if err != nil {
-		return nil, fmt.Errorf("redis: %w", err)
-	}
-	resultMap := make(map[string]R)
-	for i, res := range results {
-		if res == nil {
-			// Some or all of the requested keys may not exist. Skip iterations
-			// where the key wasn't found
-			continue
-		}
-		str, ok := res.(string)
-		if !ok {
-			return nil, fmt.Errorf("unexpected value type from Redis: expected %T but got %T", str, res)
-		}
-		var val R
-		if err := c.formats.decode([]byte(str), &val); err != nil {
-			return nil, fmt.Errorf("decode key %q to type %T: %w", keys[i], val, err)
-		}
-		resultMap[keys[i]] = val
-	}
-	return resultMap, nil
-}
-
-// mGetMapBatch is a helper function that uses pipelining to fetch multiple keys
-// from Redis in batches. Under certain conditions, this can be faster than
-// fetching all keys in a single MGET command.
-func mGetMapBatch[R any](ctx context.Context, c *Cache, keys ...string) (MultiResult[R], error) {
-
-	pipe := c.redis.Pipeline()
-	numKeys := len(keys)
-	numBatches := (numKeys + c.mgetBatch - 1) / c.mgetBatch
-	cmds := make([]*redis.SliceCmd, 0, numBatches)
-	for i := 0; i < numKeys; i += c.mgetBatch {
-		end := min(i+c.mgetBatch, numKeys)
-		cmds = append(cmds, pipe.MGet(ctx, keys[i:end]...))
+		return nil, err
 	}
 
-	_, err := pipe.Exec(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("redis: %w", err)
-	}
-
-	resultMap := make(map[string]R)
-	for i, cmd := range cmds {
-		results, err := cmd.Result()
-		if err != nil {
-			return nil, fmt.Errorf("redis: %w", err)
-		}
-		for j, res := range results {
-			if res == nil {
-				// Some or all of the requested keys may not exist. Skip iterations
-				// where the key wasn't found
-				continue
-			}
-			str, ok := res.(string)
-			if !ok {
-				return nil, fmt.Errorf("unexpected value type from Redis: expected %T but got %T", str, res)
-			}
-			key := keys[i*c.mgetBatch+j]
+	resultMap := make(map[string]R, len(keys))
+	err = decodeMulti(ctx, c.formats, keys, results,
+		func(data []byte) (R, error) {
 			var val R
-			if err := c.formats.decode([]byte(str), &val); err != nil {
-				return nil, fmt.Errorf("decode key %q to type %T: %w", key, val, err)
-			}
+			err := c.formats.decode(ctx, data, &val)
+			return val, err
+		},
+		func(key string, val R) {
 			resultMap[key] = val
-		}
-	}
-
-	return resultMap, nil
+		})
+	return resultMap, err
 }
 
 // MGet retrieves multiple keys in a single operation and returns the result as a slice.
@@ -619,82 +590,116 @@ func mGetMapBatch[R any](ctx context.Context, c *Cache, keys ...string) (MultiRe
 // If a key doesn't exist in Redis it will not be present in the result slice. Due to missing keys
 // being omitted it isn't possible to correlate the keys with their values. If you need to fetch
 // multiple keys and their relationship between each other is important, use MGetMap instead.
+//
+// If the values of some keys can't be decoded, for example because they are corrupt or were written in
+// a format that isn't registered, those values aren't present in the result slice either. MGet then
+// returns the other values along with a *MultiKeyError holding the error of every key that couldn't be
+// decoded. If the Redis command fails, MGet returns a nil slice and the error.
+//
+// MGet uses the MGET command, so on Redis Cluster all keys must be in the same hash slot, see MGetMap.
 func MGet[T any](ctx context.Context, c *Cache, keys ...string) ([]T, error) {
-
-	// If batching is enabled and the number of keys exceeds the batch size use
-	// multiple MGET commands in a pipeline.
-	if c.mgetBatch > 0 && len(keys) > c.mgetBatch {
-		return mGetBatch[T](ctx, c, keys...)
-	}
-
-	results, err := c.redis.MGet(ctx, keys...).Result()
+	results, err := mget(ctx, c.redis, c.mgetBatch, keys)
 	if err != nil {
-		return nil, fmt.Errorf("redis: %w", err)
+		return nil, err
 	}
 
 	values := make([]T, 0, len(keys))
-	for i := range results {
-		res := results[i]
-		if res == nil {
-			// Some or all of the requested keys may not exist. Skip iterations
-			// where the key wasn't found
-			continue
-		}
-		str, ok := res.(string)
-		if !ok {
-			return nil, fmt.Errorf("unexpected value type from Redis: expected %T but got %T", str, res)
-		}
-		var val T
-		if err := c.formats.decode([]byte(str), &val); err != nil {
-			return nil, fmt.Errorf("decode key %q to type %T: %w", keys[i], val, err)
-		}
-		values = append(values, val)
-	}
-	return values, nil
+	err = decodeMulti(ctx, c.formats, keys, results,
+		func(data []byte) (T, error) {
+			var val T
+			err := c.formats.decode(ctx, data, &val)
+			return val, err
+		},
+		func(key string, val T) {
+			values = append(values, val)
+		})
+	return values, err
 }
 
-func mGetBatch[T any](ctx context.Context, c *Cache, keys ...string) ([]T, error) {
-	pipe := c.redis.Pipeline()
-	numKeys := len(keys)
-	numBatches := (numKeys + c.mgetBatch - 1) / c.mgetBatch
-	cmds := make([]*redis.SliceCmd, 0, numBatches)
-
-	for i := 0; i < numKeys; i += c.mgetBatch {
-		end := min(i+c.mgetBatch, numKeys)
-		cmds = append(cmds, pipe.MGet(ctx, keys[i:end]...))
-	}
-
-	_, err := pipe.Exec(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("redis: %w", err)
-	}
-
-	values := make([]T, 0, len(keys))
-	for i, cmd := range cmds {
-		results, err := cmd.Result()
+// mget returns the values of keys in the same order as keys, with nil for every key
+// that doesn't exist. If batch is positive and there are more keys than batch, the
+// keys are read with a pipeline of MGET commands of at most batch keys each.
+func mget(ctx context.Context, rdb RedisClient, batch int, keys []string) ([]any, error) {
+	var results []any
+	if batch <= 0 || len(keys) <= batch {
+		var err error
+		results, err = rdb.MGet(ctx, keys...).Result()
 		if err != nil {
 			return nil, fmt.Errorf("redis: %w", err)
 		}
-		for j := range results {
-			res := results[j]
-			if res == nil {
-				// Some or all of the requested keys may not exist. Skip iterations
-				// where the key wasn't found
-				continue
-			}
-			str, ok := res.(string)
-			if !ok {
-				return nil, fmt.Errorf("unexpected value type from Redis: expected %T but got %T", str, res)
-			}
-			var val T
-			if err := c.formats.decode([]byte(str), &val); err != nil {
-				return nil, fmt.Errorf("decode key %q to type %T: %w", keys[i*c.mgetBatch+j], val, err)
-			}
-			values = append(values, val)
+	} else {
+		pipe := rdb.Pipeline()
+		cmds := make([]*redis.SliceCmd, 0, (len(keys)+batch-1)/batch)
+		for i := 0; i < len(keys); i += batch {
+			cmds = append(cmds, pipe.MGet(ctx, keys[i:min(i+batch, len(keys))]...))
+		}
+		if _, err := pipe.Exec(ctx); err != nil {
+			return nil, fmt.Errorf("redis: %w", err)
+		}
+
+		// Exec returns the error of the first command that failed, so every
+		// command succeeded.
+		results = make([]any, 0, len(keys))
+		for _, cmd := range cmds {
+			results = append(results, cmd.Val()...)
 		}
 	}
 
-	return values, nil
+	if len(results) != len(keys) {
+		return nil, fmt.Errorf("redis: MGET returned %d values for %d keys", len(results), len(keys))
+	}
+	return results, nil
+}
+
+// decodeMulti decodes the values returned by mget for keys and calls add with every
+// key whose value was decoded, in the order of keys. Keys that don't exist are
+// skipped. Keys whose value can't be decoded are skipped as well and their errors
+// are returned as a *MultiKeyError. The lookup is reported to the OnLookup hook.
+func decodeMulti[T any](
+	ctx context.Context,
+	f *formats,
+	keys []string,
+	results []any,
+	decode func(data []byte) (T, error),
+	add func(key string, val T)) error {
+
+	var (
+		hits int
+		errs map[string]error
+	)
+	for i, res := range results {
+		if res == nil {
+			// The key doesn't exist.
+			continue
+		}
+		hits++
+
+		val, err := decodeResult(res, decode)
+		if err != nil {
+			if errs == nil {
+				errs = make(map[string]error)
+			}
+			errs[keys[i]] = fmt.Errorf("decode key %q to type %s: %w", keys[i], reflect.TypeFor[T](), err)
+			continue
+		}
+		add(keys[i], val)
+	}
+
+	f.hooks.lookup(ctx, hits, len(results)-hits)
+	if errs != nil {
+		return &MultiKeyError{Errors: errs}
+	}
+	return nil
+}
+
+// decodeResult decodes a single value returned by MGET.
+func decodeResult[T any](res any, decode func(data []byte) (T, error)) (T, error) {
+	str, ok := res.(string)
+	if !ok {
+		var zero T
+		return zero, fmt.Errorf("unexpected value type from Redis: expected string but got %T", res)
+	}
+	return decode([]byte(str))
 }
 
 // UpsertCallback is a callback function that is invoked by Upsert. An UpsertCallback
@@ -780,14 +785,14 @@ func upsertTx[T any](ctx context.Context, c *Cache, tx *redis.Tx, key string, va
 	case err != nil:
 		return fmt.Errorf("redis: %w", err)
 	default:
-		if err := c.formats.decode(data, &oldVal); err != nil {
+		if err := c.formats.decode(ctx, data, &oldVal); err != nil {
 			return fmt.Errorf("decode key %q to type %T: %w", key, oldVal, err)
 		}
 		found = true
 	}
 
 	newVal := cb(found, oldVal, val)
-	newData, err := c.formats.encode(newVal)
+	newData, err := c.formats.encode(ctx, newVal)
 	if err != nil {
 		return err
 	}

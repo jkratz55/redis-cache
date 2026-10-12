@@ -3,6 +3,7 @@ package cache
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -171,4 +172,99 @@ func TestWriteThrough(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestWriteThrough_InvalidatesOnFailedUpdate(t *testing.T) {
+	setErr := errors.New("set error")
+
+	for _, async := range []bool{false, true} {
+		t.Run(fmt.Sprintf("async=%t", async), func(t *testing.T) {
+			setup()
+			defer tearDown()
+
+			ctx := context.Background()
+			assert.NoError(t, New(client).Set(ctx, "price", 100, 0))
+
+			completed := make(chan error, 1)
+			rdb := New(&errorRedisClient{RedisClient: client, setErr: setErr})
+			err := WriteThrough[int](ctx, rdb, "price", 80, WriteThroughOptions{
+				UpdateCacheAsync:       async,
+				OnAsyncUpdateCompleted: func(key string, err error) { completed <- err },
+			}, func(ctx context.Context, key string, val int) error { return nil })
+			if async {
+				assert.NoError(t, err)
+				err = <-completed
+			}
+
+			wtErr, ok := errors.AsType[*WriteThroughError](err)
+			if assert.True(t, ok, "expected *WriteThroughError, got %T", err) {
+				assert.True(t, wtErr.SourceUpdated)
+			}
+			assert.ErrorIs(t, err, setErr)
+
+			// The value cached before the source of truth was updated is deleted.
+			assert.False(t, server.Exists("price"))
+		})
+	}
+}
+
+func TestWriteThrough_InvalidateFails(t *testing.T) {
+	setup()
+	defer tearDown()
+
+	ctx := context.Background()
+	assert.NoError(t, New(client).Set(ctx, "price", 100, 0))
+
+	setErr := errors.New("set error")
+	delErr := errors.New("del error")
+	rdb := New(&errorRedisClient{RedisClient: client, setErr: setErr, delErr: delErr})
+	err := WriteThrough[int](ctx, rdb, "price", 80, WriteThroughOptions{},
+		func(ctx context.Context, key string, val int) error { return nil })
+
+	// Invalidating is best effort, the error reports both failures.
+	assert.ErrorIs(t, err, setErr)
+	assert.ErrorIs(t, err, delErr)
+	assert.True(t, server.Exists("price"))
+}
+
+func TestWriteThrough_InvalidatesAfterCallerCanceled(t *testing.T) {
+	setup()
+	defer tearDown()
+
+	assert.NoError(t, New(client).Set(context.Background(), "price", 100, 0))
+
+	// The caller's context is canceled once the source of truth is updated, so the
+	// cache update fails. The delete isn't canceled with it.
+	ctx, cancel := context.WithCancel(context.Background())
+	err := WriteThrough[int](ctx, New(client), "price", 80, WriteThroughOptions{},
+		func(ctx context.Context, key string, val int) error {
+			cancel()
+			return nil
+		})
+	assert.ErrorIs(t, err, context.Canceled)
+	assert.False(t, server.Exists("price"))
+}
+
+func TestWriteThrough_AsyncCallbackPanic(t *testing.T) {
+	setup()
+	defer tearDown()
+
+	called := make(chan struct{})
+	err := WriteThrough[string](context.Background(), New(client), "hello", "world", WriteThroughOptions{
+		UpdateCacheAsync: true,
+		OnAsyncUpdateCompleted: func(key string, err error) {
+			close(called)
+			panic("boom")
+		},
+	}, func(ctx context.Context, key string, val string) error { return nil })
+	assert.NoError(t, err)
+
+	// The process would crash if the panic in the background goroutine wasn't
+	// recovered.
+	select {
+	case <-called:
+	case <-time.After(time.Second):
+		t.Fatal("OnAsyncUpdateCompleted was not invoked")
+	}
+	time.Sleep(20 * time.Millisecond)
 }

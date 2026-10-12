@@ -1,7 +1,6 @@
 package cacheotel
 
 import (
-	"context"
 	"fmt"
 	"time"
 
@@ -16,14 +15,22 @@ import (
 // The zero value for InstrumentedCompressionCodec is not usable. Use NewInstrumentedCompressionCodec
 // to create a new instance.
 type InstrumentedCompressionCodec struct {
-	codec cache.CompressionCodec
-	id    uint8
-	dur   metric.Float64Histogram
-	errs  metric.Int64Counter
+	codec      cache.CompressionCodec
+	id         uint8
+	compress   operationMetrics
+	decompress operationMetrics
 }
 
 // NewInstrumentedCompressionCodec returns a new InstrumentedCompressionCodec that wraps the given
 // CompressionCodec.
+//
+// The InstrumentedCompressionCodec records the following metrics, with the attribute cache.codec set
+// to the name of the wrapped CompressionCodec (flate, gzip, lz4, s2, snappy, zstd, or the format ID
+// of a custom CompressionCodec) and the attribute operation set to compress or decompress:
+//
+//   - cache.compression.duration: histogram of the duration of operations in seconds, with the
+//     attribute success.
+//   - cache.compression.errors: counter of failed operations.
 //
 // The InstrumentedCompressionCodec reports the format ID of the wrapped CompressionCodec.
 // If the wrapped CompressionCodec is nil, including a nil pointer, or doesn't have a format ID,
@@ -53,39 +60,46 @@ func NewInstrumentedCompressionCodec(codec cache.CompressionCodec, opts ...Compr
 	errs, _ := meter.Int64Counter("cache.compression.errors",
 		metric.WithDescription("Number of compression errors"))
 
+	component := attribute.String("cache.codec", codecName(id))
 	return &InstrumentedCompressionCodec{
-		codec: codec,
-		id:    id,
-		dur:   dur,
-		errs:  errs,
+		codec:      codec,
+		id:         id,
+		compress:   newOperationMetrics(conf, dur, errs, component, "compress"),
+		decompress: newOperationMetrics(conf, dur, errs, component, "decompress"),
 	}
 }
 
+// Compress calls Compress on the wrapped CompressionCodec and records it.
 func (i *InstrumentedCompressionCodec) Compress(data []byte) ([]byte, error) {
 	start := time.Now()
 	res, err := i.codec.Compress(data)
-	ctx := context.Background()
-	i.dur.Record(ctx, time.Since(start).Seconds(),
-		metric.WithAttributes(
-			attribute.String("operation", "compress"),
-			attribute.Bool("success", err == nil)))
-	if err != nil {
-		i.errs.Add(ctx, 1, metric.WithAttributes(attribute.String("operation", "compress")))
-	}
+	i.compress.record(start, err)
 	return res, err
 }
 
+// AppendCompress calls AppendCompress on the wrapped CompressionCodec if it
+// implements cache.CompressAppender, otherwise it appends the result of Compress to
+// dst. It's recorded as a compress operation.
+func (i *InstrumentedCompressionCodec) AppendCompress(dst, data []byte) ([]byte, error) {
+	ca, ok := i.codec.(cache.CompressAppender)
+	if !ok {
+		res, err := i.Compress(data)
+		if err != nil {
+			return nil, err
+		}
+		return append(dst, res...), nil
+	}
+	start := time.Now()
+	out, err := ca.AppendCompress(dst, data)
+	i.compress.record(start, err)
+	return out, err
+}
+
+// Decompress calls Decompress on the wrapped CompressionCodec and records it.
 func (i *InstrumentedCompressionCodec) Decompress(data []byte) ([]byte, error) {
 	start := time.Now()
 	res, err := i.codec.Decompress(data)
-	ctx := context.Background()
-	i.dur.Record(ctx, time.Since(start).Seconds(),
-		metric.WithAttributes(
-			attribute.String("operation", "decompress"),
-			attribute.Bool("success", err == nil)))
-	if err != nil {
-		i.errs.Add(ctx, 1, metric.WithAttributes(attribute.String("operation", "decompress")))
-	}
+	i.decompress.record(start, err)
 	return res, err
 }
 

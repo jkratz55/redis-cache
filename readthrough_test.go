@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
 )
@@ -527,4 +528,190 @@ func TestReadThroughSingleFlight_LoaderGoexit(t *testing.T) {
 			return "", nil
 		})
 	assert.ErrorContains(t, err, "loader func did not return")
+}
+
+// awaitWhileBlocked waits for result, which must be produced while release is
+// open. If result isn't produced within a second, the caller is assumed to wait
+// for the blocked load, so release is closed to observe what the caller receives.
+// release is always closed when awaitWhileBlocked returns.
+func awaitWhileBlocked[T any](result <-chan T, release chan struct{}) (res T, blocked bool) {
+	select {
+	case res = <-result:
+		close(release)
+		return res, false
+	case <-time.After(time.Second):
+		close(release)
+		return <-result, true
+	}
+}
+
+// singleFlightResult is the result of a ReadThroughSingleFlight call made in a
+// goroutine, including a panic.
+type singleFlightResult[T any] struct {
+	val      T
+	err      error
+	panicked any
+}
+
+func readThroughSingleFlightAsync[T any](ctx context.Context, rdb *Cache, key string, loader LoaderFunc[T]) <-chan singleFlightResult[T] {
+	res := make(chan singleFlightResult[T], 1)
+	go func() {
+		var r singleFlightResult[T]
+		defer func() {
+			r.panicked = recover()
+			res <- r
+		}()
+		r.val, r.err = ReadThroughSingleFlight[T](ctx, rdb, key, ReadThroughOptions{}, loader)
+	}()
+	return res
+}
+
+func TestReadThroughSingleFlight_IsolatedPerCache(t *testing.T) {
+	ctx := context.Background()
+	serverA := miniredis.RunT(t)
+	serverB := miniredis.RunT(t)
+	clientA := redis.NewClient(&redis.Options{Addr: serverA.Addr()})
+	clientB := redis.NewClient(&redis.Options{Addr: serverB.Addr()})
+	t.Cleanup(func() {
+		_ = clientA.Close()
+		_ = clientB.Close()
+	})
+	cacheA, cacheB := New(clientA), New(clientB)
+
+	// Cache A's load is in flight while cache B loads the same key.
+	started := make(chan struct{})
+	release := make(chan struct{})
+	resA := readThroughSingleFlightAsync(ctx, cacheA, "session:1", func(ctx context.Context) (string, error) {
+		close(started)
+		<-release
+		return "tenant-a", nil
+	})
+	<-started
+
+	// Cache B starts its own load instead of joining cache A's, so it completes
+	// while cache A's load is still blocked.
+	resB, blocked := awaitWhileBlocked(readThroughSingleFlightAsync(ctx, cacheB, "session:1",
+		func(ctx context.Context) (string, error) {
+			return "tenant-b", nil
+		}), release)
+	assert.False(t, blocked, "cache B joined the load of cache A")
+	assert.NoError(t, resB.err)
+	assert.Equal(t, "tenant-b", resB.val)
+	assert.Equal(t, "tenant-a", (<-resA).val)
+
+	var cached string
+	assert.NoError(t, cacheA.Get(ctx, "session:1", &cached))
+	assert.Equal(t, "tenant-a", cached)
+	assert.NoError(t, cacheB.Get(ctx, "session:1", &cached))
+	assert.Equal(t, "tenant-b", cached)
+}
+
+func TestReadThroughSingleFlight_IsolatedPerType(t *testing.T) {
+	setup()
+	defer tearDown()
+
+	ctx := context.Background()
+	rdb := New(client)
+
+	// A load of a string is in flight while an int is loaded for the same key.
+	started := make(chan struct{})
+	release := make(chan struct{})
+	resString := readThroughSingleFlightAsync(ctx, rdb, "user:42", func(ctx context.Context) (string, error) {
+		close(started)
+		<-release
+		return "alice", nil
+	})
+	<-started
+
+	// Joining the string load would make the type assertion of its result panic.
+	resInt, blocked := awaitWhileBlocked(readThroughSingleFlightAsync(ctx, rdb, "user:42",
+		func(ctx context.Context) (int, error) {
+			return 7, nil
+		}), release)
+	assert.False(t, blocked, "the int load joined the string load")
+	assert.Nil(t, resInt.panicked)
+	assert.NoError(t, resInt.err)
+	assert.Equal(t, 7, resInt.val)
+	assert.Equal(t, "alice", (<-resString).val)
+}
+
+func TestReadThroughSingleFlight_NilInterface(t *testing.T) {
+	setup()
+	defer tearDown()
+
+	rdb := New(client)
+	var val fmt.Stringer
+	assert.NotPanics(t, func() {
+		var err error
+		val, err = ReadThroughSingleFlight[fmt.Stringer](context.Background(), rdb, "nil", ReadThroughOptions{},
+			func(ctx context.Context) (fmt.Stringer, error) {
+				return nil, nil
+			})
+		assert.NoError(t, err)
+	})
+	assert.Nil(t, val)
+}
+
+func TestReadThrough_AsyncCallbackPanic(t *testing.T) {
+	setup()
+	defer tearDown()
+
+	failing := &errorRedisClient{RedisClient: client, setErr: errors.New("redis error")}
+	rdb := New(failing)
+
+	called := make(chan struct{})
+	opts := ReadThroughOptions{
+		UpdateAsync: true,
+		OnCacheError: func(key string, op RedisOperation, err error) {
+			close(called)
+			panic("boom")
+		},
+	}
+	val, err := ReadThrough[string](context.Background(), rdb, "panic", opts,
+		func(ctx context.Context) (string, error) {
+			return "world", nil
+		})
+	assert.NoError(t, err)
+	assert.Equal(t, "world", val)
+
+	// The process would crash if the panic in the background goroutine wasn't
+	// recovered.
+	select {
+	case <-called:
+	case <-time.After(time.Second):
+		t.Fatal("OnCacheError was not invoked")
+	}
+	time.Sleep(20 * time.Millisecond)
+}
+
+func TestReadThroughSingleFlight_CallbackPanic(t *testing.T) {
+	setup()
+	defer tearDown()
+
+	failing := &errorRedisClient{RedisClient: client, setErr: errors.New("redis error")}
+	rdb := New(failing)
+
+	for _, async := range []bool{false, true} {
+		t.Run(fmt.Sprintf("async=%t", async), func(t *testing.T) {
+			var calls atomic.Int64
+			opts := ReadThroughOptions{
+				UpdateAsync: async,
+				OnCacheError: func(key string, op RedisOperation, err error) {
+					calls.Add(1)
+					if op == RedisOperationSET {
+						panic("boom")
+					}
+				},
+			}
+			// The panic in the callback, invoked by the shared load, neither crashes
+			// the process nor fails the load.
+			val, err := ReadThroughSingleFlight[string](context.Background(), rdb, "panic", opts,
+				func(ctx context.Context) (string, error) {
+					return "world", nil
+				})
+			assert.NoError(t, err)
+			assert.Equal(t, "world", val)
+			assert.Eventually(t, func() bool { return calls.Load() == 1 }, time.Second, 5*time.Millisecond)
+		})
+	}
 }

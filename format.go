@@ -1,6 +1,7 @@
 package cache
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"reflect"
@@ -134,6 +135,12 @@ func (s *serializerWithID) UnmarshalStrict(data []byte, v any) error {
 	return s.Serializer.Unmarshal(data, v)
 }
 
+// AppendMarshal forwards to the wrapped Serializer if it implements
+// MarshalAppender, otherwise it appends the result of Marshal to dst.
+func (s *serializerWithID) AppendMarshal(dst []byte, v any) ([]byte, error) {
+	return appendMarshal(s.Serializer, dst, v)
+}
+
 type codecWithID struct {
 	id uint8
 	CompressionCodec
@@ -143,9 +150,16 @@ func (c *codecWithID) FormatID() uint8 {
 	return c.id
 }
 
+// AppendCompress forwards to the wrapped CompressionCodec if it implements
+// CompressAppender, otherwise it appends the result of Compress to dst.
+func (c *codecWithID) AppendCompress(dst, data []byte) ([]byte, error) {
+	return appendCompress(c.CompressionCodec, dst, data)
+}
+
 // formats holds the configured Serializer and CompressionCodec used for writes and
 // legacy (headerless) reads, as well as all the known serializers and codecs
-// indexed by their format ID.
+// indexed by their format ID. It also holds the Hooks of the Cache or TypedCache
+// using it, which are invoked when values are encoded and decoded.
 //
 // formats is immutable after construction and safe for concurrent use.
 type formats struct {
@@ -155,6 +169,7 @@ type formats struct {
 	codecID      uint8
 	serializers  [256]Serializer
 	codecs       [256]CompressionCodec
+	hooks        Hooks
 }
 
 // newFormats builds the format registry. It panics if any Serializer or
@@ -297,27 +312,55 @@ func isBuiltin(t reflect.Type) bool {
 		strings.HasPrefix(pkg, modulePath+"/compression/")
 }
 
+// encodeBufferSize is the initial capacity of the buffer values are encoded into,
+// which avoids growing it for small values.
+const encodeBufferSize = 64
+
 // encode marshals and compresses v using the configured Serializer and
 // CompressionCodec and prefixes the result with the format header.
-func (f *formats) encode(v any) ([]byte, error) {
-	data, err := f.serializer.Marshal(v)
-	if err != nil {
-		return nil, fmt.Errorf("marshal value: %w", err)
-	}
-	data, err = f.codec.Compress(data)
-	if err != nil {
-		return nil, fmt.Errorf("compress value: %w", err)
-	}
-	out := make([]byte, headerSize+len(data))
+//
+// The header is written first and the value is appended to it. Without
+// compression, the value isn't copied if the Serializer implements
+// MarshalAppender. With compression, it isn't copied if the CompressionCodec
+// implements CompressAppender.
+func (f *formats) encode(ctx context.Context, v any) ([]byte, error) {
+	out := make([]byte, headerSize, encodeBufferSize)
 	out[0] = formatMagic
 	out[1] = formatVersion
 	out[2] = f.serializerID
 	out[3] = f.codecID
-	copy(out[headerSize:], data)
+
+	// The no-op codec is the only codec with the ID CodecNone.
+	if f.codecID == CodecNone {
+		out, err := appendMarshal(f.serializer, out, v)
+		if err != nil {
+			return nil, fmt.Errorf("marshal value: %w", err)
+		}
+		f.hooks.encoded(ctx, len(out)-headerSize, len(out))
+		return out, nil
+	}
+
+	data, err := f.serializer.Marshal(v)
+	if err != nil {
+		return nil, fmt.Errorf("marshal value: %w", err)
+	}
+	out, err = appendCompress(f.codec, out, data)
+	if err != nil {
+		return nil, fmt.Errorf("compress value: %w", err)
+	}
+	f.hooks.encoded(ctx, len(data), len(out))
 	return out, nil
 }
 
-// decode decompresses and unmarshals data into dst.
+// decode decompresses and unmarshals data into dst, see decodeValue, and reports
+// the result to the OnDecode hook.
+func (f *formats) decode(ctx context.Context, data []byte, dst any) error {
+	err := f.decodeValue(data, dst)
+	f.hooks.decoded(ctx, len(data), err)
+	return err
+}
+
+// decodeValue decompresses and unmarshals data into dst.
 //
 // If data starts with the format header, the Serializer and CompressionCodec are
 // selected by the IDs in the header. Otherwise, data is treated as a legacy
@@ -334,7 +377,7 @@ func (f *formats) encode(v any) ([]byte, error) {
 //
 // If decoding fails, dst is reset to its zero value so it never holds partially
 // decoded data.
-func (f *formats) decode(data []byte, dst any) error {
+func (f *formats) decodeValue(data []byte, dst any) error {
 	if len(data) < headerSize || data[0] != formatMagic || data[1] != formatVersion {
 		if err := decodeWith(f.serializer, f.codec, data, dst); err != nil {
 			zeroDst(dst)

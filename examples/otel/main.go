@@ -13,6 +13,7 @@ import (
 	"github.com/redis/go-redis/extra/redisotel/v9"
 	"github.com/redis/go-redis/v9"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
 	"go.opentelemetry.io/otel/exporters/prometheus"
 	"go.opentelemetry.io/otel/propagation"
@@ -89,11 +90,16 @@ func main() {
 		}
 	}()
 
-	serializer := cacheotel.NewInstrumentedSerializer(&cache.MessagePackSerializer{})
+	// The attribute identifies the cache in every metric recorded by cacheotel.
+	cacheName := cacheotel.WithAttributes(attribute.String("cache.name", "example"))
+	serializer := cacheotel.NewInstrumentedSerializer(&cache.MessagePackSerializer{}, cacheName)
 
 	// The Redis client is instrumented by redisotel and the serializer by cacheotel, so the
-	// cache captures the execution time of both the Redis commands and serialization.
-	rdb := cache.New(client, cache.Serialization(serializer))
+	// cache captures the execution time of both the Redis commands and serialization. The
+	// hooks record cache hits and misses, the size of values, and decode errors.
+	rdb := cache.New(client,
+		cache.Serialization(serializer),
+		cache.Instrumentation(cacheotel.NewHooks(cacheName)))
 
 	ctx := context.Background()
 

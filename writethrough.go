@@ -2,6 +2,8 @@ package cache
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"time"
 )
 
@@ -32,6 +34,9 @@ type WriteThroughOptions struct {
 	//
 	// OnAsyncUpdateCompleted is useful when UpdateCacheAsync is true, and you want to be notified when
 	// the cache update has completed, and if it succeeded or failed.
+	//
+	// OnAsyncUpdateCompleted is invoked from a goroutine started by WriteThrough. A panic in
+	// OnAsyncUpdateCompleted is recovered and ignored, so it can't crash the process.
 	//
 	// Default is a no-op.
 	OnAsyncUpdateCompleted func(key string, err error)
@@ -64,6 +69,17 @@ func (o *WriteThroughOptions) init() {
 // and indicates whether the source of truth was updated. This is useful, especially when UpdateCacheAsync
 // is false, to determine if the cache update succeeded or failed. In some cases, even though the function
 // returns an error due to the cache update failing, the application may simply elect to ignore the error.
+//
+// Keeping the cache consistent with the source of truth is best effort:
+//
+//   - If the cache update fails after the source of truth was updated, WriteThrough deletes the key so
+//     the previous value isn't served anymore and the next read loads the new value. The delete can
+//     fail as well, for example if Redis is unavailable, in which case the previous value stays cached
+//     and the returned error wraps both errors.
+//   - Concurrent writes of the same key can update the source of truth and the cache in a different
+//     order, leaving an older value cached. UpdateCacheAsync makes this more likely.
+//
+// Set a TTL so a stale value eventually expires.
 func WriteThrough[T any](
 	ctx context.Context,
 	rdb *Cache,
@@ -88,10 +104,7 @@ func WriteThrough[T any](
 		// the update when the caller's context is canceled.
 		asyncCtx := context.WithoutCancel(ctx)
 		go func() {
-			redisCtx, redisCancel := context.WithTimeout(asyncCtx, opts.CacheWriteTimeout)
-			defer redisCancel()
-
-			err := rdb.Set(redisCtx, key, val, opts.TTL)
+			err := writeThroughUpdate(asyncCtx, rdb, key, val, opts)
 			if err != nil {
 				err = &WriteThroughError{
 					Key:           key,
@@ -99,15 +112,14 @@ func WriteThrough[T any](
 					error:         err,
 				}
 			}
-			opts.OnAsyncUpdateCompleted(key, err)
+			// A panic in the callback would crash the process since this goroutine
+			// was started by the library.
+			safeCall(func() { opts.OnAsyncUpdateCompleted(key, err) })
 		}()
 		return nil
 	}
 
-	redisCtx, redisCancel := context.WithTimeout(ctx, opts.CacheWriteTimeout)
-	defer redisCancel()
-
-	err = rdb.Set(redisCtx, key, val, opts.TTL)
+	err = writeThroughUpdate(ctx, rdb, key, val, opts)
 	if err != nil {
 		return &WriteThroughError{
 			Key:           key,
@@ -119,6 +131,35 @@ func WriteThrough[T any](
 	return nil
 }
 
+// writeThroughUpdate sets the cached value of key to val. If that fails, the key is
+// deleted so the value cached before the source of truth was updated isn't served
+// anymore. The delete is best effort, if it fails too both errors are returned.
+func writeThroughUpdate[T any](
+	ctx context.Context,
+	rdb *Cache,
+	key string,
+	val T,
+	opts WriteThroughOptions) error {
+
+	redisCtx, redisCancel := context.WithTimeout(ctx, opts.CacheWriteTimeout)
+	defer redisCancel()
+
+	err := rdb.Set(redisCtx, key, val, opts.TTL)
+	if err == nil {
+		return nil
+	}
+
+	// The delete gets its own timeout and isn't canceled with ctx, since the update
+	// may have failed because ctx was canceled or its deadline exceeded.
+	delCtx, delCancel := context.WithTimeout(context.WithoutCancel(ctx), opts.CacheWriteTimeout)
+	defer delCancel()
+
+	if delErr := rdb.Delete(delCtx, key); delErr != nil {
+		return errors.Join(err, fmt.Errorf("invalidate cached value: %w", delErr))
+	}
+	return err
+}
+
 // WriteThroughError wraps an error returned by WriteThrough and indicates whether the source of truth
 // was updated.
 type WriteThroughError struct {
@@ -127,10 +168,12 @@ type WriteThroughError struct {
 	error
 }
 
+// Error returns the message of the underlying error.
 func (e *WriteThroughError) Error() string {
 	return e.error.Error()
 }
 
+// Unwrap returns the underlying error.
 func (e *WriteThroughError) Unwrap() error {
 	return e.error
 }

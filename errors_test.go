@@ -45,3 +45,18 @@ func TestRetryableError_ZeroValue(t *testing.T) {
 	assert.Equal(t, "boom", err.Error())
 	assert.ErrorIs(t, err, plainErr)
 }
+
+func TestMultiKeyError(t *testing.T) {
+	errA := errors.New("error a")
+	errB := errors.New("error b")
+
+	single := &MultiKeyError{Errors: map[string]error{"a": errA}}
+	assert.EqualError(t, single, "error a")
+	assert.ErrorIs(t, single, errA)
+
+	multi := &MultiKeyError{Errors: map[string]error{"b": errB, "a": errA}}
+	assert.EqualError(t, multi, "2 keys failed: error a; error b")
+	assert.Equal(t, []error{errA, errB}, multi.Unwrap())
+	assert.ErrorIs(t, multi, errA)
+	assert.ErrorIs(t, multi, errB)
+}

@@ -533,6 +533,65 @@ func TestTypedCache_ErrorWrapping(t *testing.T) {
 	})
 }
 
+func TestTypedCache_MGetPartialResults(t *testing.T) {
+	setup()
+	defer tearDown()
+
+	ctx := context.Background()
+	writer := NewTyped[string](client)
+	keys := make([]string, 0, 10)
+	for i := range 10 {
+		key := fmt.Sprintf("key%d", i)
+		keys = append(keys, key)
+		assert.NoError(t, writer.Set(ctx, key, key, 0))
+	}
+	// A corrupt value and a value in a format that isn't registered.
+	assert.NoError(t, client.Set(ctx, "key3", []byte{0xC1, 0x01, SerializerMsgPack, CodecNone, 0xC1}, 0).Err())
+	assert.NoError(t, client.Set(ctx, "key7", []byte{0xC1, 0x01, 250, CodecNone, 0x01}, 0).Err())
+	keys = append(keys, "missing")
+
+	for _, batch := range []int{0, 1, 4} {
+		t.Run(fmt.Sprintf("batch=%d", batch), func(t *testing.T) {
+			c := NewTyped[string](client, BatchMultiGets(batch))
+
+			values, err := c.MGet(ctx, keys...)
+			assertMultiKeyError(t, err)
+			assert.Equal(t, []string{"key0", "key1", "key2", "key4", "key5", "key6", "key8", "key9"}, values)
+
+			m, err := c.MGetMap(ctx, keys...)
+			assertMultiKeyError(t, err)
+			assert.Len(t, m, 8)
+			for _, key := range []string{"key0", "key1", "key2", "key4", "key5", "key6", "key8", "key9"} {
+				assert.Equal(t, key, m[key])
+			}
+		})
+	}
+
+	t.Run("pointer type", func(t *testing.T) {
+		c := NewTyped[*string](client)
+		values, err := c.MGet(ctx, "key0", "key3")
+		assert.ErrorContains(t, err, `decode key "key3" to type *string`)
+		if assert.Len(t, values, 1) {
+			assert.Equal(t, "key0", *values[0])
+		}
+	})
+
+	t.Run("redis error", func(t *testing.T) {
+		s := miniredis.RunT(t)
+		rdb := redis.NewClient(&redis.Options{Addr: s.Addr()})
+		defer rdb.Close()
+		s.SetError("boom")
+
+		c := NewTyped[string](rdb)
+		values, err := c.MGet(ctx, "a", "b")
+		assert.EqualError(t, err, "redis: boom")
+		assert.Nil(t, values)
+		m, err := c.MGetMap(ctx, "a", "b")
+		assert.EqualError(t, err, "redis: boom")
+		assert.Nil(t, m)
+	})
+}
+
 func TestTypedCache_Scan(t *testing.T) {
 	setup()
 	defer tearDown()
@@ -589,6 +648,13 @@ func TestTypedCache_Client(t *testing.T) {
 	cl := rdb.Client()
 	_, ok := cl.(*redis.Client)
 	assert.True(t, ok)
+
+	// Clients that aren't a redis.UniversalClient are returned as well.
+	fc := NewFailoverClient(client, redis.NewClient(&redis.Options{Addr: server.Addr()}))
+	defer fc.Close()
+	assert.NotPanics(t, func() {
+		assert.Same(t, fc, NewTyped[string](fc).Client())
+	})
 }
 
 func TestNewTyped_SerializerWithoutID(t *testing.T) {

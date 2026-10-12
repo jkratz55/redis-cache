@@ -11,6 +11,7 @@ type configurable interface {
 	addDecodeSerializers(...Serializer)
 	addDecodeCodecs(...CompressionCodec)
 	setMGetBatch(int)
+	setHooks(Hooks)
 }
 
 // Option allows for the Cache behavior/configuration to be customized.
@@ -91,6 +92,10 @@ func DecodeCompression(codecs ...CompressionCodec) Option {
 // multiple MGET commands for increased throughput and lower latency when dealing
 // with MGetMap operations with very large sets of keys.
 //
+// Keys are split by count, not by hash slot. On Redis Cluster every MGET command
+// must only contain keys of the same hash slot, so batching doesn't make MGet and
+// MGetMap work with keys of different slots.
+//
 // A batchSize of 0 disables batching. BatchMultiGets panics if batchSize is negative.
 func BatchMultiGets(batchSize int) Option {
 	if batchSize < 0 {
@@ -101,14 +106,26 @@ func BatchMultiGets(batchSize int) Option {
 	}
 }
 
-// formatOptions collects the Serializer and CompressionCodec configuration while
-// options are applied. It is embedded by Cache and TypedCache and only used during
-// construction to build the formats registry.
+// Instrumentation configures the Hooks invoked by the Cache to instrument cache
+// operations, such as cache hits and misses and the size of cached values. See
+// cacheotel.NewHooks for an OpenTelemetry implementation.
+//
+// If Instrumentation is provided more than once, the last Hooks are used.
+func Instrumentation(hooks Hooks) Option {
+	return func(c configurable) {
+		c.setHooks(hooks)
+	}
+}
+
+// formatOptions collects the Serializer, CompressionCodec and Hooks configuration
+// while options are applied. It is embedded by Cache and TypedCache and only used
+// during construction to build the formats registry.
 type formatOptions struct {
 	serializer         Serializer
 	codec              CompressionCodec
 	decodeSerializers  []Serializer
 	decodeCompressions []CompressionCodec
+	hooks              Hooks
 }
 
 func defaultFormatOptions() formatOptions {
@@ -134,8 +151,14 @@ func (o *formatOptions) addDecodeCodecs(c ...CompressionCodec) {
 	o.decodeCompressions = append(o.decodeCompressions, c...)
 }
 
+func (o *formatOptions) setHooks(h Hooks) {
+	o.hooks = h
+}
+
 // build creates the formats registry from the collected configuration. It panics
 // if the configuration is invalid.
 func (o *formatOptions) build() *formats {
-	return newFormats(o.serializer, o.codec, o.decodeSerializers, o.decodeCompressions)
+	f := newFormats(o.serializer, o.codec, o.decodeSerializers, o.decodeCompressions)
+	f.hooks = o.hooks
+	return f
 }
