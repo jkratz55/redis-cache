@@ -9,6 +9,44 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+func TestWriteThrough_AsyncUpdateAfterCancel(t *testing.T) {
+	setup()
+	defer tearDown()
+
+	capture := &ctxCaptureClient{RedisClient: client, sets: make(chan ctxCapture, 1)}
+	rdb := New(capture)
+
+	completed := make(chan error, 1)
+	ctx, cancel := context.WithCancel(context.WithValue(context.Background(), ctxKey{}, "trace-id"))
+	err := WriteThrough[string](ctx, rdb, "hello", "world", WriteThroughOptions{
+		UpdateCacheAsync:       true,
+		OnAsyncUpdateCompleted: func(key string, err error) { completed <- err },
+	}, func(ctx context.Context, key string, val string) error {
+		// The caller goes away right after the source of truth is updated.
+		cancel()
+		return nil
+	})
+	assert.NoError(t, err)
+
+	select {
+	case got := <-capture.sets:
+		assert.Equal(t, "trace-id", got.value)
+		assert.NoError(t, got.err)
+	case <-time.After(time.Second):
+		t.Fatal("async cache update was not performed")
+	}
+	select {
+	case err := <-completed:
+		assert.NoError(t, err)
+	case <-time.After(time.Second):
+		t.Fatal("OnAsyncUpdateCompleted was not invoked")
+	}
+
+	var cached string
+	assert.NoError(t, New(client).Get(context.Background(), "hello", &cached))
+	assert.Equal(t, "world", cached)
+}
+
 func TestWriteThrough(t *testing.T) {
 
 	type test struct {

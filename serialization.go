@@ -22,31 +22,31 @@ type Serializer interface {
 // JsonSerializer is a Serializer that uses JSON for marshaling and unmarshalling data.
 type JsonSerializer struct{}
 
-func (j *JsonSerializer) Marshal(data any) ([]byte, error) {
+func (j JsonSerializer) Marshal(data any) ([]byte, error) {
 	return json.Marshal(data)
 }
 
-func (j *JsonSerializer) Unmarshal(bytes []byte, dst any) error {
+func (j JsonSerializer) Unmarshal(bytes []byte, dst any) error {
 	return json.Unmarshal(bytes, dst)
 }
 
 // FormatID returns SerializerJSON.
-func (j *JsonSerializer) FormatID() uint8 {
+func (j JsonSerializer) FormatID() uint8 {
 	return SerializerJSON
 }
 
 // MessagePackSerializer is a Serializer that uses MessagePack for marshaling and unmarshalling data.
 type MessagePackSerializer struct{}
 
-func (m *MessagePackSerializer) Marshal(data any) ([]byte, error) {
+func (m MessagePackSerializer) Marshal(data any) ([]byte, error) {
 	return msgpack.Marshal(data)
 }
 
-func (m *MessagePackSerializer) Unmarshal(bytes []byte, dst any) error {
+func (m MessagePackSerializer) Unmarshal(bytes []byte, dst any) error {
 	return msgpack.Unmarshal(bytes, dst)
 }
 
 // FormatID returns SerializerMsgPack.
-func (m *MessagePackSerializer) FormatID() uint8 {
+func (m MessagePackSerializer) FormatID() uint8 {
 	return SerializerMsgPack
 }

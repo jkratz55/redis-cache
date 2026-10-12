@@ -89,7 +89,7 @@ func FormatIDOf(v any) (uint8, bool) {
 // The ID must be in the range 128-255, otherwise SerializerWithID panics. It also
 // panics if s is nil.
 func SerializerWithID(id uint8, s Serializer) Serializer {
-	if s == nil {
+	if isNil(s) {
 		panic(errors.New("nil Serializer"))
 	}
 	if id < MinCustomFormatID {
@@ -105,7 +105,7 @@ func SerializerWithID(id uint8, s Serializer) Serializer {
 // The ID must be in the range 128-255, otherwise CodecWithID panics. It also
 // panics if c is nil.
 func CodecWithID(id uint8, c CompressionCodec) CompressionCodec {
-	if c == nil {
+	if isNil(c) {
 		panic(errors.New("nil CompressionCodec"))
 	}
 	if id < MinCustomFormatID {
@@ -153,10 +153,10 @@ type formats struct {
 // The configured serializer and codec, the built-in msgpack and JSON serializers,
 // and the no-op codec are always available for reading.
 func newFormats(s Serializer, c CompressionCodec, extraS []Serializer, extraC []CompressionCodec) *formats {
-	if s == nil {
+	if isNil(s) {
 		panic(errors.New("nil Serializer"))
 	}
-	if c == nil {
+	if isNil(c) {
 		panic(errors.New("nil CompressionCodec"))
 	}
 
@@ -190,7 +190,7 @@ func newFormats(s Serializer, c CompressionCodec, extraS []Serializer, extraC []
 
 // registerFormat validates the format ID of v and stores it in the registry.
 func registerFormat[T any](registry *[256]T, v T, kind string, adapter string) uint8 {
-	if any(v) == nil {
+	if isNil(v) {
 		panic(fmt.Errorf("nil %s", kind))
 	}
 	id, ok := FormatIDOf(v)
@@ -218,15 +218,37 @@ func registerFormat[T any](registry *[256]T, v T, kind string, adapter string) u
 
 // implementationType returns the concrete type of v, looking through the ID
 // adapters so two different implementations wrapped with the same ID are
-// detected as conflicting.
+// detected as conflicting. Pointer types are dereferenced so a value and a
+// pointer of the same implementation, such as JsonSerializer{} and
+// &JsonSerializer{}, aren't reported as conflicting.
 func implementationType(v any) reflect.Type {
+	var t reflect.Type
 	switch a := v.(type) {
 	case *serializerWithID:
-		return reflect.TypeOf(a.Serializer)
+		t = reflect.TypeOf(a.Serializer)
 	case *codecWithID:
-		return reflect.TypeOf(a.CompressionCodec)
+		t = reflect.TypeOf(a.CompressionCodec)
 	default:
-		return reflect.TypeOf(v)
+		t = reflect.TypeOf(v)
+	}
+	for t != nil && t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
+	return t
+}
+
+// isNil reports whether v is nil, including interfaces holding a typed nil
+// pointer, map, slice, func or channel.
+func isNil(v any) bool {
+	if v == nil {
+		return true
+	}
+	rv := reflect.ValueOf(v)
+	switch rv.Kind() {
+	case reflect.Pointer, reflect.Map, reflect.Slice, reflect.Func, reflect.Chan, reflect.Interface, reflect.UnsafePointer:
+		return rv.IsNil()
+	default:
+		return false
 	}
 }
 
@@ -271,20 +293,50 @@ func (f *formats) encode(v any) ([]byte, error) {
 // selected by the IDs in the header. Otherwise, data is treated as a legacy
 // headerless value and decoded with the configured Serializer and CompressionCodec.
 // If a value looks like it has a header but can't be decoded, decoding is retried
-// once as a legacy value before returning the original error.
+// once as a legacy value before returning the original error. Values with a valid
+// header referencing an unregistered Serializer or CompressionCodec are never
+// retried and return ErrUnsupportedFormat.
+//
+// If decoding fails, dst is reset to its zero value so it never holds partially
+// decoded data.
 func (f *formats) decode(data []byte, dst any) error {
 	if len(data) < headerSize || data[0] != formatMagic || data[1] != formatVersion {
-		return decodeWith(f.serializer, f.codec, data, dst)
+		if err := decodeWith(f.serializer, f.codec, data, dst); err != nil {
+			zeroDst(dst)
+			return err
+		}
+		return nil
 	}
 
 	err := f.decodeHeadered(data, dst)
 	if err == nil {
 		return nil
 	}
+	if errors.Is(err, ErrUnsupportedFormat) {
+		return err
+	}
+
+	// The failed attempt may have partially populated dst, so it is reset before
+	// retrying to avoid mixing data from both attempts.
+	zeroDst(dst)
 	if legacyErr := decodeWith(f.serializer, f.codec, data, dst); legacyErr == nil {
 		return nil
 	}
+	zeroDst(dst)
 	return err
+}
+
+// zeroDst sets the value dst points to to its zero value. It is a no-op if dst
+// isn't a non-nil pointer.
+func zeroDst(dst any) {
+	rv := reflect.ValueOf(dst)
+	if rv.Kind() != reflect.Pointer || rv.IsNil() {
+		return
+	}
+	elem := rv.Elem()
+	if elem.CanSet() {
+		elem.SetZero()
+	}
 }
 
 func (f *formats) decodeHeadered(data []byte, dst any) error {
@@ -305,7 +357,7 @@ func decodeWith(s Serializer, c CompressionCodec, data []byte, dst any) error {
 		return fmt.Errorf("decompress value: %w", err)
 	}
 	if err := s.Unmarshal(data, dst); err != nil {
-		return fmt.Errorf("unmarshall value: %w", err)
+		return fmt.Errorf("unmarshal value: %w", err)
 	}
 	return nil
 }

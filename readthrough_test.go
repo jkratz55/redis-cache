@@ -3,10 +3,13 @@ package cache
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -256,4 +259,209 @@ func TestReadThroughSingleFlight_LoaderError(t *testing.T) {
 		assert.Error(t, errs[i])
 		assert.Contains(t, errs[i].Error(), expectedErr.Error())
 	}
+}
+
+type ctxKey struct{}
+
+// ctxCaptureClient records the context value stored under ctxKey and the context
+// error observed by Set.
+type ctxCaptureClient struct {
+	RedisClient
+	sets chan ctxCapture
+}
+
+type ctxCapture struct {
+	value any
+	err   error
+}
+
+func (c *ctxCaptureClient) Set(ctx context.Context, key string, val any, ttl time.Duration) *redis.StatusCmd {
+	c.sets <- ctxCapture{value: ctx.Value(ctxKey{}), err: ctx.Err()}
+	return c.RedisClient.Set(ctx, key, val, ttl)
+}
+
+func TestReadThrough_AsyncUpdateAfterCancel(t *testing.T) {
+	setup()
+	defer tearDown()
+
+	capture := &ctxCaptureClient{RedisClient: client, sets: make(chan ctxCapture, 1)}
+	rdb := New(capture)
+
+	ctx, cancel := context.WithCancel(context.WithValue(context.Background(), ctxKey{}, "trace-id"))
+	val, err := ReadThrough[string](ctx, rdb, "hello", ReadThroughOptions{UpdateAsync: true},
+		func(ctx context.Context) (string, error) {
+			// The caller goes away before the async update runs.
+			cancel()
+			return "world", nil
+		})
+	assert.NoError(t, err)
+	assert.Equal(t, "world", val)
+
+	select {
+	case got := <-capture.sets:
+		assert.Equal(t, "trace-id", got.value)
+		assert.NoError(t, got.err)
+	case <-time.After(time.Second):
+		t.Fatal("async cache update was not performed")
+	}
+	assert.Eventually(t, func() bool { return server.Exists("hello") }, time.Second, 5*time.Millisecond)
+}
+
+func TestReadThroughSingleFlight_AsyncUpdateAfterCancel(t *testing.T) {
+	setup()
+	defer tearDown()
+
+	capture := &ctxCaptureClient{RedisClient: client, sets: make(chan ctxCapture, 1)}
+	rdb := New(capture)
+
+	ctx, cancel := context.WithCancel(context.WithValue(context.Background(), ctxKey{}, "trace-id"))
+	defer cancel()
+	val, err := ReadThroughSingleFlight[string](ctx, rdb, "async-sf", ReadThroughOptions{UpdateAsync: true},
+		func(ctx context.Context) (string, error) {
+			return "world", nil
+		})
+	assert.NoError(t, err)
+	assert.Equal(t, "world", val)
+	cancel()
+
+	select {
+	case got := <-capture.sets:
+		assert.Equal(t, "trace-id", got.value)
+		assert.NoError(t, got.err)
+	case <-time.After(time.Second):
+		t.Fatal("async cache update was not performed")
+	}
+}
+
+func TestReadThroughSingleFlight_CancellationIsolation(t *testing.T) {
+	setup()
+	defer tearDown()
+
+	rdb := New(client)
+	const key = "isolation"
+
+	release := make(chan struct{})
+	loaderStarted := make(chan struct{})
+	var loaderCalls atomic.Int64
+	var loaderCtxErr atomic.Value
+	loader := func(ctx context.Context) (string, error) {
+		loaderCalls.Add(1)
+		close(loaderStarted)
+		<-release
+		loaderCtxErr.Store(fmt.Sprint(ctx.Err()))
+		assert.Equal(t, "trace-id", ctx.Value(ctxKey{}))
+		return "world", nil
+	}
+
+	// First caller starts the flight and is canceled while the loader runs.
+	ctxA, cancelA := context.WithCancel(context.WithValue(context.Background(), ctxKey{}, "trace-id"))
+	errA := make(chan error, 1)
+	go func() {
+		_, err := ReadThroughSingleFlight[string](ctxA, rdb, key, ReadThroughOptions{}, loader)
+		errA <- err
+	}()
+	<-loaderStarted
+
+	// Second caller joins the in-flight load.
+	joined := make(chan struct{})
+	type result struct {
+		val string
+		err error
+	}
+	resB := make(chan result, 1)
+	go func() {
+		opts := ReadThroughOptions{OnCacheMiss: func(string) { close(joined) }}
+		val, err := ReadThroughSingleFlight[string](context.Background(), rdb, key, opts, loader)
+		resB <- result{val, err}
+	}()
+	<-joined
+	time.Sleep(20 * time.Millisecond)
+
+	cancelA()
+	select {
+	case err := <-errA:
+		assert.ErrorIs(t, err, context.Canceled)
+	case <-time.After(time.Second):
+		t.Fatal("canceled caller did not return")
+	}
+
+	close(release)
+	select {
+	case res := <-resB:
+		assert.NoError(t, res.err)
+		assert.Equal(t, "world", res.val)
+	case <-time.After(time.Second):
+		t.Fatal("second caller did not return")
+	}
+
+	assert.Equal(t, int64(1), loaderCalls.Load())
+	assert.Equal(t, "<nil>", loaderCtxErr.Load())
+
+	var cached string
+	assert.NoError(t, rdb.Get(context.Background(), key, &cached))
+	assert.Equal(t, "world", cached)
+}
+
+func TestReadThroughSingleFlight_HooksOncePerCaller(t *testing.T) {
+	setup()
+	defer tearDown()
+
+	rdb := New(client)
+	var hits, misses, cacheErrs atomic.Int64
+	opts := ReadThroughOptions{
+		OnCacheHit:   func(string) { hits.Add(1) },
+		OnCacheMiss:  func(string) { misses.Add(1) },
+		OnCacheError: func(string, RedisOperation, error) { cacheErrs.Add(1) },
+	}
+	loader := func(ctx context.Context) (string, error) {
+		time.Sleep(50 * time.Millisecond)
+		return "world", nil
+	}
+
+	const numRequests = 10
+	var wg sync.WaitGroup
+	for range numRequests {
+		wg.Go(func() {
+			val, err := ReadThroughSingleFlight[string](context.Background(), rdb, "hooks", opts, loader)
+			assert.NoError(t, err)
+			assert.Equal(t, "world", val)
+		})
+	}
+	wg.Wait()
+
+	assert.Equal(t, int64(numRequests), misses.Load())
+	assert.Equal(t, int64(0), hits.Load())
+	assert.Equal(t, int64(0), cacheErrs.Load())
+
+	_, err := ReadThroughSingleFlight[string](context.Background(), rdb, "hooks", opts, loader)
+	assert.NoError(t, err)
+	assert.Equal(t, int64(1), hits.Load())
+	assert.Equal(t, int64(numRequests), misses.Load())
+}
+
+func TestReadThroughSingleFlight_LoaderTimeout(t *testing.T) {
+	setup()
+	defer tearDown()
+
+	rdb := New(client)
+	opts := ReadThroughOptions{LoaderTimeout: 20 * time.Millisecond}
+	_, err := ReadThroughSingleFlight[string](context.Background(), rdb, "timeout", opts,
+		func(ctx context.Context) (string, error) {
+			<-ctx.Done()
+			return "", ctx.Err()
+		})
+	assert.ErrorIs(t, err, context.DeadlineExceeded)
+	assert.False(t, server.Exists("timeout"))
+}
+
+func TestReadThroughSingleFlight_LoaderPanic(t *testing.T) {
+	setup()
+	defer tearDown()
+
+	rdb := New(client)
+	_, err := ReadThroughSingleFlight[string](context.Background(), rdb, "panic", ReadThroughOptions{},
+		func(ctx context.Context) (string, error) {
+			panic("boom")
+		})
+	assert.ErrorContains(t, err, "loader func panic: boom")
 }

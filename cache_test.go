@@ -4,7 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/gob"
+	"errors"
 	"fmt"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -12,8 +15,6 @@ import (
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
 	"github.com/vmihailenco/msgpack/v5"
-
-	"github.com/jkratz55/redis-cache/v2/compression/gzip"
 )
 
 var server *miniredis.Miniredis
@@ -647,10 +648,211 @@ func TestCache_Expire(t *testing.T) {
 	err = rdb.Expire(context.Background(), "test-ttl", InfiniteTTL)
 	assert.NoError(t, err)
 	ttl = client.TTL(context.Background(), "test-ttl").Val()
-	assert.Equal(t, time.Duration(-2), ttl)
+	assert.Equal(t, time.Duration(-1), ttl)
 
 	err = rdb.Expire(context.Background(), "random", time.Second*300)
 	assert.ErrorIs(t, err, ErrKeyNotFound)
+}
+
+func TestCache_ExpireSemantics(t *testing.T) {
+	setup()
+	defer tearDown()
+
+	ctx := context.Background()
+	rdb := New(client)
+
+	for _, ttl := range []time.Duration{InfiniteTTL, 0} {
+		t.Run(fmt.Sprintf("ttl=%d removes TTL and keeps the key", ttl), func(t *testing.T) {
+			assert.NoError(t, rdb.Set(ctx, "key", "value", time.Minute))
+			assert.NoError(t, rdb.Expire(ctx, "key", ttl))
+
+			got, err := rdb.TTL(ctx, "key")
+			assert.NoError(t, err)
+			assert.Equal(t, InfiniteTTL, got)
+			var val string
+			assert.NoError(t, rdb.Get(ctx, "key", &val))
+			assert.Equal(t, "value", val)
+
+			// Persisting a key without a TTL is a no-op.
+			assert.NoError(t, rdb.Expire(ctx, "key", ttl))
+
+			assert.ErrorIs(t, rdb.Expire(ctx, "missing", ttl), ErrKeyNotFound)
+		})
+	}
+
+	t.Run("millisecond precision", func(t *testing.T) {
+		assert.NoError(t, rdb.Set(ctx, "key", "value", 0))
+		assert.NoError(t, rdb.Expire(ctx, "key", 1500*time.Millisecond))
+		got, err := rdb.TTL(ctx, "key")
+		assert.NoError(t, err)
+		assert.Equal(t, 1500*time.Millisecond, got)
+	})
+
+	t.Run("negative TTL is invalid", func(t *testing.T) {
+		assert.NoError(t, rdb.Set(ctx, "key", "value", time.Minute))
+		assert.ErrorIs(t, rdb.Expire(ctx, "key", -5*time.Second), ErrInvalidTTL)
+		got, err := rdb.TTL(ctx, "key")
+		assert.NoError(t, err)
+		assert.Equal(t, time.Minute, got)
+	})
+
+	t.Run("missing key", func(t *testing.T) {
+		assert.ErrorIs(t, rdb.Expire(ctx, "missing", time.Minute), ErrKeyNotFound)
+	})
+}
+
+func TestCache_InfiniteTTL(t *testing.T) {
+	setup()
+	defer tearDown()
+
+	ctx := context.Background()
+	rdb := New(client)
+
+	assertNoTTL := func(t *testing.T, key string) {
+		t.Helper()
+		got, err := rdb.TTL(ctx, key)
+		assert.NoError(t, err)
+		assert.Equal(t, InfiniteTTL, got)
+	}
+
+	assert.NoError(t, rdb.Set(ctx, "set", "value", InfiniteTTL))
+	assertNoTTL(t, "set")
+
+	ok, err := rdb.SetIfAbsent(ctx, "absent", "value", InfiniteTTL)
+	assert.NoError(t, err)
+	assert.True(t, ok)
+	assertNoTTL(t, "absent")
+
+	assert.NoError(t, rdb.Set(ctx, "present", "value", time.Minute))
+	ok, err = rdb.SetIfPresent(ctx, "present", "value2", InfiniteTTL)
+	assert.NoError(t, err)
+	assert.True(t, ok)
+	assertNoTTL(t, "present")
+
+	assert.NoError(t, rdb.Set(ctx, "getex", "value", time.Minute))
+	var val string
+	assert.NoError(t, rdb.GetAndExpire(ctx, "getex", &val, InfiniteTTL))
+	assert.Equal(t, "value", val)
+	assertNoTTL(t, "getex")
+
+	assert.NoError(t, rdb.Set(ctx, "upsert", "value", time.Minute))
+	err = Upsert[string](ctx, rdb, "upsert", "value2", func(found bool, oldValue, newValue string) string {
+		return newValue
+	}, InfiniteTTL)
+	assert.NoError(t, err)
+	assertNoTTL(t, "upsert")
+}
+
+func TestCache_ErrorWrapping(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("redis errors are prefixed once", func(t *testing.T) {
+		s := miniredis.RunT(t)
+		rdb := redis.NewClient(&redis.Options{Addr: s.Addr()})
+		defer rdb.Close()
+		c := New(rdb)
+		s.SetError("boom")
+
+		for name, err := range map[string]error{
+			"Delete":     c.Delete(ctx, "key"),
+			"Flush":      c.Flush(ctx),
+			"FlushAsync": c.FlushAsync(ctx),
+			"Expire":     c.Expire(ctx, "key", time.Minute),
+			"Persist":    c.Expire(ctx, "key", InfiniteTTL),
+			"TTL": func() error {
+				_, err := c.TTL(ctx, "key")
+				return err
+			}(),
+			"Upsert": Upsert[string](ctx, c, "key", "v", func(found bool, oldValue, newValue string) string {
+				return newValue
+			}, 0),
+		} {
+			if assert.Error(t, err, name) {
+				assert.Equal(t, "redis: boom", err.Error(), name)
+			}
+		}
+	})
+
+	t.Run("successful operations return nil", func(t *testing.T) {
+		setup()
+		defer tearDown()
+		c := New(client)
+		assert.NoError(t, c.Delete(ctx, "missing"))
+		assert.NoError(t, c.Flush(ctx))
+		assert.NoError(t, c.FlushAsync(ctx))
+	})
+
+	t.Run("multi get decode errors name the key", func(t *testing.T) {
+		setup()
+		defer tearDown()
+		assert.NoError(t, client.Set(ctx, "good", mustMsgpack(t, "value"), 0).Err())
+		assert.NoError(t, client.Set(ctx, "bad", []byte{0xC1, 0x01, SerializerMsgPack, CodecNone, 0xC1}, 0).Err())
+
+		for _, batch := range []int{0, 1} {
+			var opts []Option
+			if batch > 0 {
+				opts = append(opts, BatchMultiGets(batch))
+			}
+			c := New(client, opts...)
+
+			_, err := MGet[string](ctx, c, "good", "bad")
+			assert.ErrorContains(t, err, `decode key "bad"`)
+			_, err = MGetMap[string](ctx, c, "good", "bad")
+			assert.ErrorContains(t, err, `decode key "bad"`)
+		}
+	})
+}
+
+func mustMsgpack(t *testing.T, v any) []byte {
+	t.Helper()
+	data, err := msgpack.Marshal(v)
+	assert.NoError(t, err)
+	return data
+}
+
+func TestUpsert_Errors(t *testing.T) {
+	setup()
+	defer tearDown()
+
+	ctx := context.Background()
+	c := New(client)
+
+	t.Run("nil callback", func(t *testing.T) {
+		assert.Error(t, Upsert[string](ctx, c, "key", "value", nil, 0))
+		assert.False(t, server.Exists("key"))
+	})
+
+	t.Run("decode error is not prefixed as redis error", func(t *testing.T) {
+		assert.NoError(t, client.Set(ctx, "bad", []byte{0xC1, 0x01, SerializerMsgPack, CodecNone, 0xC1}, 0).Err())
+		called := false
+		err := Upsert[string](ctx, c, "bad", "value", func(found bool, oldValue, newValue string) string {
+			called = true
+			return newValue
+		}, 0)
+		assert.Error(t, err)
+		assert.False(t, called)
+		assert.True(t, strings.HasPrefix(err.Error(), `decode key "bad"`), err.Error())
+		assert.NotContains(t, err.Error(), "redis: ")
+	})
+
+	t.Run("found and old value are passed to the callback", func(t *testing.T) {
+		assert.NoError(t, c.Set(ctx, "counter", 41, 0))
+		err := Upsert[int](ctx, c, "counter", 1, func(found bool, oldValue, newValue int) int {
+			assert.True(t, found)
+			return oldValue + newValue
+		}, 0)
+		assert.NoError(t, err)
+		var v int
+		assert.NoError(t, c.Get(ctx, "counter", &v))
+		assert.Equal(t, 42, v)
+
+		err = Upsert[int](ctx, c, "new-counter", 1, func(found bool, oldValue, newValue int) int {
+			assert.False(t, found)
+			assert.Equal(t, 0, oldValue)
+			return newValue
+		}, 0)
+		assert.NoError(t, err)
+	})
 }
 
 func TestCache_Scan(t *testing.T) {
@@ -675,156 +877,99 @@ func TestCache_Scan(t *testing.T) {
 	assert.ElementsMatch(t, []string{"system:123", "system:456", "system:789"}, keys)
 }
 
-func TestCache_SwitchFormats(t *testing.T) {
-	setup()
-	defer tearDown()
+// fakeClusterClient simulates a redis.ClusterClient by invoking the ForEachMaster
+// callback concurrently for each node, like go-redis does.
+type fakeClusterClient struct {
+	RedisClient
+	nodes []*redis.Client
+}
 
-	type person struct {
-		FirstName string
-		LastName  string
-		Birthdate time.Time
-	}
-
-	ctx := context.Background()
-	expected := person{
-		FirstName: "Bob",
-		LastName:  "Dole",
-		Birthdate: time.Date(1960, 10, 28, 0, 0, 0, 0, time.UTC),
-	}
-
-	writer := New(client, Serialization(&JsonSerializer{}), Compression(gzip.NewCodec(6)))
-	for _, key := range []string{"key1", "key2", "key3"} {
-		assert.NoError(t, writer.Set(ctx, key, expected, 0))
-	}
-
-	for _, batch := range []int{0, 2} {
-		t.Run(fmt.Sprintf("batch=%d", batch), func(t *testing.T) {
-			opts := []Option{
-				Serialization(&MessagePackSerializer{}),
-				Compression(xorTestCodec{}),
-				DecodeCompression(gzip.NewCodec(6)),
-			}
-			if batch > 0 {
-				opts = append(opts, BatchMultiGets(batch))
-			}
-			reader := New(client, opts...)
-
-			var p person
-			assert.NoError(t, reader.Get(ctx, "key1", &p))
-			assert.Equal(t, expected, p)
-
-			p = person{}
-			assert.NoError(t, reader.GetAndExpire(ctx, "key1", &p, time.Minute))
-			assert.Equal(t, expected, p)
-
-			values, err := MGet[person](ctx, reader, "key1", "key2", "key3", "missing")
-			assert.NoError(t, err)
-			assert.Equal(t, []person{expected, expected, expected}, values)
-
-			m, err := MGetMap[person](ctx, reader, "key1", "key2", "key3")
-			assert.NoError(t, err)
-			assert.Equal(t, MultiResult[person]{"key1": expected, "key2": expected, "key3": expected}, m)
-
-			// The new instance writes in its own format, which the old one can't read
-			// unless it registers it.
-			assert.NoError(t, reader.Set(ctx, "new", expected, 0))
-			raw, err := client.Get(ctx, "new").Bytes()
-			assert.NoError(t, err)
-			assertHeader(t, raw, SerializerMsgPack, xorTestCodec{}.FormatID())
-			err = writer.Get(ctx, "new", &p)
-			assert.ErrorIs(t, err, ErrUnsupportedFormat)
+func (f *fakeClusterClient) ForEachMaster(ctx context.Context, fn func(ctx context.Context, client *redis.Client) error) error {
+	var wg sync.WaitGroup
+	errs := make([]error, len(f.nodes))
+	for i, node := range f.nodes {
+		wg.Go(func() {
+			errs[i] = fn(ctx, node)
 		})
 	}
-
-	reader := New(client, Compression(xorTestCodec{}), DecodeCompression(gzip.NewCodec(6)))
-	var p person
-	assert.NoError(t, reader.GetAndDelete(ctx, "key1", &p))
-	assert.Equal(t, expected, p)
-	assert.ErrorIs(t, reader.Get(ctx, "key1", &p), ErrKeyNotFound)
+	wg.Wait()
+	return errors.Join(errs...)
 }
 
-func TestCache_UnsupportedFormat(t *testing.T) {
-	setup()
-	defer tearDown()
-
-	ctx := context.Background()
-	writer := New(client, Compression(gzip.NewCodec(6)))
-	assert.NoError(t, writer.Set(ctx, "key1", "value1", 0))
-	assert.NoError(t, writer.Set(ctx, "key2", "value2", 0))
-
-	for _, batch := range []int{0, 1} {
-		opts := []Option{}
-		if batch > 0 {
-			opts = append(opts, BatchMultiGets(batch))
+// newFakeCluster starts n miniredis servers, each holding perNode keys, and returns
+// a fakeClusterClient for them along with all keys written.
+func newFakeCluster(t *testing.T, n, perNode int) (*fakeClusterClient, []string) {
+	t.Helper()
+	cluster := &fakeClusterClient{}
+	var keys []string
+	for i := range n {
+		s := miniredis.RunT(t)
+		node := redis.NewClient(&redis.Options{Addr: s.Addr()})
+		t.Cleanup(func() { _ = node.Close() })
+		for j := range perNode {
+			key := fmt.Sprintf("key:%d:%d", i, j)
+			assert.NoError(t, node.Set(context.Background(), key, "v", 0).Err())
+			keys = append(keys, key)
 		}
-		reader := New(client, opts...)
-
-		var s string
-		err := reader.Get(ctx, "key1", &s)
-		assert.ErrorIs(t, err, ErrUnsupportedFormat)
-		assert.ErrorContains(t, err, "codec id 2")
-
-		_, err = MGet[string](ctx, reader, "key1", "key2")
-		assert.ErrorIs(t, err, ErrUnsupportedFormat)
-
-		_, err = MGetMap[string](ctx, reader, "key1", "key2")
-		assert.ErrorIs(t, err, ErrUnsupportedFormat)
+		cluster.nodes = append(cluster.nodes, node)
 	}
+	cluster.RedisClient = cluster.nodes[0]
+	return cluster, keys
 }
 
-func TestCache_LegacyValues(t *testing.T) {
-	setup()
-	defer tearDown()
-
-	type person struct {
-		FirstName string
-		LastName  string
-		Birthdate time.Time
-	}
-
+func TestCache_ScanCluster(t *testing.T) {
 	ctx := context.Background()
-	expected := person{
-		FirstName: "Bob",
-		LastName:  "Dole",
-		Birthdate: time.Date(1960, 10, 28, 0, 0, 0, 0, time.UTC),
-	}
 
-	// Values written by previous versions of the library have no header.
-	raw, err := (&JsonSerializer{}).Marshal(expected)
-	assert.NoError(t, err)
-	raw, err = gzip.NewCodec(6).Compress(raw)
-	assert.NoError(t, err)
-	for _, key := range []string{"key1", "key2", "key3"} {
-		assert.NoError(t, client.Set(ctx, key, raw, 0).Err())
-	}
-
-	for _, batch := range []int{0, 2} {
-		opts := []Option{Serialization(&JsonSerializer{}), Compression(gzip.NewCodec(6))}
-		if batch > 0 {
-			opts = append(opts, BatchMultiGets(batch))
-		}
-		c := New(client, opts...)
-
-		var p person
-		assert.NoError(t, c.Get(ctx, "key1", &p))
-		assert.Equal(t, expected, p)
-
-		results, err := MGetMap[person](ctx, c, "key1", "key2", "key3")
+	t.Run("merges keys from all masters", func(t *testing.T) {
+		cluster, expected := newFakeCluster(t, 8, 200)
+		keys, err := New(cluster).Scan(ctx, "key:*", 10)
 		assert.NoError(t, err)
-		assert.Equal(t, MultiResult[person]{"key1": expected, "key2": expected, "key3": expected}, results)
-	}
+		assert.ElementsMatch(t, expected, keys)
+	})
 
-	// Upsert reads the legacy value and writes it back with the header.
-	c := New(client, Serialization(&JsonSerializer{}), Compression(gzip.NewCodec(6)))
-	err = Upsert[person](ctx, c, "key1", person{}, func(found bool, oldValue person, newValue person) person {
-		assert.True(t, found)
-		assert.Equal(t, expected, oldValue)
-		return oldValue
-	}, 0)
+	t.Run("unwraps FailoverClient", func(t *testing.T) {
+		cluster, expected := newFakeCluster(t, 3, 50)
+		secondary := redis.NewClient(&redis.Options{Addr: miniredis.RunT(t).Addr()})
+		fc := NewFailoverClient(cluster, secondary, FailoverOptions().SetCheckInterval(time.Hour))
+		defer func() {
+			close(fc.closeChan)
+			<-fc.done
+			_ = secondary.Close()
+		}()
+
+		keys, err := New(fc).Scan(ctx, "key:*", 0)
+		assert.NoError(t, err)
+		assert.ElementsMatch(t, expected, keys)
+	})
+
+	t.Run("returns nil keys on error", func(t *testing.T) {
+		cluster, _ := newFakeCluster(t, 3, 10)
+		assert.NoError(t, cluster.nodes[1].Close())
+		keys, err := New(cluster).Scan(ctx, "key:*", 0)
+		assert.Error(t, err)
+		assert.Nil(t, keys)
+	})
+}
+
+func TestCache_ScanFailoverClient(t *testing.T) {
+	setup()
+	defer tearDown()
+
+	ctx := context.Background()
+	assert.NoError(t, client.Set(ctx, "user:1", "v", 0).Err())
+	assert.NoError(t, client.Set(ctx, "user:2", "v", 0).Err())
+
+	secondary := redis.NewClient(&redis.Options{Addr: miniredis.RunT(t).Addr()})
+	fc := NewFailoverClient(client, secondary, FailoverOptions().SetCheckInterval(time.Hour))
+	defer func() {
+		close(fc.closeChan)
+		<-fc.done
+		_ = secondary.Close()
+	}()
+
+	keys, err := New(fc).Scan(ctx, "user:*", -1)
 	assert.NoError(t, err)
-	stored, err := client.Get(ctx, "key1").Bytes()
-	assert.NoError(t, err)
-	assertHeader(t, stored, SerializerJSON, CodecGzip)
+	assert.ElementsMatch(t, []string{"user:1", "user:2"}, keys)
 }
 
 // xorTestCodec is a custom codec used to verify custom format IDs.

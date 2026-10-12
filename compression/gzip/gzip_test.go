@@ -22,3 +22,11 @@ func TestCodec(t *testing.T) {
 		assert.Equal(t, testStr, string(decompressed))
 	}
 }
+
+func TestNewCodec_InvalidLevel(t *testing.T) {
+	assert.Panics(t, func() { NewCodec(42) })
+	assert.Panics(t, func() { NewCodec(flate.HuffmanOnly - 1) })
+	for level := flate.HuffmanOnly; level <= flate.BestCompression; level++ {
+		assert.NotPanics(t, func() { NewCodec(level) })
+	}
+}

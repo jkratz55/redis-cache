@@ -7,45 +7,14 @@ import (
 	"fmt"
 	"testing"
 
-	kzstd "github.com/klauspost/compress/zstd"
 	"github.com/stretchr/testify/assert"
 	"github.com/vmihailenco/msgpack/v5"
-	"google.golang.org/protobuf/proto"
-	"google.golang.org/protobuf/types/known/wrapperspb"
-
-	"github.com/jkratz55/redis-cache/v2/cacheproto"
-	"github.com/jkratz55/redis-cache/v2/compression/flate"
-	"github.com/jkratz55/redis-cache/v2/compression/gzip"
-	"github.com/jkratz55/redis-cache/v2/compression/lz4"
-	"github.com/jkratz55/redis-cache/v2/compression/s2"
-	"github.com/jkratz55/redis-cache/v2/compression/snappy"
-	"github.com/jkratz55/redis-cache/v2/compression/zstd"
 )
 
 type formatTestPerson struct {
 	FirstName string
 	LastName  string
 	Age       int
-}
-
-func newZstdCodec(t testing.TB) *zstd.Codec {
-	codec, err := zstd.NewCodec(kzstd.SpeedDefault)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return codec
-}
-
-func builtinCodecs(t testing.TB) map[string]CompressionCodec {
-	return map[string]CompressionCodec{
-		"none":   nopCodec{},
-		"flate":  &flate.Codec{Level: -1},
-		"gzip":   gzip.NewCodec(6),
-		"lz4":    lz4.NewCodec(),
-		"s2":     s2.NewCodec(),
-		"snappy": snappy.NewCodec(),
-		"zstd":   newZstdCodec(t),
-	}
 }
 
 // customSerializer implements FormatIdentifier directly using gob.
@@ -120,119 +89,14 @@ func (rawSerializer) Unmarshal(b []byte, v any) error {
 
 func (rawSerializer) FormatID() uint8 { return 250 }
 
-func TestFormats_RoundTrip_AllBuiltins(t *testing.T) {
-	person := formatTestPerson{FirstName: "Billy", LastName: "Bob", Age: 45}
+// failingCodec fails to decompress every value.
+type failingCodec struct{}
 
-	for codecName, codec := range builtinCodecs(t) {
-		t.Run("msgpack/"+codecName, func(t *testing.T) {
-			f := newFormats(&MessagePackSerializer{}, codec, nil, nil)
-			data, err := f.encode(person)
-			assert.NoError(t, err)
+func (failingCodec) Compress(data []byte) ([]byte, error) { return data, nil }
 
-			var actual formatTestPerson
-			assert.NoError(t, f.decode(data, &actual))
-			assert.Equal(t, person, actual)
-		})
-		t.Run("json/"+codecName, func(t *testing.T) {
-			f := newFormats(&JsonSerializer{}, codec, nil, nil)
-			data, err := f.encode(person)
-			assert.NoError(t, err)
+func (failingCodec) Decompress([]byte) ([]byte, error) { return nil, errors.New("corrupt input") }
 
-			var actual formatTestPerson
-			assert.NoError(t, f.decode(data, &actual))
-			assert.Equal(t, person, actual)
-		})
-		t.Run("protobuf/"+codecName, func(t *testing.T) {
-			f := newFormats(cacheproto.ProtobufSerializer{}, codec, nil, nil)
-			data, err := f.encode(wrapperspb.String("hello world"))
-			assert.NoError(t, err)
-
-			actual := &wrapperspb.StringValue{}
-			assert.NoError(t, f.decode(data, actual))
-			assert.True(t, proto.Equal(wrapperspb.String("hello world"), actual))
-		})
-	}
-}
-
-func TestFormats_HeaderLayout(t *testing.T) {
-	f := newFormats(&JsonSerializer{}, gzip.NewCodec(6), nil, nil)
-	data, err := f.encode("hello")
-	assert.NoError(t, err)
-
-	if !assert.GreaterOrEqual(t, len(data), headerSize) {
-		return
-	}
-	assert.Equal(t, []byte{0xC1, 0x01, SerializerJSON, CodecGzip}, data[:headerSize])
-
-	payload, err := gzip.NewCodec(6).Decompress(data[headerSize:])
-	assert.NoError(t, err)
-	assert.Equal(t, `"hello"`, string(payload))
-
-	f = newFormats(&MessagePackSerializer{}, nopCodec{}, nil, nil)
-	data, err = f.encode("hello")
-	assert.NoError(t, err)
-	expected, err := msgpack.Marshal("hello")
-	assert.NoError(t, err)
-	assert.Equal(t, append([]byte{0xC1, 0x01, SerializerMsgPack, CodecNone}, expected...), data)
-}
-
-func TestFormats_BuiltinIDs(t *testing.T) {
-	serializers := map[uint8]Serializer{
-		SerializerMsgPack:  &MessagePackSerializer{},
-		SerializerJSON:     &JsonSerializer{},
-		SerializerProtobuf: cacheproto.ProtobufSerializer{},
-	}
-	for expected, s := range serializers {
-		id, ok := FormatIDOf(s)
-		assert.True(t, ok, "%T has no format id", s)
-		assert.Equal(t, expected, id, "%T", s)
-	}
-
-	codecs := map[uint8]CompressionCodec{
-		CodecNone:   nopCodec{},
-		CodecFlate:  &flate.Codec{},
-		CodecGzip:   gzip.NewCodec(6),
-		CodecLZ4:    lz4.NewCodec(),
-		CodecS2:     s2.NewCodec(),
-		CodecSnappy: snappy.NewCodec(),
-		CodecZstd:   newZstdCodec(t),
-	}
-	for expected, c := range codecs {
-		id, ok := FormatIDOf(c)
-		assert.True(t, ok, "%T has no format id", c)
-		assert.Equal(t, expected, id, "%T", c)
-	}
-}
-
-func TestFormats_SwitchFormats(t *testing.T) {
-	person := formatTestPerson{FirstName: "Billy", LastName: "Bob", Age: 45}
-
-	writer := newFormats(&JsonSerializer{}, gzip.NewCodec(6), nil, nil)
-	data, err := writer.encode(person)
-	assert.NoError(t, err)
-
-	// JSON is always readable, gzip has to be registered for decoding.
-	reader := newFormats(&MessagePackSerializer{}, newZstdCodec(t), nil, []CompressionCodec{gzip.NewCodec(6)})
-	var actual formatTestPerson
-	assert.NoError(t, reader.decode(data, &actual))
-	assert.Equal(t, person, actual)
-
-	// Without gzip registered the value can't be decoded.
-	reader = newFormats(&MessagePackSerializer{}, newZstdCodec(t), nil, nil)
-	err = reader.decode(data, &actual)
-	if assert.ErrorIs(t, err, ErrUnsupportedFormat) {
-		assert.Contains(t, err.Error(), "codec id 2")
-	}
-
-	// Switching from compression to none and back is always supported.
-	writer = newFormats(&MessagePackSerializer{}, nopCodec{}, nil, nil)
-	data, err = writer.encode(person)
-	assert.NoError(t, err)
-	reader = newFormats(&JsonSerializer{}, lz4.NewCodec(), nil, nil)
-	actual = formatTestPerson{}
-	assert.NoError(t, reader.decode(data, &actual))
-	assert.Equal(t, person, actual)
-}
+func (failingCodec) FormatID() uint8 { return 220 }
 
 func TestFormats_UnsupportedSerializer(t *testing.T) {
 	writer := newFormats(customSerializer{}, nopCodec{}, nil, nil)
@@ -249,24 +113,6 @@ func TestFormats_UnsupportedSerializer(t *testing.T) {
 	reader = newFormats(&MessagePackSerializer{}, nopCodec{}, []Serializer{customSerializer{}}, nil)
 	assert.NoError(t, reader.decode(data, &actual))
 	assert.Equal(t, "hello", actual)
-}
-
-func TestFormats_Legacy(t *testing.T) {
-	person := formatTestPerson{FirstName: "Billy", LastName: "Bob", Age: 45}
-
-	for codecName, codec := range builtinCodecs(t) {
-		t.Run(codecName, func(t *testing.T) {
-			raw, err := msgpack.Marshal(person)
-			assert.NoError(t, err)
-			raw, err = codec.Compress(raw)
-			assert.NoError(t, err)
-
-			f := newFormats(&MessagePackSerializer{}, codec, nil, nil)
-			var actual formatTestPerson
-			assert.NoError(t, f.decode(raw, &actual))
-			assert.Equal(t, person, actual)
-		})
-	}
 }
 
 func TestFormats_LegacyShortValue(t *testing.T) {
@@ -287,16 +133,19 @@ func TestFormats_LegacyShortValue(t *testing.T) {
 }
 
 func TestFormats_LegacyCollidingWithHeader(t *testing.T) {
-	// Legacy value that starts with the magic and version bytes but names an
-	// unknown serializer. Headered decoding fails so the legacy retry kicks in.
-	legacy := []byte{0xC1, 0x01, 0xEE, 0xEE, 'h', 'i'}
+	// A value that starts with the magic and version bytes but names an unknown
+	// serializer or codec has a valid header, so it is never retried as legacy.
 	f := newFormats(rawSerializer{}, nopCodec{}, nil, nil)
 	var b []byte
-	assert.NoError(t, f.decode(legacy, &b))
-	assert.Equal(t, legacy, b)
+	err := f.decode([]byte{0xC1, 0x01, 0xEE, CodecNone, 'h', 'i'}, &b)
+	assert.ErrorIs(t, err, ErrUnsupportedFormat)
+	assert.Nil(t, b)
+	err = f.decode([]byte{0xC1, 0x01, SerializerMsgPack, 0xEE, 'h', 'i'}, &b)
+	assert.ErrorIs(t, err, ErrUnsupportedFormat)
+	assert.Nil(t, b)
 
 	// Legacy value that names known IDs but fails to decode in headered mode.
-	legacy = []byte{0xC1, 0x01, SerializerJSON, CodecNone, '{'}
+	legacy := []byte{0xC1, 0x01, SerializerJSON, CodecNone, '{'}
 	b = nil
 	assert.NoError(t, f.decode(legacy, &b))
 	assert.Equal(t, legacy, b)
@@ -304,8 +153,89 @@ func TestFormats_LegacyCollidingWithHeader(t *testing.T) {
 	// If both fail, the error from the headered decoding is returned.
 	f = newFormats(&MessagePackSerializer{}, nopCodec{}, nil, nil)
 	var s string
-	err := f.decode([]byte{0xC1, 0x01, 0xEE, 0x00, 'x'}, &s)
-	assert.ErrorIs(t, err, ErrUnsupportedFormat)
+	err = f.decode([]byte{0xC1, 0x01, SerializerJSON, CodecNone, '{'}, &s)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "unmarshal value")
+	assert.Empty(t, s)
+}
+
+func TestFormats_FailedDecodeZeroesDestination(t *testing.T) {
+	stale := formatTestPerson{FirstName: "Stale", LastName: "Data", Age: 99}
+
+	t.Run("headered and legacy decoding fail", func(t *testing.T) {
+		f := newFormats(&MessagePackSerializer{}, nopCodec{}, nil, nil)
+		dst := stale
+		err := f.decode([]byte{0xC1, 0x01, SerializerJSON, CodecNone, '{', '"', 'F'}, &dst)
+		assert.Error(t, err)
+		assert.Equal(t, formatTestPerson{}, dst)
+	})
+
+	t.Run("legacy decoding fails", func(t *testing.T) {
+		f := newFormats(&JsonSerializer{}, nopCodec{}, nil, nil)
+		dst := stale
+		err := f.decode([]byte(`{"FirstName":"Bob","Age":"not a number"}`), &dst)
+		assert.Error(t, err)
+		assert.Equal(t, formatTestPerson{}, dst)
+	})
+
+	t.Run("unsupported format", func(t *testing.T) {
+		f := newFormats(&MessagePackSerializer{}, nopCodec{}, nil, nil)
+		dst := stale
+		err := f.decode([]byte{0xC1, 0x01, SerializerMsgPack, 0xEE, 0x01}, &dst)
+		assert.ErrorIs(t, err, ErrUnsupportedFormat)
+		// Nothing was decoded, so dst is left untouched.
+		assert.Equal(t, stale, dst)
+	})
+
+	t.Run("successful legacy retry", func(t *testing.T) {
+		// The headered decoding fails part way through, the legacy retry must
+		// not see any data from the first attempt.
+		f := newFormats(rawSerializer{}, nopCodec{}, nil, nil)
+		legacy := []byte{0xC1, 0x01, SerializerJSON, CodecNone, '[', '1', ','}
+		var b []byte
+		assert.NoError(t, f.decode(legacy, &b))
+		assert.Equal(t, legacy, b)
+	})
+}
+
+func TestFormats_TypedNilPanics(t *testing.T) {
+	assert.Panics(t, func() { Serialization((*JsonSerializer)(nil)) })
+	assert.Panics(t, func() { Serialization((*serializerWithID)(nil)) })
+	assert.Panics(t, func() { Compression((*codecWithID)(nil)) })
+	assert.Panics(t, func() { DecodeSerializers(&JsonSerializer{}, (*MessagePackSerializer)(nil)) })
+	assert.Panics(t, func() { DecodeCompression((*codecWithID)(nil)) })
+	assert.Panics(t, func() { SerializerWithID(200, (*JsonSerializer)(nil)) })
+	assert.Panics(t, func() { CodecWithID(200, (*codecWithID)(nil)) })
+	assert.Panics(t, func() { newFormats((*JsonSerializer)(nil), nopCodec{}, nil, nil) })
+	assert.Panics(t, func() { newFormats(&JsonSerializer{}, (*codecWithID)(nil), nil, nil) })
+	assert.Panics(t, func() {
+		newFormats(&JsonSerializer{}, nopCodec{}, []Serializer{(*MessagePackSerializer)(nil)}, nil)
+	})
+}
+
+func TestFormats_ValueAndPointerSerializers(t *testing.T) {
+	setup()
+	defer tearDown()
+
+	person := formatTestPerson{FirstName: "Billy", LastName: "Bob", Age: 45}
+
+	// Value and pointer forms of the built-in serializers are the same
+	// implementation and must not be reported as conflicting.
+	assert.NotPanics(t, func() {
+		New(client, Serialization(JsonSerializer{}), DecodeSerializers(&JsonSerializer{}, MessagePackSerializer{}))
+	})
+	assert.NotPanics(t, func() {
+		NewTyped[formatTestPerson](client, Serialization(MessagePackSerializer{}), DecodeSerializers(JsonSerializer{}))
+	})
+
+	writer := newFormats(JsonSerializer{}, nopCodec{}, nil, nil)
+	data, err := writer.encode(person)
+	assert.NoError(t, err)
+
+	reader := newFormats(&MessagePackSerializer{}, nopCodec{}, nil, nil)
+	var actual formatTestPerson
+	assert.NoError(t, reader.decode(data, &actual))
+	assert.Equal(t, person, actual)
 }
 
 func TestFormats_CustomImplementations(t *testing.T) {
@@ -330,7 +260,7 @@ func TestFormats_CustomImplementations(t *testing.T) {
 	assert.Equal(t, person, actual)
 
 	// Decode-only registration of the old custom formats.
-	reader := newFormats(&MessagePackSerializer{}, newZstdCodec(t),
+	reader := newFormats(&MessagePackSerializer{}, xorTestCodec{},
 		[]Serializer{SerializerWithID(201, noIDSerializer{})},
 		[]CompressionCodec{CodecWithID(210, noIDCodec{})})
 	actual = formatTestPerson{}
@@ -339,7 +269,8 @@ func TestFormats_CustomImplementations(t *testing.T) {
 
 	// Same implementation registered as configured and decode-only is fine.
 	assert.NotPanics(t, func() {
-		newFormats(customSerializer{}, gzip.NewCodec(6), []Serializer{customSerializer{}}, []CompressionCodec{gzip.NewCodec(1)})
+		newFormats(customSerializer{}, CodecWithID(230, noIDCodec{}), []Serializer{customSerializer{}},
+			[]CompressionCodec{CodecWithID(230, noIDCodec{})})
 	})
 }
 
@@ -388,7 +319,7 @@ func TestFormats_ConstructionPanics(t *testing.T) {
 	t.Run("duplicate codec id", func(t *testing.T) {
 		assertPanicContains(t, "both claim format id 210", func() {
 			newFormats(&MessagePackSerializer{}, CodecWithID(210, noIDCodec{}), nil,
-				[]CompressionCodec{CodecWithID(210, gzip.NewCodec(6))})
+				[]CompressionCodec{CodecWithID(210, xorTestCodec{})})
 		})
 	})
 	t.Run("adapter id below 128", func(t *testing.T) {
@@ -408,7 +339,7 @@ func TestFormats_ConstructionPanics(t *testing.T) {
 		})
 	})
 	t.Run("unwrap only wrapper has no id", func(t *testing.T) {
-		wrapper := unwrapOnlyCodec{inner: gzip.NewCodec(6)}
+		wrapper := unwrapOnlyCodec{inner: xorTestCodec{}}
 		_, ok := FormatIDOf(wrapper)
 		assert.False(t, ok)
 		assertPanicContains(t, "has no format id", func() {
@@ -418,10 +349,10 @@ func TestFormats_ConstructionPanics(t *testing.T) {
 }
 
 func TestFormats_DecodeErrors(t *testing.T) {
-	f := newFormats(&MessagePackSerializer{}, gzip.NewCodec(6), nil, nil)
+	f := newFormats(&MessagePackSerializer{}, failingCodec{}, nil, nil)
 
 	var s string
-	err := f.decode([]byte("definitely not gzip"), &s)
+	err := f.decode([]byte("definitely not compressed"), &s)
 	if !assert.Error(t, err) {
 		return
 	}
@@ -433,7 +364,7 @@ func TestFormats_DecodeErrors(t *testing.T) {
 	if !assert.Error(t, err) {
 		return
 	}
-	assert.Contains(t, err.Error(), "unmarshall value")
+	assert.Contains(t, err.Error(), "unmarshal value")
 }
 
 func benchmarkPerson() formatTestPerson {

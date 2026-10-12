@@ -55,9 +55,10 @@ func (o *WriteThroughOptions) init() {
 // by exceeding CacheWriteTimeout.
 //
 // When UpdateCacheAsync is true, WriteThrough will return immediately and the cache update will be
-// performed asynchronously. The OnAsyncUpdateCompleted callback will be invoked when the cache update
-// completes. If no callback is provided, OnAsyncUpdateCompleted and the cache update becomes a
-// fire-and-forget operation.
+// performed asynchronously. The asynchronous update keeps the values of ctx, such as trace information,
+// but isn't canceled when ctx is canceled. The OnAsyncUpdateCompleted callback will be invoked when the
+// cache update completes. If no callback is provided, OnAsyncUpdateCompleted and the cache update becomes
+// a fire-and-forget operation.
 //
 // When WriteThrough encounters an error it returns *WriteThroughError, which wraps the original error
 // and indicates whether the source of truth was updated. This is useful, especially when UpdateCacheAsync
@@ -83,8 +84,11 @@ func WriteThrough[T any](
 	}
 
 	if opts.UpdateCacheAsync {
+		// Keep the context values, such as tracing information, but don't cancel
+		// the update when the caller's context is canceled.
+		asyncCtx := context.WithoutCancel(ctx)
 		go func() {
-			redisCtx, redisCancel := context.WithTimeout(context.Background(), opts.CacheWriteTimeout)
+			redisCtx, redisCancel := context.WithTimeout(asyncCtx, opts.CacheWriteTimeout)
 			defer redisCancel()
 
 			err := rdb.Set(redisCtx, key, val, opts.TTL)

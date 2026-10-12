@@ -4,6 +4,8 @@ import (
 	"fmt"
 
 	"google.golang.org/protobuf/proto"
+
+	cache "github.com/jkratz55/redis-cache/v2"
 )
 
 // ProtobufSerializer is an implementation of Serializer that uses Protobuf to marshal and unmarshal data.
@@ -25,7 +27,7 @@ func (p ProtobufSerializer) Unmarshal(bytes []byte, dst any) error {
 	return proto.Unmarshal(bytes, msg)
 }
 
-// FormatID returns the reserved format ID for Protobuf (3), matching cache.SerializerProtobuf.
+// FormatID returns cache.SerializerProtobuf.
 func (p ProtobufSerializer) FormatID() uint8 {
-	return 3
+	return cache.SerializerProtobuf
 }

@@ -23,7 +23,7 @@ type Option func(c configurable)
 // Serializer must have a format ID (see FormatIdentifier and SerializerWithID),
 // otherwise New and NewTyped will panic.
 func Serialization(s Serializer) Option {
-	if s == nil {
+	if isNil(s) {
 		panic(errors.New("nil Serializer"))
 	}
 	return func(c configurable) {
@@ -39,7 +39,7 @@ func Serialization(s Serializer) Option {
 // The CompressionCodec must have a format ID (see FormatIdentifier and CodecWithID),
 // otherwise New and NewTyped will panic.
 func Compression(codec CompressionCodec) Option {
-	if codec == nil {
+	if isNil(codec) {
 		panic(fmt.Errorf("nil CompressionCodec"))
 	}
 	return func(c configurable) {
@@ -58,7 +58,7 @@ func Compression(codec CompressionCodec) Option {
 // panic. Providing nil will immediately panic.
 func DecodeSerializers(s ...Serializer) Option {
 	for _, serializer := range s {
-		if serializer == nil {
+		if isNil(serializer) {
 			panic(errors.New("nil Serializer"))
 		}
 	}
@@ -78,7 +78,7 @@ func DecodeSerializers(s ...Serializer) Option {
 // will panic. Providing nil will immediately panic.
 func DecodeCompression(codecs ...CompressionCodec) Option {
 	for _, codec := range codecs {
-		if codec == nil {
+		if isNil(codec) {
 			panic(errors.New("nil CompressionCodec"))
 		}
 	}

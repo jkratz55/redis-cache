@@ -1,14 +1,18 @@
 package cache
 
+import (
+	"errors"
+)
+
 type retryable interface {
 	IsRetryable() bool
 }
 
 // IsRetryable accepts an error and returns a boolean indicating if the operation
-// that generated the error is retryable.
+// that generated the error is retryable. Wrapped errors are inspected as well.
 func IsRetryable(err error) bool {
-	re, ok := err.(retryable)
-	return ok && re.IsRetryable()
+	var re retryable
+	return errors.As(err, &re) && re.IsRetryable()
 }
 
 type RetryableError struct {
@@ -21,6 +25,9 @@ func (e RetryableError) IsRetryable() bool {
 }
 
 func (e RetryableError) Error() string {
+	if e.cause == nil {
+		return "retryable error"
+	}
 	return e.cause.Error()
 }
 

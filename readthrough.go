@@ -67,7 +67,19 @@ type ReadThroughOptions struct {
 	//
 	// If true, the cache will be updated asynchronously in a background goroutine and the function
 	// will return immediately. Default is false, which will block until the cache is updated or fails.
+	//
+	// The asynchronous update keeps the values of the caller's context, such as trace information,
+	// but isn't canceled when the caller's context is canceled.
 	UpdateAsync bool
+
+	// LoaderTimeout bounds the LoaderFunc and cache update shared by all callers in
+	// ReadThroughSingleFlight. It is ignored by ReadThrough.
+	//
+	// ReadThroughSingleFlight runs the shared work with a context that keeps the values of the
+	// first caller's context but isn't canceled with it, so one caller canceling doesn't fail the
+	// others. If LoaderTimeout is 0 (the default) there is no timeout, and a LoaderFunc that
+	// doesn't return may outlive all callers.
+	LoaderTimeout time.Duration
 }
 
 func (o *ReadThroughOptions) init() {
@@ -93,8 +105,8 @@ func (o *ReadThroughOptions) init() {
 // LoaderFunc is invoked to retrieve the value from the source of truth. The value is then stored
 // in Redis for future requests.
 //
-// It is important to note that ReadThrough does not guarantee the Cahce (Redis) will be updated.
-// If the RedisOperationSET operation fails (including timeout), ReadThrough will still return the value with
+// It is important to note that ReadThrough does not guarantee the cache (Redis) will be updated.
+// If the SET operation fails (including timeout), ReadThrough will still return the value with
 // a nil error. However, since the value wasn't cached in Redis, the next request will invoke the
 // LoaderFunc.
 //
@@ -103,7 +115,7 @@ func (o *ReadThroughOptions) init() {
 // instrumentation. Additionally, there are hooks for cache misses and hits via ReadThroughOptions.
 //
 // Since all operations ReadThrough performs are synchronous, it is recommended to use short timeouts
-// for Redis operations to avoid blocking the caller. The default for RedisOperationGET and RedisOperationSET operations is 500ms
+// for Redis operations to avoid blocking the caller. The default for GET and SET operations is 500ms
 // to be conservative.
 //
 // ReadThrough is susceptible to the thundering herd problem. If many concurrent requests are made for
@@ -139,21 +151,37 @@ func ReadThrough[T any](
 		return result, fmt.Errorf("loader func: %w", err)
 	}
 
+	readThroughStore(ctx, rdb, key, result, opts)
+
+	return result, nil
+}
+
+// readThroughStore stores the loaded value in the cache, either synchronously or in a
+// background goroutine if UpdateAsync is enabled. Errors are reported to OnCacheError.
+func readThroughStore[T any](
+	ctx context.Context,
+	rdb *Cache,
+	key string,
+	val T,
+	opts ReadThroughOptions) {
+
 	if opts.UpdateAsync {
+		// Keep the context values, such as tracing information, but don't cancel
+		// the update when the caller's context is canceled.
+		asyncCtx := context.WithoutCancel(ctx)
 		go func() {
-			err := readThroughUpdate(context.Background(), rdb, key, result, opts)
+			err := readThroughUpdate(asyncCtx, rdb, key, val, opts)
 			if err != nil {
 				opts.OnCacheError(key, RedisOperationSET, err)
 			}
 		}()
-	} else {
-		err := readThroughUpdate(ctx, rdb, key, result, opts)
-		if err != nil {
-			opts.OnCacheError(key, RedisOperationSET, err)
-		}
+		return
 	}
 
-	return result, nil
+	err := readThroughUpdate(ctx, rdb, key, val, opts)
+	if err != nil {
+		opts.OnCacheError(key, RedisOperationSET, err)
+	}
 }
 
 func readThroughUpdate[T any](
@@ -166,11 +194,8 @@ func readThroughUpdate[T any](
 	redisCtx, redisCancel := context.WithTimeout(ctx, opts.CacheWriteTimeout)
 	defer redisCancel()
 
-	err := rdb.Set(redisCtx, key, val, opts.TTL)
-	if err != nil {
-		return fmt.Errorf("redis: %w", err)
-	}
-	return nil
+	// Set already wraps Redis errors.
+	return rdb.Set(redisCtx, key, val, opts.TTL)
 }
 
 // ReadThroughSingleFlight handle read-through caching. ReadThroughSingleFlight first attempts to
@@ -178,7 +203,7 @@ func readThroughUpdate[T any](
 // Otherwise, the LoaderFunc is invoked to retrieve the value from the source of truth. The value is
 // then stored in Redis for future requests.
 //
-// It is important to note that ReadThroughSingleFlight does not guarantee the Cahce (Redis) will be updated.
+// It is important to note that ReadThroughSingleFlight does not guarantee the cache (Redis) will be updated.
 // If the SET operation fails (including timeout), ReadThroughSingleFlight will still return the value with
 // a nil error. However, since the value wasn't cached in Redis, the next request will invoke the
 // LoaderFunc.
@@ -188,14 +213,21 @@ func readThroughUpdate[T any](
 // instrumentation. Additionally, there are hooks for cache misses and hits via ReadThroughOptions.
 //
 // Since all operations ReadThroughSingleFlight performs are synchronous, it is recommended to use short
-// timeouts for Redis operations to avoid blocking the caller. The default for RedisOperationGET and SET
+// timeouts for Redis operations to avoid blocking the caller. The default for GET and SET
 // operations is 500ms to be conservative.
 //
 // ReadThroughSingleFlight is similar to ReadThrough, but it uses singleflight to prevent duplicate work.
-// ReadThroughSingleFlight will only invoke the LoaderFunc once for a given key, and all other sequent
+// ReadThroughSingleFlight will only invoke the LoaderFunc once for a given key, and all other subsequent
 // requests will wait for the first request to complete, and the result will be shared with all waiting
 // callers. The result is shared regardless of the outcome, meaning if the operation results in an error,
 // all waiting callers will error.
+//
+// The shared LoaderFunc and cache update run with a context that keeps the values of the first caller's
+// context but isn't canceled with it, optionally bounded by ReadThroughOptions.LoaderTimeout. Each caller
+// waits for the shared result until its own context is done, in which case the context error is returned
+// to that caller only. A panic in the LoaderFunc is returned as an error to all waiting callers.
+//
+// OnCacheHit or OnCacheMiss is invoked exactly once per caller, based on the caller's own cache lookup.
 func ReadThroughSingleFlight[T any](
 	ctx context.Context,
 	rdb *Cache,
@@ -221,48 +253,60 @@ func ReadThroughSingleFlight[T any](
 		opts.OnCacheError(key, RedisOperationGET, err)
 	}
 
-	sfVal, err, _ := readThroughGroup.Do(key, func() (any, error) {
+	// The shared work must not be canceled when the caller that started it goes
+	// away, otherwise every waiting caller would fail with that caller's error.
+	flightCtx := context.WithoutCancel(ctx)
 
-		redisCtx, redisCancel := context.WithTimeout(ctx, opts.CacheReadTimeout)
+	ch := readThroughGroup.DoChan(key, func() (val any, err error) {
+		// DoChan runs fn in its own goroutine, so an unrecovered panic would crash
+		// the process instead of propagating to the caller.
+		defer func() {
+			if r := recover(); r != nil {
+				val, err = nil, fmt.Errorf("loader func panic: %v", r)
+			}
+		}()
+
+		loaderCtx := flightCtx
+		if opts.LoaderTimeout > 0 {
+			var cancel context.CancelFunc
+			loaderCtx, cancel = context.WithTimeout(flightCtx, opts.LoaderTimeout)
+			defer cancel()
+		}
+
+		// Check the cache again, another flight may have populated it since this
+		// caller's lookup. Hit and miss hooks were already invoked for this caller,
+		// so only errors are reported here.
+		redisCtx, redisCancel := context.WithTimeout(loaderCtx, opts.CacheReadTimeout)
 		defer redisCancel()
 
 		var result T
-		err := rdb.Get(redisCtx, key, &result)
+		err = rdb.Get(redisCtx, key, &result)
 		if err == nil {
-			opts.OnCacheHit(key)
 			return result, nil
 		}
-
-		if errors.Is(err, ErrKeyNotFound) {
-			opts.OnCacheMiss(key)
-		} else {
+		if !errors.Is(err, ErrKeyNotFound) {
 			opts.OnCacheError(key, RedisOperationGET, err)
 		}
 
-		result, err = loader(ctx)
+		result, err = loader(loaderCtx)
 		if err != nil {
 			return result, fmt.Errorf("loader func: %w", err)
 		}
 
-		if opts.UpdateAsync {
-			go func() {
-				err := readThroughUpdate(context.Background(), rdb, key, result, opts)
-				if err != nil {
-					opts.OnCacheError(key, RedisOperationSET, err)
-				}
-			}()
-		} else {
-			err := readThroughUpdate(ctx, rdb, key, result, opts)
-			if err != nil {
-				opts.OnCacheError(key, RedisOperationSET, err)
-			}
-		}
+		readThroughStore(loaderCtx, rdb, key, result, opts)
 
 		return result, nil
 	})
 
-	if err != nil {
-		return result, fmt.Errorf("singleflight: %w", err)
+	select {
+	case <-ctx.Done():
+		var zero T
+		return zero, ctx.Err()
+	case res := <-ch:
+		if res.Err != nil {
+			var zero T
+			return zero, fmt.Errorf("singleflight: %w", res.Err)
+		}
+		return res.Val.(T), nil
 	}
-	return sfVal.(T), nil
 }

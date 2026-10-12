@@ -6,6 +6,8 @@ import (
 	"sync"
 
 	"github.com/pierrec/lz4/v4"
+
+	cache "github.com/jkratz55/redis-cache/v2"
 )
 
 type Codec struct {
@@ -63,7 +65,7 @@ func (c *Codec) Decompress(data []byte) ([]byte, error) {
 	return buffer.Bytes(), err
 }
 
-// FormatID returns the reserved format ID for LZ4 (3), matching cache.CodecLZ4.
+// FormatID returns cache.CodecLZ4.
 func (c *Codec) FormatID() uint8 {
-	return 3
+	return cache.CodecLZ4
 }

@@ -3,8 +3,11 @@ package gzip
 import (
 	"bytes"
 	"compress/gzip"
+	"fmt"
 	"io"
 	"sync"
+
+	cache "github.com/jkratz55/redis-cache/v2"
 )
 
 type Codec struct {
@@ -13,7 +16,12 @@ type Codec struct {
 	writerPool sync.Pool
 }
 
+// NewCodec creates a new Codec with the specified compression level. It panics
+// if the level is not in the range gzip.HuffmanOnly to gzip.BestCompression.
 func NewCodec(level int) *Codec {
+	if level < gzip.HuffmanOnly || level > gzip.BestCompression {
+		panic(fmt.Errorf("gzip: invalid compression level %d", level))
+	}
 	return &Codec{
 		level:      level,
 		readerPool: sync.Pool{},
@@ -71,7 +79,7 @@ func (c *Codec) Decompress(data []byte) ([]byte, error) {
 	return buffer.Bytes(), err
 }
 
-// FormatID returns the reserved format ID for Gzip (2), matching cache.CodecGzip.
+// FormatID returns cache.CodecGzip.
 func (c *Codec) FormatID() uint8 {
-	return 2
+	return cache.CodecGzip
 }

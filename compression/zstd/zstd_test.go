@@ -109,3 +109,38 @@ func TestCodec(t *testing.T) {
 		}
 	})
 }
+
+func TestCodec_MaxDecodedSize(t *testing.T) {
+	payload := make([]byte, 1<<20)
+
+	unlimited, err := NewCodec(zstd.SpeedDefault)
+	assert.NoError(t, err)
+	defer unlimited.Close()
+	compressed, err := unlimited.Compress(payload)
+	assert.NoError(t, err)
+
+	limited, err := NewCodec(zstd.SpeedDefault, WithMaxDecodedSize(1<<10))
+	assert.NoError(t, err)
+	defer limited.Close()
+	_, err = limited.Decompress(compressed)
+	assert.Error(t, err)
+
+	// Values within the limit are still decoded.
+	small, err := limited.Compress([]byte("hello"))
+	assert.NoError(t, err)
+	out, err := limited.Decompress(small)
+	assert.NoError(t, err)
+	assert.Equal(t, []byte("hello"), out)
+
+	// Without a limit large values are decoded.
+	out, err = unlimited.Decompress(compressed)
+	assert.NoError(t, err)
+	assert.Equal(t, payload, out)
+}
+
+func TestCodec_CloseIdempotent(t *testing.T) {
+	codec, err := NewCodec(zstd.SpeedDefault, nil)
+	assert.NoError(t, err)
+	assert.NoError(t, codec.Close())
+	assert.NotPanics(t, func() { _ = codec.Close() })
+}

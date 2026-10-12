@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -24,6 +25,10 @@ var (
 	// ErrKeyNotFound is an error value that signals the key requested does not
 	// exist in the cache.
 	ErrKeyNotFound = errors.New("key not found")
+
+	// ErrInvalidTTL is an error value that signals the provided TTL is not valid
+	// for the operation.
+	ErrInvalidTTL = errors.New("invalid ttl")
 )
 
 // RedisClient is an interface type that defines the Redis functionality this
@@ -44,7 +49,10 @@ type RedisClient interface {
 	FlushDBAsync(ctx context.Context) *redis.StatusCmd
 	Ping(ctx context.Context) *redis.StatusCmd
 	TTL(ctx context.Context, key string) *redis.DurationCmd
+	PTTL(ctx context.Context, key string) *redis.DurationCmd
 	Expire(ctx context.Context, key string, expiration time.Duration) *redis.BoolCmd
+	PExpire(ctx context.Context, key string, expiration time.Duration) *redis.BoolCmd
+	Persist(ctx context.Context, key string) *redis.BoolCmd
 	Pipeline() redis.Pipeliner
 	Close() error
 }
@@ -133,14 +141,7 @@ func (c *Cache) Get(ctx context.Context, key string, v any) error {
 //
 // A ttl value of 0 will remove the TTL on the key if there is one.
 func (c *Cache) GetAndExpire(ctx context.Context, key string, v any, ttl time.Duration) error {
-	// This is a bit wonky since tll values are used different in different places
-	// in go-redis and Redis. So here we map InfiniteTTL to 0, so it keeps the same
-	// semantic meaning through the package.
-	if ttl == InfiniteTTL {
-		ttl = 0
-	}
-
-	val, err := c.redis.GetEx(ctx, key, ttl).Bytes()
+	val, err := c.redis.GetEx(ctx, key, normalizeTTL(ttl)).Bytes()
 	if err != nil {
 		if errors.Is(err, redis.Nil) {
 			return ErrKeyNotFound
@@ -185,7 +186,7 @@ func (c *Cache) Set(ctx context.Context, key string, v any, ttl time.Duration) e
 	if err != nil {
 		return err
 	}
-	err = c.redis.Set(ctx, key, data, ttl).Err()
+	err = c.redis.Set(ctx, key, data, normalizeTTL(ttl)).Err()
 	if err != nil {
 		err = fmt.Errorf("redis: %w", err)
 	}
@@ -202,7 +203,7 @@ func (c *Cache) SetIfAbsent(ctx context.Context, key string, v any, ttl time.Dur
 	if err != nil {
 		return false, err
 	}
-	ok, err := c.redis.SetNX(ctx, key, data, ttl).Result()
+	ok, err := c.redis.SetNX(ctx, key, data, normalizeTTL(ttl)).Result()
 	if err != nil {
 		err = fmt.Errorf("redis: %w", err)
 	}
@@ -219,16 +220,21 @@ func (c *Cache) SetIfPresent(ctx context.Context, key string, v any, ttl time.Du
 	if err != nil {
 		return false, err
 	}
-	ok, err := c.redis.SetXX(ctx, key, data, ttl).Result()
+	ok, err := c.redis.SetXX(ctx, key, data, normalizeTTL(ttl)).Result()
 	if err != nil {
 		err = fmt.Errorf("redis: %w", err)
 	}
 	return ok, err
 }
 
-// MSet sets multiple entries in Redis for the given key/value pairs.
+// MSet sets multiple entries in Redis for the given key/value pairs, overriding any existing
+// entries.
 //
-// MSet is atomic and will override any existing entries with the provided values.
+// MSet uses a single MSET command, which is only atomic for keys in the same hash slot. On Redis
+// Cluster all keys must share a hash tag (e.g. "{user}:1" and "{user}:2"), otherwise Redis returns
+// a CROSSSLOT error. MSet doesn't set a TTL, so the entries never expire and any existing TTL on
+// the keys is removed. Redis rejects an MSET without keys, so calling MSet with an empty map
+// returns an error.
 func (c *Cache) MSet(ctx context.Context, keyvalues map[string]any) error {
 	// The key and values needs to be processed prior to calling MSet by marshalling
 	// and compressing the values.
@@ -250,87 +256,165 @@ func (c *Cache) MSet(ctx context.Context, keyvalues map[string]any) error {
 
 // Delete removes entries from the cache for a given set of keys.
 func (c *Cache) Delete(ctx context.Context, keys ...string) error {
-	return c.redis.Del(ctx, keys...).Err()
+	return wrapRedisErr(c.redis.Del(ctx, keys...).Err())
 }
 
 // Flush flushes the cache deleting all keys/entries.
 func (c *Cache) Flush(ctx context.Context) error {
-	return c.redis.FlushDB(ctx).Err()
+	return wrapRedisErr(c.redis.FlushDB(ctx).Err())
 }
 
 // FlushAsync flushes the cache deleting all keys/entries asynchronously. Only keys that were present
 // when FLUSH ASYNC command was received by Redis will be deleted. Any keys created during an asynchronous
 // flush will be unaffected.
 func (c *Cache) FlushAsync(ctx context.Context) error {
-	return c.redis.FlushDBAsync(ctx).Err()
+	return wrapRedisErr(c.redis.FlushDBAsync(ctx).Err())
 }
 
-// TTL returns the remaining time to live for the given key.
+// wrapRedisErr prefixes a non-nil error returned by Redis with "redis: ".
+func wrapRedisErr(err error) error {
+	if err == nil {
+		return nil
+	}
+	return fmt.Errorf("redis: %w", err)
+}
+
+// TTL returns the remaining time to live for the given key with millisecond precision.
 //
 // If the key doesn't exist ErrKeyNotFound will be returned for the error value. If the error is
 // non-nil, but not ErrKeyNotFound, the operation on the backing Redis failed. If the key exists but
 // has no TTL, InfiniteTTL will be returned.
 func (c *Cache) TTL(ctx context.Context, key string) (time.Duration, error) {
-	dur, err := c.redis.TTL(ctx, key).Result()
+	return keyTTL(ctx, c.redis, key)
+}
+
+// Expire sets a TTL on the given key with millisecond precision.
+//
+// A ttl of InfiniteTTL or 0 removes the TTL from the key so it never expires; the key is never
+// deleted. Any other negative ttl returns ErrInvalidTTL.
+//
+// If the key doesn't exist ErrKeyNotFound will be returned for the error value. If the error is
+// non-nil, but not ErrKeyNotFound or ErrInvalidTTL, the operation on the backing Redis failed.
+func (c *Cache) Expire(ctx context.Context, key string, ttl time.Duration) error {
+	return expireKey(ctx, c.redis, key, ttl)
+}
+
+// normalizeTTL maps the package TTL semantics to the values go-redis expects.
+// InfiniteTTL is mapped to 0, which go-redis treats as no expiration. All other
+// values, including KeepTTL, are returned unchanged.
+func normalizeTTL(ttl time.Duration) time.Duration {
+	if ttl == InfiniteTTL {
+		return 0
+	}
+	return ttl
+}
+
+// keyTTL returns the remaining TTL of a key with millisecond precision. InfiniteTTL
+// is returned if the key has no TTL and ErrKeyNotFound if the key doesn't exist.
+func keyTTL(ctx context.Context, rdb RedisClient, key string) (time.Duration, error) {
+	dur, err := rdb.PTTL(ctx, key).Result()
 	if err != nil {
 		return 0, fmt.Errorf("redis: %w", err)
 	}
 
-	// Redis returns -1 for TTL command to indicate there is no TTL on the key
+	// Redis returns -1 for PTTL command to indicate there is no TTL on the key
 	if dur == -1 {
 		return InfiniteTTL, nil
 	}
-	// Redis returns -2 for TTL command if the key doesn't exist
+	// Redis returns -2 for PTTL command if the key doesn't exist
 	if dur == -2 {
 		return 0, ErrKeyNotFound
 	}
 	return dur, nil
 }
 
-// Expire sets a TTL on the given key.
+// expireKey sets the TTL of a key with millisecond precision.
 //
-// If the key doesn't exist ErrKeyNotFound will be returned for the error value. If the error is
-// non-nil, but not ErrKeyNotFound, the operation on the backing Redis failed.
-func (c *Cache) Expire(ctx context.Context, key string, ttl time.Duration) error {
-	ok, err := c.redis.Expire(ctx, key, ttl).Result()
-	if err != nil {
-		return fmt.Errorf("redis: %w", err)
+// InfiniteTTL and 0 remove the TTL of the key (PERSIST). Any other negative TTL
+// returns ErrInvalidTTL. ErrKeyNotFound is returned if the key doesn't exist.
+func expireKey(ctx context.Context, rdb RedisClient, key string, ttl time.Duration) error {
+	switch {
+	case ttl == InfiniteTTL || ttl == 0:
+		ok, err := rdb.Persist(ctx, key).Result()
+		if err != nil {
+			return fmt.Errorf("redis: %w", err)
+		}
+		if ok {
+			return nil
+		}
+		// PERSIST returns 0 if the key doesn't exist or if it has no TTL. In the
+		// latter case there is nothing to do.
+		dur, err := rdb.PTTL(ctx, key).Result()
+		if err != nil {
+			return fmt.Errorf("redis: %w", err)
+		}
+		if dur == -2 {
+			return ErrKeyNotFound
+		}
+		return nil
+	case ttl < 0:
+		return fmt.Errorf("%w: %s", ErrInvalidTTL, ttl)
+	default:
+		ok, err := rdb.PExpire(ctx, key, ttl).Result()
+		if err != nil {
+			return fmt.Errorf("redis: %w", err)
+		}
+		if !ok {
+			return ErrKeyNotFound
+		}
+		return nil
 	}
-	if !ok {
-		return ErrKeyNotFound
-	}
-	return nil
 }
 
 // Scan performs a Redis SCAN command to retrieve all keys matching the given pattern.
 //
 // The batch parameter controls the number of keys returned in each SCAN command. The larger the
-// batch, the more efficient the operation is, but the more memory is used.
+// batch, the more efficient the operation is, but the more memory is used. Values less than or
+// equal to zero default to 1000.
 //
-// If the underlying client is a redis.ClusterClient, Scan will iterate over all masters in the
-// cluster.
+// If the underlying client is a redis.ClusterClient, including one wrapped by a FailoverClient,
+// Scan will iterate over all masters in the cluster.
 func (c *Cache) Scan(ctx context.Context, pattern string, batch int64) ([]string, error) {
+	return scanKeys(ctx, c.redis, pattern, batch)
+}
+
+// activeClient is implemented by RedisClient wrappers, such as FailoverClient, that
+// delegate to another RedisClient.
+type activeClient interface {
+	Active() RedisClient
+}
+
+// masterIterator is implemented by clients that are backed by multiple master nodes,
+// such as redis.ClusterClient. ForEachMaster may invoke fn concurrently.
+type masterIterator interface {
+	ForEachMaster(ctx context.Context, fn func(ctx context.Context, client *redis.Client) error) error
+}
+
+// scanKeys performs SCAN with the given pattern and returns all matching keys. If the
+// client is backed by multiple masters every master is scanned. A batch less than or
+// equal to zero defaults to 1000.
+func scanKeys(ctx context.Context, rdb RedisClient, pattern string, batch int64) ([]string, error) {
 	if batch <= 0 {
 		batch = 1000
 	}
 
-	keys := make([]string, 0, batch)
-	switch rdb := c.redis.(type) {
-	case *redis.ClusterClient:
-		err := rdb.ForEachMaster(ctx, func(ctx context.Context, client *redis.Client) error {
-			iter := client.Scan(ctx, 0, pattern, batch).Iterator()
-			for iter.Next(ctx) {
-				keys = append(keys, iter.Val())
-			}
-			if err := iter.Err(); err != nil {
-				return fmt.Errorf("redis: %w", err)
-			}
+	// Unwrap clients like FailoverClient so a cluster client behind them is detected.
+	// The depth is bounded to guard against wrappers that return themselves.
+	for range 8 {
+		wrapper, ok := rdb.(activeClient)
+		if !ok {
+			break
+		}
+		inner := wrapper.Active()
+		if inner == nil {
+			break
+		}
+		rdb = inner
+	}
 
-			return nil
-		})
-		return keys, err
-	default:
-		iter := rdb.Scan(ctx, 0, pattern, batch).Iterator()
+	scan := func(ctx context.Context, client RedisClient) ([]string, error) {
+		keys := make([]string, 0, batch)
+		iter := client.Scan(ctx, 0, pattern, batch).Iterator()
 		for iter.Next(ctx) {
 			keys = append(keys, iter.Val())
 		}
@@ -339,6 +423,35 @@ func (c *Cache) Scan(ctx context.Context, pattern string, batch int64) ([]string
 		}
 		return keys, nil
 	}
+
+	cluster, ok := rdb.(masterIterator)
+	if !ok {
+		return scan(ctx, rdb)
+	}
+
+	// ForEachMaster invokes the callback concurrently for each master, so the results
+	// of each node are merged under a lock.
+	var (
+		mu   sync.Mutex
+		keys []string
+	)
+	err := cluster.ForEachMaster(ctx, func(ctx context.Context, client *redis.Client) error {
+		nodeKeys, err := scan(ctx, client)
+		if err != nil {
+			return err
+		}
+		mu.Lock()
+		keys = append(keys, nodeKeys...)
+		mu.Unlock()
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	if keys == nil {
+		keys = []string{}
+	}
+	return keys, nil
 }
 
 // Client returns the underlying Redis client.
@@ -414,7 +527,7 @@ func MGetMap[R any](ctx context.Context, c *Cache, keys ...string) (MultiResult[
 	}
 	resultMap := make(map[string]R)
 	for i, res := range results {
-		if res == nil || res == redis.Nil {
+		if res == nil {
 			// Some or all of the requested keys may not exist. Skip iterations
 			// where the key wasn't found
 			continue
@@ -425,7 +538,7 @@ func MGetMap[R any](ctx context.Context, c *Cache, keys ...string) (MultiResult[
 		}
 		var val R
 		if err := c.formats.decode([]byte(str), &val); err != nil {
-			return nil, fmt.Errorf("decode value to type %T: %w", val, err)
+			return nil, fmt.Errorf("decode key %q to type %T: %w", keys[i], val, err)
 		}
 		resultMap[keys[i]] = val
 	}
@@ -458,7 +571,7 @@ func mGetMapBatch[R any](ctx context.Context, c *Cache, keys ...string) (MultiRe
 			return nil, fmt.Errorf("redis: %w", err)
 		}
 		for j, res := range results {
-			if res == nil || res == redis.Nil {
+			if res == nil {
 				// Some or all of the requested keys may not exist. Skip iterations
 				// where the key wasn't found
 				continue
@@ -467,11 +580,11 @@ func mGetMapBatch[R any](ctx context.Context, c *Cache, keys ...string) (MultiRe
 			if !ok {
 				return nil, fmt.Errorf("unexpected value type from Redis: expected %T but got %T", str, res)
 			}
+			key := keys[i*c.mgetBatch+j]
 			var val R
 			if err := c.formats.decode([]byte(str), &val); err != nil {
-				return nil, fmt.Errorf("decode value to type %T: %w", val, err)
+				return nil, fmt.Errorf("decode key %q to type %T: %w", key, val, err)
 			}
-			key := keys[i*c.mgetBatch+j]
 			resultMap[key] = val
 		}
 	}
@@ -500,7 +613,7 @@ func MGet[T any](ctx context.Context, c *Cache, keys ...string) ([]T, error) {
 	values := make([]T, 0, len(keys))
 	for i := range results {
 		res := results[i]
-		if res == nil || res == redis.Nil {
+		if res == nil {
 			// Some or all of the requested keys may not exist. Skip iterations
 			// where the key wasn't found
 			continue
@@ -511,7 +624,7 @@ func MGet[T any](ctx context.Context, c *Cache, keys ...string) ([]T, error) {
 		}
 		var val T
 		if err := c.formats.decode([]byte(str), &val); err != nil {
-			return nil, fmt.Errorf("decode value to type %T: %w", val, err)
+			return nil, fmt.Errorf("decode key %q to type %T: %w", keys[i], val, err)
 		}
 		values = append(values, val)
 	}
@@ -535,14 +648,14 @@ func mGetBatch[T any](ctx context.Context, c *Cache, keys ...string) ([]T, error
 	}
 
 	values := make([]T, 0, len(keys))
-	for _, cmd := range cmds {
+	for i, cmd := range cmds {
 		results, err := cmd.Result()
 		if err != nil {
 			return nil, fmt.Errorf("redis: %w", err)
 		}
 		for j := range results {
 			res := results[j]
-			if res == nil || res == redis.Nil {
+			if res == nil {
 				// Some or all of the requested keys may not exist. Skip iterations
 				// where the key wasn't found
 				continue
@@ -553,7 +666,7 @@ func mGetBatch[T any](ctx context.Context, c *Cache, keys ...string) ([]T, error
 			}
 			var val T
 			if err := c.formats.decode([]byte(str), &val); err != nil {
-				return nil, fmt.Errorf("decode value to type %T: %w", val, err)
+				return nil, fmt.Errorf("decode key %q to type %T: %w", keys[i*c.mgetBatch+j], val, err)
 			}
 			values = append(values, val)
 		}
@@ -597,29 +710,16 @@ type UpsertCallback[T any] func(found bool, oldValue T, newValue T) T
 //		break
 //	}
 func Upsert[T any](ctx context.Context, c *Cache, key string, val T, cb UpsertCallback[T], ttl time.Duration) error {
+	if cb == nil {
+		return errors.New("upsert: nil UpsertCallback")
+	}
 
-	// Builds Redis transaction where the value is fetched from Redis, unmarshalled,
-	// and then passed to the UpsertCallback. The returned value from the UpsertCallback
-	// is the value set for the given key.
+	// txErr tracks errors returned by the transaction function, which are already
+	// wrapped, so only errors from WATCH itself are wrapped below.
+	var txErr error
 	tx := func(tx *redis.Tx) error {
-		found := false
-		var oldVal T
-		err := c.Get(ctx, key, &oldVal)
-		if err != nil && !errors.Is(err, ErrKeyNotFound) {
-			return fmt.Errorf("redis: %w", err)
-		}
-		if err == nil {
-			found = true
-		}
-		newVal := cb(found, oldVal, val)
-		_, err = tx.TxPipelined(ctx, func(pipe redis.Pipeliner) error {
-			data, err := c.formats.encode(newVal)
-			if err != nil {
-				return err
-			}
-			return pipe.Set(ctx, key, data, ttl).Err()
-		})
-		return err
+		txErr = upsertTx(ctx, c, tx, key, val, cb, ttl)
+		return txErr
 	}
 
 	err := c.redis.Watch(ctx, tx, key)
@@ -632,6 +732,43 @@ func Upsert[T any](ctx context.Context, c *Cache, key string, val T, cb UpsertCa
 			retryable: true,
 			cause:     err,
 		}
+	}
+	if err != nil && err != txErr {
+		return fmt.Errorf("redis: %w", err)
+	}
+	return err
+}
+
+// upsertTx is the transaction executed by Upsert on the watched connection. The
+// value is fetched, unmarshalled and passed to the UpsertCallback. The value
+// returned from the UpsertCallback is the value set for the given key.
+func upsertTx[T any](ctx context.Context, c *Cache, tx *redis.Tx, key string, val T, cb UpsertCallback[T], ttl time.Duration) error {
+	found := false
+	var oldVal T
+	// The value is read on the watched connection so the read is part of the
+	// optimistic transaction.
+	data, err := tx.Get(ctx, key).Bytes()
+	switch {
+	case errors.Is(err, redis.Nil):
+	case err != nil:
+		return fmt.Errorf("redis: %w", err)
+	default:
+		if err := c.formats.decode(data, &oldVal); err != nil {
+			return fmt.Errorf("decode key %q to type %T: %w", key, oldVal, err)
+		}
+		found = true
+	}
+
+	newVal := cb(found, oldVal, val)
+	newData, err := c.formats.encode(newVal)
+	if err != nil {
+		return err
+	}
+	_, err = tx.TxPipelined(ctx, func(pipe redis.Pipeliner) error {
+		return pipe.Set(ctx, key, newData, normalizeTTL(ttl)).Err()
+	})
+	if err != nil && !errors.Is(err, redis.TxFailedErr) {
+		return fmt.Errorf("redis: %w", err)
 	}
 	return err
 }

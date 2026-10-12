@@ -18,6 +18,10 @@ import (
 // types, you will need to create multiple cache instances.
 //
 // The zero-value of TypedCache is not usable. Use NewTyped to create a new instance.
+//
+// When T is a pointer type, such as TypedCache[*Person], values are always decoded into a newly
+// allocated value. A nil pointer that was stored decodes to a non-nil pointer to the zero value of
+// the element type, not to nil.
 type TypedCache[T any] struct {
 	redis     RedisClient
 	formats   *formats
@@ -65,6 +69,9 @@ func NewTyped[T any](client RedisClient, opts ...Option) *TypedCache[T] {
 // If the key does not exist, ErrKeyNotFound will be returned. If the operation/command to Redis failed,
 // the value could not be unmarshalled, or the value was compressed and could not be decompressed, the
 // error will be returned.
+//
+// When T is a pointer type, a stored nil decodes to a non-nil pointer to the zero value of the
+// element type.
 func (c *TypedCache[T]) Get(ctx context.Context, key string) (T, error) {
 	var res T
 
@@ -88,7 +95,7 @@ func (c *TypedCache[T]) Get(ctx context.Context, key string) (T, error) {
 func (c *TypedCache[T]) GetAndExpire(ctx context.Context, key string, ttl time.Duration) (T, error) {
 	var res T
 
-	data, err := c.redis.GetEx(ctx, key, ttl).Bytes()
+	data, err := c.redis.GetEx(ctx, key, normalizeTTL(ttl)).Bytes()
 	if err != nil {
 		if errors.Is(err, redis.Nil) {
 			return res, ErrKeyNotFound
@@ -116,7 +123,10 @@ func (c *TypedCache[T]) GetAndDelete(ctx context.Context, key string) (T, error)
 	return c.decompressAndUnmarshal(data)
 }
 
-// MGet retrieves multiple values from Redis for the given keys.
+// MGet retrieves multiple values from Redis for the given keys. Keys that don't exist are skipped.
+//
+// When T is a pointer type, a stored nil decodes to a non-nil pointer to the zero value of the
+// element type.
 func (c *TypedCache[T]) MGet(ctx context.Context, keys ...string) ([]T, error) {
 	numKeys := len(keys)
 	if numKeys == 0 {
@@ -129,8 +139,8 @@ func (c *TypedCache[T]) MGet(ctx context.Context, keys ...string) ([]T, error) {
 			return nil, fmt.Errorf("redis: %w", err)
 		}
 		resultValues := make([]T, 0, numKeys)
-		for _, res := range results {
-			if res == nil || res == redis.Nil {
+		for i, res := range results {
+			if res == nil {
 				// Some or all of the requested keys may not exist. Skip iterations
 				// where the key wasn't found
 				continue
@@ -139,7 +149,7 @@ func (c *TypedCache[T]) MGet(ctx context.Context, keys ...string) ([]T, error) {
 			if !ok {
 				return nil, fmt.Errorf("unexpected value type from Redis: expected %T but got %T", str, res)
 			}
-			val, err := c.decompressAndUnmarshal([]byte(str))
+			val, err := c.decodeKey(keys[i], []byte(str))
 			if err != nil {
 				return nil, err
 			}
@@ -162,13 +172,13 @@ func (c *TypedCache[T]) MGet(ctx context.Context, keys ...string) ([]T, error) {
 	}
 
 	resultValues := make([]T, 0, len(keys))
-	for _, cmd := range cmds {
+	for i, cmd := range cmds {
 		results, err := cmd.Result()
 		if err != nil {
 			return nil, fmt.Errorf("redis: %w", err)
 		}
-		for _, res := range results {
-			if res == nil || res == redis.Nil {
+		for j, res := range results {
+			if res == nil {
 				// Some or all of the requested keys may not exist. Skip iterations
 				// where the key wasn't found
 				continue
@@ -177,7 +187,7 @@ func (c *TypedCache[T]) MGet(ctx context.Context, keys ...string) ([]T, error) {
 			if !ok {
 				return nil, fmt.Errorf("unexpected value type from Redis: expected %T but got %T", str, res)
 			}
-			val, err := c.decompressAndUnmarshal([]byte(str))
+			val, err := c.decodeKey(keys[i*c.mgetBatch+j], []byte(str))
 			if err != nil {
 				return nil, err
 			}
@@ -201,7 +211,7 @@ func (c *TypedCache[T]) MGetMap(ctx context.Context, keys ...string) (MultiResul
 		}
 		resultMap := make(map[string]T, numKeys)
 		for i, res := range results {
-			if res == nil || res == redis.Nil {
+			if res == nil {
 				// Some or all of the requested keys may not exist. Skip iterations
 				// where the key wasn't found
 				continue
@@ -210,7 +220,7 @@ func (c *TypedCache[T]) MGetMap(ctx context.Context, keys ...string) (MultiResul
 			if !ok {
 				return nil, fmt.Errorf("unexpected value type from Redis: expected %T but got %T", str, res)
 			}
-			val, err := c.decompressAndUnmarshal([]byte(str))
+			val, err := c.decodeKey(keys[i], []byte(str))
 			if err != nil {
 				return nil, err
 			}
@@ -239,7 +249,7 @@ func (c *TypedCache[T]) MGetMap(ctx context.Context, keys ...string) (MultiResul
 			return nil, fmt.Errorf("redis: %w", err)
 		}
 		for j, res := range results {
-			if res == nil || res == redis.Nil {
+			if res == nil {
 				// Some or all of the requested keys may not exist. Skip iterations
 				// where the key wasn't found
 				continue
@@ -248,11 +258,11 @@ func (c *TypedCache[T]) MGetMap(ctx context.Context, keys ...string) (MultiResul
 			if !ok {
 				return nil, fmt.Errorf("unexpected value type from Redis: expected %T but got %T", str, res)
 			}
-			val, err := c.decompressAndUnmarshal([]byte(str))
+			key := keys[i*c.mgetBatch+j]
+			val, err := c.decodeKey(key, []byte(str))
 			if err != nil {
 				return nil, err
 			}
-			key := keys[i*c.mgetBatch+j]
 			resultMap[key] = val
 		}
 	}
@@ -265,7 +275,7 @@ func (c *TypedCache[T]) Set(ctx context.Context, key string, val T, ttl time.Dur
 	if err != nil {
 		return err
 	}
-	err = c.redis.Set(ctx, key, data, ttl).Err()
+	err = c.redis.Set(ctx, key, data, normalizeTTL(ttl)).Err()
 	if err != nil {
 		err = fmt.Errorf("redis: %w", err)
 	}
@@ -277,7 +287,7 @@ func (c *TypedCache[T]) SetIfAbsent(ctx context.Context, key string, val T, ttl 
 	if err != nil {
 		return false, err
 	}
-	ok, err := c.redis.SetNX(ctx, key, data, ttl).Result()
+	ok, err := c.redis.SetNX(ctx, key, data, normalizeTTL(ttl)).Result()
 	if err != nil {
 		err = fmt.Errorf("redis: %w", err)
 	}
@@ -289,13 +299,21 @@ func (c *TypedCache[T]) SetIfPresent(ctx context.Context, key string, val T, ttl
 	if err != nil {
 		return false, err
 	}
-	ok, err := c.redis.SetXX(ctx, key, data, ttl).Result()
+	ok, err := c.redis.SetXX(ctx, key, data, normalizeTTL(ttl)).Result()
 	if err != nil {
 		err = fmt.Errorf("redis: %w", err)
 	}
 	return ok, err
 }
 
+// MSet sets multiple entries in Redis for the given key/value pairs, overriding any existing
+// entries.
+//
+// MSet uses a single MSET command, which is only atomic for keys in the same hash slot. On Redis
+// Cluster all keys must share a hash tag (e.g. "{user}:1" and "{user}:2"), otherwise Redis returns
+// a CROSSSLOT error. MSet doesn't set a TTL, so the entries never expire and any existing TTL on
+// the keys is removed. Redis rejects an MSET without keys, so calling MSet with an empty map
+// returns an error.
 func (c *TypedCache[T]) MSet(ctx context.Context, values map[string]T) error {
 	// The key and values needs to be processed prior to calling MSet by marshalling
 	// and compressing the values.
@@ -316,71 +334,43 @@ func (c *TypedCache[T]) MSet(ctx context.Context, values map[string]T) error {
 }
 
 func (c *TypedCache[T]) Delete(ctx context.Context, keys ...string) error {
-	return c.redis.Del(ctx, keys...).Err()
+	return wrapRedisErr(c.redis.Del(ctx, keys...).Err())
 }
 
 func (c *TypedCache[T]) FlushDB(ctx context.Context) error {
-	return c.redis.FlushDB(ctx).Err()
+	return wrapRedisErr(c.redis.FlushDB(ctx).Err())
 }
 
 func (c *TypedCache[T]) FlushDBAsync(ctx context.Context) error {
-	return c.redis.FlushDBAsync(ctx).Err()
+	return wrapRedisErr(c.redis.FlushDBAsync(ctx).Err())
 }
 
+// TTL returns the remaining time to live for the given key with millisecond precision.
+//
+// If the key doesn't exist ErrKeyNotFound will be returned for the error value. If the key exists
+// but has no TTL, InfiniteTTL will be returned.
 func (c *TypedCache[T]) TTL(ctx context.Context, key string) (time.Duration, error) {
-	dur, err := c.redis.TTL(ctx, key).Result()
-	if err != nil {
-		return 0, fmt.Errorf("redis: %w", err)
-	}
-
-	// Redis returns -1 for TTL command to indicate there is no TTL on the key
-	if dur == -1 {
-		return InfiniteTTL, nil
-	}
-	// Redis returns -2 for TTL command if the key doesn't exist
-	if dur == -2 {
-		return 0, ErrKeyNotFound
-	}
-	return dur, nil
+	return keyTTL(ctx, c.redis, key)
 }
 
+// Expire sets a TTL on the given key with millisecond precision.
+//
+// A ttl of InfiniteTTL or 0 removes the TTL from the key so it never expires; the key is never
+// deleted. Any other negative ttl returns ErrInvalidTTL. If the key doesn't exist ErrKeyNotFound
+// will be returned for the error value.
 func (c *TypedCache[T]) Expire(ctx context.Context, key string, ttl time.Duration) error {
-	ok, err := c.redis.Expire(ctx, key, ttl).Result()
-	if err != nil {
-		return fmt.Errorf("redis: %w", err)
-	}
-	if !ok {
-		return ErrKeyNotFound
-	}
-	return nil
+	return expireKey(ctx, c.redis, key, ttl)
 }
 
+// Scan performs a Redis SCAN command to retrieve all keys matching the given pattern.
+//
+// The batch parameter controls the number of keys returned in each SCAN command. Values less
+// than or equal to zero default to 1000.
+//
+// If the underlying client is a redis.ClusterClient, Scan will iterate over all masters in the
+// cluster.
 func (c *TypedCache[T]) Scan(ctx context.Context, pattern string, batch int64) ([]string, error) {
-	keys := make([]string, 0, batch)
-	switch rdb := c.redis.(type) {
-	case *redis.ClusterClient:
-		err := rdb.ForEachMaster(ctx, func(ctx context.Context, client *redis.Client) error {
-			iter := client.Scan(ctx, 0, pattern, batch).Iterator()
-			for iter.Next(ctx) {
-				keys = append(keys, iter.Val())
-			}
-			if err := iter.Err(); err != nil {
-				return fmt.Errorf("redis: %w", err)
-			}
-
-			return nil
-		})
-		return keys, err
-	default:
-		iter := rdb.Scan(ctx, 0, pattern, batch).Iterator()
-		for iter.Next(ctx) {
-			keys = append(keys, iter.Val())
-		}
-		if err := iter.Err(); err != nil {
-			return nil, fmt.Errorf("redis: %w", err)
-		}
-		return keys, nil
-	}
+	return scanKeys(ctx, c.redis, pattern, batch)
 }
 
 func (c *TypedCache[T]) Client() redis.UniversalClient {
@@ -389,6 +379,16 @@ func (c *TypedCache[T]) Client() redis.UniversalClient {
 
 func (c *TypedCache[T]) setMGetBatch(i int) {
 	c.mgetBatch = i
+}
+
+// decodeKey decodes the value of a key returned by a multi-key operation and
+// adds the key and type to the error if decoding fails.
+func (c *TypedCache[T]) decodeKey(key string, data []byte) (T, error) {
+	val, err := c.decompressAndUnmarshal(data)
+	if err != nil {
+		return val, fmt.Errorf("decode key %q to type %s: %w", key, reflect.TypeFor[T](), err)
+	}
+	return val, nil
 }
 
 func (c *TypedCache[T]) decompressAndUnmarshal(data []byte) (T, error) {
