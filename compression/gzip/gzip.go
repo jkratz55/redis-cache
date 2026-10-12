@@ -13,9 +13,14 @@ import (
 	"github.com/jkratz55/redis-cache/v2/compression/internal/limit"
 )
 
-// maxDeflateRatio is the highest ratio between the size of decompressed and
-// compressed data deflate can achieve.
-const maxDeflateRatio = 1032
+const (
+	// maxHintRatio bounds the size hint to this many times the compressed size.
+	// Cached values compress about 2 to 6 times, so real values keep an exact hint.
+	maxHintRatio = 8
+
+	// maxSizeHint bounds the size hint in bytes.
+	maxSizeHint = 1 << 20
+)
 
 // Codec is an implementation of cache.CompressionCodec using gzip from the standard
 // library.
@@ -124,8 +129,12 @@ func (c *Codec) Decompress(data []byte) ([]byte, error) {
 }
 
 // sizeHint returns the size of the data decompressed from data declared by its
-// gzip trailer. The value may be corrupt or crafted, so it is bounded by the
-// maximum compression ratio of deflate.
+// gzip trailer, which sizes the buffer it is decompressed into up front.
+//
+// The trailer is only verified once the whole value is decompressed, so a corrupt
+// or crafted value can declare up to 4 GiB. The hint is therefore bounded to
+// maxHintRatio times the compressed size and to maxSizeHint, and the buffer grows
+// as needed for values decompressing to more.
 func sizeHint(data []byte) int {
 	// A gzip stream has a 10-byte header and an 8-byte trailer, whose last 4 bytes
 	// are the decompressed size modulo 2^32.
@@ -133,7 +142,7 @@ func sizeHint(data []byte) int {
 		return 0
 	}
 	size := binary.LittleEndian.Uint32(data[len(data)-4:])
-	return int(min(uint64(size), uint64(len(data))*maxDeflateRatio))
+	return int(min(uint64(size), uint64(len(data))*maxHintRatio, maxSizeHint))
 }
 
 // FormatID returns cache.CodecGzip.

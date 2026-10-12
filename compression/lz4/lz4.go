@@ -13,6 +13,12 @@ import (
 
 // Codec is an implementation of cache.CompressionCodec using the LZ4 frame format.
 //
+// Values are compressed into frames with 64 KiB blocks. The LZ4 default of 4 MiB
+// blocks makes writers and readers allocate 4 MiB buffers, which their pools lose on
+// every garbage collection, while cached values are usually much smaller. Frames with
+// any block size, such as values written by earlier versions with 4 MiB blocks, are
+// decompressed.
+//
 // Use NewCodec to create a new instance. Writers and readers are pooled and reused.
 // Codec is safe for concurrent use.
 type Codec struct {
@@ -66,6 +72,10 @@ func (c *Codec) AppendCompress(dst, data []byte) ([]byte, error) {
 		lz4Writer.Reset(buffer)
 	} else {
 		lz4Writer = lz4.NewWriter(buffer)
+		// Reset keeps the options, so pooled writers keep the block size.
+		if err := lz4Writer.Apply(lz4.BlockSizeOption(lz4.Block64Kb)); err != nil {
+			return nil, err
+		}
 	}
 
 	defer func() {

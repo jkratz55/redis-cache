@@ -55,9 +55,8 @@ func TestNewHooks(t *testing.T) {
 	lookups := metrics["cache.lookups"]
 	// Get a, MGet a and b, Get unsupported, Get corrupt, Get large.
 	assert.Equal(t, int64(6), counterValue(t, lookups, name, attribute.Bool("cache.hit", true)))
-	// Get missing, MGet missing, ReadThroughSingleFlight loaded, which is looked
-	// up once by the caller and once more by the shared load.
-	assert.Equal(t, int64(4), counterValue(t, lookups, name, attribute.Bool("cache.hit", false)))
+	// Get missing, MGet missing, ReadThroughSingleFlight loaded.
+	assert.Equal(t, int64(3), counterValue(t, lookups, name, attribute.Bool("cache.hit", false)))
 
 	size := metrics["cache.value.size"]
 	// Set a, b, large, and loaded by the read-through.

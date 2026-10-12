@@ -955,6 +955,11 @@ func FuzzDecode(f *testing.F) {
 	f.Add([]byte{cache.FormatMagicForTest, cache.FormatVersionForTest, 250, cache.CodecNone, 0x01})
 	f.Add([]byte{cache.FormatMagicForTest, cache.FormatVersionForTest, cache.SerializerMsgPack, cache.CodecS2,
 		0xff, 0xff, 0xff, 0xff, 0x0f, 0x00})
+	// A gzip value with a corrupt body and a trailer declaring 4 GiB.
+	corruptGzip := []byte{cache.FormatMagicForTest, cache.FormatVersionForTest, cache.SerializerMsgPack, cache.CodecGzip,
+		0x1f, 0x8b, 0x08, 0, 0, 0, 0, 0, 0, 0xff}
+	corruptGzip = append(corruptGzip, bytes.Repeat([]byte{0xa5, 0x5a}, 32)...)
+	f.Add(append(corruptGzip, 0, 0, 0, 0, 0xff, 0xff, 0xff, 0xff))
 
 	reader := cache.NewFormatsForTest(&cache.MessagePackSerializer{}, cache.NopCodecForTest(),
 		[]cache.Serializer{cacheproto.ProtobufSerializer{}}, codecs)

@@ -347,6 +347,8 @@ func readThroughUpdate[T any](
 // an error to all waiting callers.
 //
 // OnCacheHit or OnCacheMiss is invoked exactly once per caller, based on the caller's own cache lookup.
+// Every caller reads Redis once. The shared load doesn't read Redis again before invoking the LoaderFunc,
+// so a caller that missed just before another load completed and stored the value starts a new load.
 func ReadThroughSingleFlight[T any](
 	ctx context.Context,
 	rdb *Cache,
@@ -396,22 +398,10 @@ func ReadThroughSingleFlight[T any](
 			defer cancel()
 		}
 
-		// Check the cache again, another flight may have populated it since this
-		// caller's lookup. Hit and miss hooks were already invoked for this caller,
-		// so only errors are reported here.
-		redisCtx, redisCancel := context.WithTimeout(loaderCtx, flightOpts.CacheReadTimeout)
-		defer redisCancel()
-
-		var result T
-		err = rdb.Get(redisCtx, key, &result)
-		if err == nil {
-			return result, nil
-		}
-		if !errors.Is(err, ErrKeyNotFound) {
-			flightOpts.OnCacheError(key, RedisOperationGET, err)
-		}
-
-		result, err = loader(loaderCtx)
+		// Redis isn't read again before loading: the caller that starts the load
+		// just missed, and reading again would cost every miss another round trip
+		// for the rare case of a load that completed in between.
+		result, err := loader(loaderCtx)
 		if err != nil {
 			return result, fmt.Errorf("loader func: %w", err)
 		}

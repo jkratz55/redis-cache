@@ -160,9 +160,9 @@ Redis Cluster doesn't support commands on keys of different hash slots, and the 
 
 ## Read-Through and Write-Through
 
-`ReadThrough` and `ReadThroughSingleFlight` load a value from the source of truth on a cache miss and cache it. `ReadThroughSingleFlight` shares a load between concurrent callers of the same `Cache` loading the same key and type.
+`ReadThrough` and `ReadThroughSingleFlight` load a value from the source of truth on a cache miss and cache it. `ReadThroughSingleFlight` shares a load between concurrent callers of the same `Cache` loading the same key and type. Both read Redis once per call.
 
-`WriteThrough` updates the source of truth and then the cache. Keeping both consistent is best effort: if the cache update fails, `WriteThrough` deletes the key so the previous value isn't served anymore, but the delete can fail too, for example while Redis is unavailable. Concurrent writes of the same key can also update the source of truth and the cache in a different order. Set a TTL so a stale value eventually expires.
+`WriteThrough` updates the source of truth and then the cache. Keeping both consistent is best effort: if the cache update fails, `WriteThrough` deletes the key so the previous value isn't served anymore, but the delete can fail too, for example while Redis is unavailable. The update and the delete share `CacheWriteTimeout`, so an unavailable Redis delays a write once. Concurrent writes of the same key can also update the source of truth and the cache in a different order. Set a TTL so a stale value eventually expires.
 
 ## Failover
 
@@ -178,6 +178,8 @@ fc := cache.NewFailoverClient(primary, secondary, cache.FailoverOptions().
         return client.Set(ctx, "health:canary", "ok", time.Minute).Err()
     }))
 ```
+
+A health check must return once its context is done. One that doesn't return within `CheckTimeout` plus 100 ms counts as failed and isn't started again until it returns, so it can't stop failover or hang `Close`.
 
 `FailoverClient` takes ownership of both clients: `Close` closes them.
 
@@ -247,7 +249,7 @@ For context, a Redis round trip over the network usually takes tens to hundreds 
 
 | Codec         | Ratio | Compressed |           Compress | Compress allocs / bytes |         Decompress | Decompress allocs / bytes |
 |---------------|------:|-----------:|-------------------:|------------------------:|-------------------:|--------------------------:|
-| lz4           | 1.77x |    1.1 KiB | 1.88 µs (1.1 GB/s) |             4 / 4.1 KiB |  583 ns (3.5 GB/s) |               3 / 2.7 KiB |
+| lz4           | 1.77x |    1.1 KiB | 1.94 µs (1.1 GB/s) |             4 / 3.6 KiB |  643 ns (3.2 GB/s) |               3 / 2.4 KiB |
 | s2            | 1.75x |    1.1 KiB | 1.19 µs (1.7 GB/s) |             1 / 2.3 KiB |  421 ns (4.9 GB/s) |               1 / 2.2 KiB |
 | snappy        | 1.81x |    1.1 KiB | 1.93 µs (1.1 GB/s) |             1 / 2.3 KiB |  409 ns (5.0 GB/s) |               1 / 2.2 KiB |
 | zstd-fastest  | 2.06x |      993 B | 7.18 µs (285 MB/s) |             1 / 2.2 KiB | 3.58 µs (573 MB/s) |               1 / 2.3 KiB |
@@ -263,7 +265,7 @@ For context, a Redis round trip over the network usually takes tens to hundreds 
 
 | Codec         | Ratio | Compressed |           Compress | Compress allocs / bytes |         Decompress | Decompress allocs / bytes |
 |---------------|------:|-----------:|-------------------:|------------------------:|-------------------:|--------------------------:|
-| lz4           | 3.51x |     18 KiB | 45.2 µs (1.4 GB/s) |              3 / 19 KiB | 13.9 µs (4.7 GB/s) |                3 / 66 KiB |
+| lz4           | 3.51x |     18 KiB | 44.2 µs (1.5 GB/s) |              3 / 19 KiB | 15.6 µs (4.2 GB/s) |                3 / 64 KiB |
 | s2            | 3.34x |     19 KiB | 35.4 µs (1.8 GB/s) |              1 / 64 KiB | 13.2 µs (5.0 GB/s) |                1 / 64 KiB |
 | snappy        | 3.54x |     18 KiB | 50.4 µs (1.3 GB/s) |              1 / 64 KiB | 12.9 µs (5.0 GB/s) |                1 / 64 KiB |
 | zstd-fastest  | 4.83x |     13 KiB | 88.2 µs (738 MB/s) |              1 / 64 KiB | 31.0 µs (2.1 GB/s) |                1 / 64 KiB |
@@ -284,7 +286,7 @@ A ratio below 1.00x means the compressed value is larger than the original.
 
 | Codec         | Ratio, small (343 B) | Compress | Decompress | Ratio, random (4 KiB) | Compress | Decompress |
 |---------------|---------------------:|---------:|-----------:|----------------------:|---------:|-----------:|
-| lz4           |                0.95x |   471 ns |     186 ns |                 1.00x |  1.59 µs |     703 ns |
+| lz4           |                0.95x |   472 ns |     195 ns |                 1.00x |  1.69 µs |     811 ns |
 | s2            |                0.99x |   113 ns |      50 ns |                 1.00x |   714 ns |     473 ns |
 | snappy        |                0.99x |   170 ns |      49 ns |                 1.00x |  1.43 µs |     481 ns |
 | zstd-fastest  |                0.96x |   317 ns |     105 ns |                 1.00x |   936 ns |     396 ns |
@@ -310,17 +312,17 @@ A ratio below 1.00x means the compressed value is larger than the original.
 | Serializer | Codec        |  Stored |     Set | Set allocs / bytes |     Get | Get allocs / bytes |
 |------------|--------------|--------:|--------:|-------------------:|--------:|-------------------:|
 | msgpack    | none         | 2.0 KiB | 2.91 µs |       13 / 8.4 KiB | 4.67 µs |       74 / 6.3 KiB |
-| msgpack    | lz4          | 1.1 KiB | 4.64 µs |        16 / 13 KiB | 5.18 µs |        77 / 10 KiB |
+| msgpack    | lz4          | 1.1 KiB | 4.84 µs |        16 / 11 KiB | 5.24 µs |       77 / 7.8 KiB |
 | msgpack    | s2           | 1.1 KiB | 4.20 µs |        15 / 11 KiB | 5.10 µs |       75 / 7.5 KiB |
 | msgpack    | zstd-default |   961 B | 11.1 µs |        15 / 11 KiB | 8.14 µs |       75 / 7.3 KiB |
 | msgpack    | gzip-default |   954 B | 17.3 µs |        18 / 11 KiB | 12.5 µs |      101 / 8.1 KiB |
 | json       | none         | 2.2 KiB | 3.19 µs |       11 / 5.2 KiB | 5.74 µs |       38 / 6.8 KiB |
-| json       | lz4          | 1.2 KiB | 5.22 µs |       12 / 4.7 KiB | 6.43 µs |       41 / 9.1 KiB |
+| json       | lz4          | 1.2 KiB | 5.06 µs |       12 / 4.3 KiB | 6.24 µs |       41 / 8.1 KiB |
 | json       | s2           | 1.2 KiB | 4.46 µs |       11 / 5.6 KiB | 6.23 µs |       39 / 8.0 KiB |
 | json       | zstd-default |   890 B | 10.3 µs |       11 / 5.2 KiB | 9.00 µs |       39 / 8.0 KiB |
 | json       | gzip-default |   862 B | 14.1 µs |       14 / 5.1 KiB | 13.2 µs |       45 / 7.8 KiB |
 | protobuf   | none         | 1.3 KiB | 1.46 µs |       19 / 3.2 KiB | 2.33 µs |      111 / 6.1 KiB |
-| protobuf   | lz4          | 1.0 KiB | 3.08 µs |       21 / 5.4 KiB | 2.79 µs |      114 / 8.2 KiB |
+| protobuf   | lz4          | 1.0 KiB | 2.98 µs |       21 / 4.9 KiB | 2.73 µs |      114 / 7.3 KiB |
 | protobuf   | s2           |   963 B | 2.34 µs |       19 / 3.2 KiB | 2.53 µs |      112 / 7.1 KiB |
 | protobuf   | zstd-default |   864 B | 9.04 µs |       19 / 3.2 KiB | 5.59 µs |      112 / 6.9 KiB |
 | protobuf   | gzip-default |   861 B | 14.4 µs |       22 / 3.9 KiB | 9.74 µs |      136 / 7.9 KiB |
@@ -328,17 +330,17 @@ A ratio below 1.00x means the compressed value is larger than the original.
 | Serializer | Codec        | Stored |     Set | Set allocs / bytes |     Get | Get allocs / bytes |
 |------------|--------------|-------:|--------:|-------------------:|--------:|-------------------:|
 | msgpack    | none         | 64 KiB | 66.4 µs |       17 / 128 KiB |  128 µs |     1632 / 180 KiB |
-| msgpack    | lz4          | 18 KiB |  113 µs |       20 / 159 KiB |  142 µs |     1635 / 222 KiB |
+| msgpack    | lz4          | 18 KiB |  111 µs |       20 / 149 KiB |  142 µs |     1635 / 200 KiB |
 | msgpack    | s2           | 19 KiB |  101 µs |       19 / 193 KiB |  138 µs |     1633 / 200 KiB |
 | msgpack    | zstd-default | 13 KiB |  172 µs |       19 / 192 KiB |  158 µs |     1633 / 194 KiB |
 | msgpack    | gzip-default | 13 KiB |  218 µs |       26 / 171 KiB |  228 µs |     1685 / 198 KiB |
 | json       | none         | 69 KiB | 94.7 µs |       11 / 145 KiB |  171 µs |     1480 / 223 KiB |
-| json       | lz4          | 19 KiB |  141 µs |       12 / 101 KiB |  186 µs |     1483 / 270 KiB |
+| json       | lz4          | 19 KiB |  139 µs |       13 / 132 KiB |  185 µs |     1484 / 365 KiB |
 | json       | s2           | 20 KiB |  128 µs |       11 / 146 KiB |  180 µs |     1481 / 243 KiB |
 | json       | zstd-default | 12 KiB |  197 µs |       11 / 146 KiB |  200 µs |     1481 / 237 KiB |
 | json       | gzip-default | 11 KiB |  241 µs |       18 / 114 KiB |  269 µs |     1505 / 238 KiB |
 | protobuf   | none         | 42 KiB | 33.2 µs |        19 / 96 KiB | 55.4 µs |     2453 / 177 KiB |
-| protobuf   | lz4          | 17 KiB | 69.1 µs |        20 / 72 KiB | 65.8 µs |     2456 / 217 KiB |
+| protobuf   | lz4          | 17 KiB | 68.6 µs |        20 / 67 KiB | 64.2 µs |     2456 / 195 KiB |
 | protobuf   | s2           | 17 KiB | 59.5 µs |        19 / 97 KiB | 63.5 µs |     2454 / 195 KiB |
 | protobuf   | zstd-default | 12 KiB |  129 µs |        19 / 96 KiB | 82.3 µs |     2454 / 190 KiB |
 | protobuf   | gzip-default | 13 KiB |  155 µs |        26 / 88 KiB |  151 µs |     2503 / 194 KiB |

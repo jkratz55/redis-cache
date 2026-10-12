@@ -715,3 +715,40 @@ func TestReadThroughSingleFlight_CallbackPanic(t *testing.T) {
 		})
 	}
 }
+
+// getCountingClient counts the GET commands sent to Redis.
+type getCountingClient struct {
+	RedisClient
+	gets atomic.Int64
+}
+
+func (c *getCountingClient) Get(ctx context.Context, key string) *redis.StringCmd {
+	c.gets.Add(1)
+	return c.RedisClient.Get(ctx, key)
+}
+
+func TestReadThroughSingleFlight_OneReadPerCall(t *testing.T) {
+	setup()
+	defer tearDown()
+
+	counting := &getCountingClient{RedisClient: client}
+	var hits, misses atomic.Int64
+	rdb := New(counting, Instrumentation(Hooks{OnLookup: func(ctx context.Context, h, m int) {
+		hits.Add(int64(h))
+		misses.Add(int64(m))
+	}}))
+	loader := func(ctx context.Context) (string, error) { return "value", nil }
+
+	// A miss reads Redis once before loading, and is reported as one miss.
+	_, err := ReadThroughSingleFlight[string](context.Background(), rdb, "key", ReadThroughOptions{}, loader)
+	assert.NoError(t, err)
+	assert.Equal(t, int64(1), counting.gets.Load())
+	assert.Equal(t, int64(0), hits.Load())
+	assert.Equal(t, int64(1), misses.Load())
+
+	_, err = ReadThroughSingleFlight[string](context.Background(), rdb, "key", ReadThroughOptions{}, loader)
+	assert.NoError(t, err)
+	assert.Equal(t, int64(2), counting.gets.Load())
+	assert.Equal(t, int64(1), hits.Load())
+	assert.Equal(t, int64(1), misses.Load())
+}

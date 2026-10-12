@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -267,4 +269,45 @@ func TestWriteThrough_AsyncCallbackPanic(t *testing.T) {
 		t.Fatal("OnAsyncUpdateCompleted was not invoked")
 	}
 	time.Sleep(20 * time.Millisecond)
+}
+
+// hangingClient simulates an unreachable Redis: Set and Del block until their
+// context is done.
+type hangingClient struct {
+	RedisClient
+	dels atomic.Int64
+}
+
+func (c *hangingClient) Set(ctx context.Context, key string, val any, ttl time.Duration) *redis.StatusCmd {
+	<-ctx.Done()
+	cmd := redis.NewStatusCmd(ctx)
+	cmd.SetErr(ctx.Err())
+	return cmd
+}
+
+func (c *hangingClient) Del(ctx context.Context, keys ...string) *redis.IntCmd {
+	c.dels.Add(1)
+	<-ctx.Done()
+	cmd := redis.NewIntCmd(ctx)
+	cmd.SetErr(ctx.Err())
+	return cmd
+}
+
+func TestWriteThrough_UpdateAndInvalidateShareTimeout(t *testing.T) {
+	setup()
+	defer tearDown()
+
+	const timeout = 100 * time.Millisecond
+	hanging := &hangingClient{RedisClient: client}
+	start := time.Now()
+	err := WriteThrough[string](context.Background(), New(hanging), "key", "value",
+		WriteThroughOptions{CacheWriteTimeout: timeout},
+		func(ctx context.Context, key string, val string) error { return nil })
+	elapsed := time.Since(start)
+
+	// The update times out, and the delete doesn't wait for Redis again.
+	assert.ErrorIs(t, err, context.DeadlineExceeded)
+	assert.ErrorContains(t, err, "invalidate cached value")
+	assert.Equal(t, int64(1), hanging.dels.Load())
+	assert.Less(t, elapsed, timeout+timeout/2)
 }

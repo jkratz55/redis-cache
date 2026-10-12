@@ -82,6 +82,10 @@ type FailoverOpts struct {
 	// HealthCheck is invoked from the monitoring goroutine for both clients concurrently. A panic in
 	// HealthCheck is recovered and counts as a failed health check.
 	//
+	// HealthCheck must return once ctx is done. A check that doesn't return within CheckTimeout plus
+	// a grace period of 100ms counts as failed, and no new check of that client starts until it
+	// returns, so a check that hangs can't stop the monitoring or delay Close.
+	//
 	// Default sends PING.
 	HealthCheck func(ctx context.Context, client RedisClient) error
 }
@@ -108,6 +112,19 @@ func FailoverOptions() *FailoverOpts {
 // minFailoverCheckInterval is the smallest CheckInterval allowed. Values below are
 // rounded up to it.
 const minFailoverCheckInterval = time.Second
+
+// healthCheckGrace is how long the monitor waits for a health check after its
+// CheckTimeout elapsed before counting it as failed.
+const healthCheckGrace = 100 * time.Millisecond
+
+var (
+	// errHealthCheckRunning is reported for a client whose previous health check
+	// hasn't returned yet, in which case no new check is started.
+	errHealthCheckRunning = errors.New("health check: the previous check hasn't returned")
+
+	// errFailoverClosed is the result of a health check abandoned by Close.
+	errFailoverClosed = errors.New("failover client closed")
+)
 
 // validate panics if any of the durations or thresholds are negative.
 func (f *FailoverOpts) validate() {
@@ -282,6 +299,11 @@ type FailoverClient struct {
 	closeChan    chan struct{}
 	done         chan struct{}
 
+	// primaryChecking and secondaryChecking are set while a health check of the
+	// client runs, so a check that hangs isn't started again.
+	primaryChecking   atomic.Bool
+	secondaryChecking atomic.Bool
+
 	// mu guards closed and inCallback, which ensure no callback starts after Close
 	// and that Close doesn't wait for a callback that is running, which may be the
 	// caller of Close.
@@ -409,20 +431,6 @@ func (f *FailoverClient) monitorClients() {
 	ticker := time.NewTicker(f.config.CheckInterval)
 	defer ticker.Stop()
 
-	checkFn := func(client RedisClient) (err error) {
-		ctx, cancel := context.WithTimeout(context.Background(), f.config.CheckTimeout)
-		defer cancel()
-
-		// The check runs in a goroutine started by the monitor, so a panic in a
-		// custom HealthCheck would crash the process.
-		defer func() {
-			if r := recover(); r != nil {
-				err = fmt.Errorf("health check panic: %v", r)
-			}
-		}()
-		return f.config.HealthCheck(ctx, client)
-	}
-
 	var (
 		failures  int64
 		successes int64
@@ -431,21 +439,7 @@ func (f *FailoverClient) monitorClients() {
 	for {
 		select {
 		case <-ticker.C:
-			var (
-				wg           sync.WaitGroup
-				primaryErr   error
-				secondaryErr error
-			)
-			wg.Add(2)
-			go func() {
-				primaryErr = checkFn(f.primary)
-				wg.Done()
-			}()
-			go func() {
-				secondaryErr = checkFn(f.secondary)
-				wg.Done()
-			}()
-			wg.Wait()
+			primaryErr, secondaryErr := f.checkClients()
 
 			// Don't act on the results or invoke callbacks once Close has been called.
 			select {
@@ -486,6 +480,65 @@ func (f *FailoverClient) monitorClients() {
 			return
 		}
 	}
+}
+
+// checkClients runs the health checks of the primary and secondary RedisClient
+// concurrently and waits for them at most CheckTimeout plus healthCheckGrace, or
+// until Close is called. A check that doesn't return in time, for example because
+// it ignores its context, counts as failed.
+func (f *FailoverClient) checkClients() (primaryErr, secondaryErr error) {
+	primary := f.startCheck(f.primary, &f.primaryChecking)
+	secondary := f.startCheck(f.secondary, &f.secondaryChecking)
+
+	wait := f.config.CheckTimeout + healthCheckGrace
+	ctx, cancel := context.WithTimeout(context.Background(), wait)
+	defer cancel()
+	return f.awaitCheck(ctx, primary, wait), f.awaitCheck(ctx, secondary, wait)
+}
+
+// startCheck runs the health check of client in a new goroutine and returns the
+// channel its result is sent to. If the previous check of client hasn't returned
+// yet, no check is started and errHealthCheckRunning is sent instead, so a check
+// that never returns leaks a single goroutine.
+func (f *FailoverClient) startCheck(client RedisClient, checking *atomic.Bool) <-chan error {
+	result := make(chan error, 1)
+	if !checking.CompareAndSwap(false, true) {
+		result <- errHealthCheckRunning
+		return result
+	}
+	go func() {
+		defer checking.Store(false)
+		result <- f.healthCheck(client)
+	}()
+	return result
+}
+
+// awaitCheck returns the result of a health check, or an error if ctx is done or
+// Close is called first.
+func (f *FailoverClient) awaitCheck(ctx context.Context, result <-chan error, wait time.Duration) error {
+	select {
+	case err := <-result:
+		return err
+	case <-ctx.Done():
+		return fmt.Errorf("health check didn't return within %s: %w", wait, context.DeadlineExceeded)
+	case <-f.closeChan:
+		return errFailoverClosed
+	}
+}
+
+// healthCheck runs HealthCheck on client with a timeout of CheckTimeout.
+func (f *FailoverClient) healthCheck(client RedisClient) (err error) {
+	ctx, cancel := context.WithTimeout(context.Background(), f.config.CheckTimeout)
+	defer cancel()
+
+	// The check runs in a goroutine started by the monitor, so a panic in a
+	// custom HealthCheck would crash the process.
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("health check panic: %v", r)
+		}
+	}()
+	return f.config.HealthCheck(ctx, client)
 }
 
 // Get calls Get on the active RedisClient.
@@ -593,7 +646,8 @@ func (f *FailoverClient) Pipeline() redis.Pipeliner {
 // secondary RedisClient once Close has been called. No callbacks are invoked after Close is called.
 // Close waits for the monitoring goroutine to stop, unless a callback is running, so a
 // callback can call Close. In that case the running callback may still be running when
-// Close returns.
+// Close returns. Close doesn't wait for health checks in progress: a HealthCheck that ignores
+// its context may still be running when Close returns.
 //
 // Close is a no-op if Close has already been called.
 func (f *FailoverClient) Close() error {

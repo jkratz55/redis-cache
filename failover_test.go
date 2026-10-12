@@ -734,3 +734,86 @@ func TestFailoverClient_Close(t *testing.T) {
 	assert.Error(t, c1.Ping(ctx).Err())
 	assert.Error(t, c2.Ping(ctx).Err())
 }
+
+func TestFailoverClient_HungHealthCheck(t *testing.T) {
+	s1 := miniredis.RunT(t)
+	s2 := miniredis.RunT(t)
+
+	c1 := &controlledClient{Client: redis.NewClient(&redis.Options{Addr: s1.Addr()})}
+	c2 := &controlledClient{Client: redis.NewClient(&redis.Options{Addr: s2.Addr()})}
+
+	// The primary's check ignores its context and hangs until released.
+	release := make(chan struct{})
+	var primaryChecks atomic.Int64
+	var timedOut, stillRunning atomic.Bool
+	opts := &FailoverOpts{
+		CheckInterval:    5 * time.Millisecond,
+		CheckTimeout:     2 * time.Millisecond,
+		FailureThreshold: 2,
+		SuccessThreshold: 1,
+		HealthCheck: func(ctx context.Context, client RedisClient) error {
+			if client == c1 {
+				primaryChecks.Add(1)
+				<-release
+			}
+			return nil
+		},
+		OnCheckFailure: func(client string, err error) {
+			if client != "primary" {
+				return
+			}
+			if errors.Is(err, context.DeadlineExceeded) {
+				timedOut.Store(true)
+			}
+			if errors.Is(err, errHealthCheckRunning) {
+				stillRunning.Store(true)
+			}
+		},
+	}
+	fc := newFailoverClient(c1, c2, time.Millisecond, opts)
+
+	// The hung check counts as failed instead of stopping the monitor, and isn't
+	// started again while it hangs.
+	assert.Eventually(t, fc.IsSecondary, 2*time.Second, 5*time.Millisecond)
+	assert.True(t, timedOut.Load())
+	assert.True(t, stillRunning.Load())
+	assert.Equal(t, int64(1), primaryChecks.Load())
+
+	// Once the check returns, the primary is checked again and recovers.
+	close(release)
+	assert.Eventually(t, fc.IsPrimary, 2*time.Second, 5*time.Millisecond)
+	assert.Greater(t, primaryChecks.Load(), int64(1))
+	assert.NoError(t, fc.Close())
+}
+
+func TestFailoverClient_CloseDoesntWaitForHungHealthCheck(t *testing.T) {
+	s1 := miniredis.RunT(t)
+	s2 := miniredis.RunT(t)
+
+	c1 := &controlledClient{Client: redis.NewClient(&redis.Options{Addr: s1.Addr()})}
+	c2 := &controlledClient{Client: redis.NewClient(&redis.Options{Addr: s2.Addr()})}
+
+	release := make(chan struct{})
+	defer close(release)
+	started := make(chan struct{}, 2)
+	opts := &FailoverOpts{
+		CheckInterval: 5 * time.Millisecond,
+		CheckTimeout:  2 * time.Millisecond,
+		HealthCheck: func(ctx context.Context, client RedisClient) error {
+			started <- struct{}{}
+			<-release
+			return nil
+		},
+	}
+	fc := newFailoverClient(c1, c2, time.Millisecond, opts)
+	<-started
+
+	closed := make(chan error, 1)
+	go func() { closed <- fc.Close() }()
+	select {
+	case err := <-closed:
+		assert.NoError(t, err)
+	case <-time.After(time.Second):
+		t.Fatal("Close waited for a health check that hangs")
+	}
+}

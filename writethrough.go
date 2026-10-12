@@ -14,7 +14,8 @@ type WriteThroughWriter[T any] func(ctx context.Context, key string, val T) erro
 type WriteThroughOptions struct {
 
 	// CacheWriteTimeout specifies the maximum duration to wait for the cache write operation to
-	// complete.
+	// complete. It also bounds deleting the key when updating it fails, so WriteThrough never
+	// waits longer than CacheWriteTimeout for Redis, even while Redis is unavailable.
 	//
 	// Default is 500ms.
 	CacheWriteTimeout time.Duration
@@ -73,9 +74,9 @@ func (o *WriteThroughOptions) init() {
 // Keeping the cache consistent with the source of truth is best effort:
 //
 //   - If the cache update fails after the source of truth was updated, WriteThrough deletes the key so
-//     the previous value isn't served anymore and the next read loads the new value. The delete can
-//     fail as well, for example if Redis is unavailable, in which case the previous value stays cached
-//     and the returned error wraps both errors.
+//     the previous value isn't served anymore and the next read loads the new value. The delete gets
+//     the time left of CacheWriteTimeout and can fail as well, for example if Redis is unavailable, in
+//     which case the previous value stays cached and the returned error wraps both errors.
 //   - Concurrent writes of the same key can update the source of truth and the cache in a different
 //     order, leaving an older value cached. UpdateCacheAsync makes this more likely.
 //
@@ -134,6 +135,9 @@ func WriteThrough[T any](
 // writeThroughUpdate sets the cached value of key to val. If that fails, the key is
 // deleted so the value cached before the source of truth was updated isn't served
 // anymore. The delete is best effort, if it fails too both errors are returned.
+//
+// The update and the delete share opts.CacheWriteTimeout, so a Redis that is down
+// or slow delays the caller once, not twice.
 func writeThroughUpdate[T any](
 	ctx context.Context,
 	rdb *Cache,
@@ -141,7 +145,8 @@ func writeThroughUpdate[T any](
 	val T,
 	opts WriteThroughOptions) error {
 
-	redisCtx, redisCancel := context.WithTimeout(ctx, opts.CacheWriteTimeout)
+	deadline := time.Now().Add(opts.CacheWriteTimeout)
+	redisCtx, redisCancel := context.WithDeadline(ctx, deadline)
 	defer redisCancel()
 
 	err := rdb.Set(redisCtx, key, val, opts.TTL)
@@ -149,9 +154,10 @@ func writeThroughUpdate[T any](
 		return nil
 	}
 
-	// The delete gets its own timeout and isn't canceled with ctx, since the update
-	// may have failed because ctx was canceled or its deadline exceeded.
-	delCtx, delCancel := context.WithTimeout(context.WithoutCancel(ctx), opts.CacheWriteTimeout)
+	// The delete isn't canceled with ctx, since the update may have failed because
+	// ctx was canceled. It gets the time left until the deadline, so if the update
+	// timed out the delete fails right away instead of waiting for Redis again.
+	delCtx, delCancel := context.WithDeadline(context.WithoutCancel(ctx), deadline)
 	defer delCancel()
 
 	if delErr := rdb.Delete(delCtx, key); delErr != nil {
