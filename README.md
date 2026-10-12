@@ -13,6 +13,7 @@ Instrumentation is key to any production ready application. The `cacheotel` pack
 * Flexible compression options
 * Change serialization/compression without losing access to previously cached values
 * Tracing/Metrics via OpenTelemetry
+* Benchmarked serializers and codecs, with guidance on choosing them, see [Performance](#performance)
 
 ## Stored Value Format
 
@@ -46,15 +47,15 @@ If a value was written with a serializer or codec that isn't registered, reads r
 
 IDs 0-127 are reserved for built-in implementations, IDs 128-255 are available for custom implementations.
 
-| Serializer | ID | Codec | ID |
-|---|---|---|---|
-| `MessagePackSerializer` | 1 (`SerializerMsgPack`) | none (default) | 0 (`CodecNone`) |
-| `JsonSerializer` | 2 (`SerializerJSON`) | `compression/flate` | 1 (`CodecFlate`) |
-| `cacheproto.ProtobufSerializer` | 3 (`SerializerProtobuf`) | `compression/gzip` | 2 (`CodecGzip`) |
-| | | `compression/lz4` | 3 (`CodecLZ4`) |
-| | | `compression/s2` | 4 (`CodecS2`) |
-| | | `compression/snappy` | 5 (`CodecSnappy`) |
-| | | `compression/zstd` | 6 (`CodecZstd`) |
+| Serializer                      | ID                       | Codec                | ID                |
+|---------------------------------|--------------------------|----------------------|-------------------|
+| `MessagePackSerializer`         | 1 (`SerializerMsgPack`)  | none (default)       | 0 (`CodecNone`)   |
+| `JsonSerializer`                | 2 (`SerializerJSON`)     | `compression/flate`  | 1 (`CodecFlate`)  |
+| `cacheproto.ProtobufSerializer` | 3 (`SerializerProtobuf`) | `compression/gzip`   | 2 (`CodecGzip`)   |
+|                                 |                          | `compression/lz4`    | 3 (`CodecLZ4`)    |
+|                                 |                          | `compression/s2`     | 4 (`CodecS2`)     |
+|                                 |                          | `compression/snappy` | 5 (`CodecSnappy`) |
+|                                 |                          | `compression/zstd`   | 6 (`CodecZstd`)   |
 
 ## Bring your own Serializer/Codec
 
@@ -193,17 +194,156 @@ c := cache.New(client,
 )
 ```
 
-| Metric | Recorded by | Description |
-|---|---|---|
-| `cache.serialization.duration`, `cache.serialization.errors` | `NewInstrumentedSerializer` | Duration and errors of marshal and unmarshal operations, by `cache.serializer` |
-| `cache.compression.duration`, `cache.compression.errors` | `NewInstrumentedCompressionCodec` | Duration and errors of compress and decompress operations, by `cache.codec` |
-| `cache.lookups` | `NewHooks` | Keys read from Redis, by `cache.hit` |
-| `cache.value.size`, `cache.value.serialized_size` | `NewHooks` | Size of values as stored in Redis, and after serialization before compression |
-| `cache.decode.errors` | `NewHooks` | Values that couldn't be decoded, by `reason`: `unsupported_format`, `size_limit`, or `invalid` |
-| `cache.singleflight.calls` | `NewHooks` | `ReadThroughSingleFlight` calls after a miss, by `shared` |
-| `cache.failover.active` | `ObserveFailoverClient` | Which client of a `FailoverClient` is active |
+| Metric                                                       | Recorded by                       | Description                                                                                    |
+|--------------------------------------------------------------|-----------------------------------|------------------------------------------------------------------------------------------------|
+| `cache.serialization.duration`, `cache.serialization.errors` | `NewInstrumentedSerializer`       | Duration and errors of marshal and unmarshal operations, by `cache.serializer`                 |
+| `cache.compression.duration`, `cache.compression.errors`     | `NewInstrumentedCompressionCodec` | Duration and errors of compress and decompress operations, by `cache.codec`                    |
+| `cache.lookups`                                              | `NewHooks`                        | Keys read from Redis, by `cache.hit`                                                           |
+| `cache.value.size`, `cache.value.serialized_size`            | `NewHooks`                        | Size of values as stored in Redis, and after serialization before compression                  |
+| `cache.decode.errors`                                        | `NewHooks`                        | Values that couldn't be decoded, by `reason`: `unsupported_format`, `size_limit`, or `invalid` |
+| `cache.singleflight.calls`                                   | `NewHooks`                        | `ReadThroughSingleFlight` calls after a miss, by `shared`                                      |
+| `cache.failover.active`                                      | `ObserveFailoverClient`           | Which client of a `FailoverClient` is active                                                   |
 
 `cache.Instrumentation` accepts any `cache.Hooks`, so other instrumentation, such as logging, can be plugged in as well. Instrument the Redis client itself, for example with `redisotel`, for command latency and tracing. See `examples/otel`.
+
+## Performance
+
+The `internal/benchmarks` package measures every serializer and compression codec the library provides on the same data, and `TypedCache.Set` and `TypedCache.Get` using them. The values are orders with nested structs, slices, a map, numbers, and text in three sizes. Encoded with MessagePack they are 343 B (small), 2.0 KiB (medium), and 64 KiB (large). The codecs compress the MessagePack encoding, as well as 4 KiB of random, incompressible bytes.
+
+The numbers are medians of 6 runs on an Apple M5 Max (darwin/arm64, Go 1.27.2). Times are per operation on a single goroutine, so they reflect CPU time, and allocations are per operation, as the number of allocations / bytes allocated. Absolute numbers vary with the CPU, but the comparisons hold. The raw results are in `internal/benchmarks/results.txt`. To reproduce them, or to compare a change with `benchstat`:
+
+```shell
+go test -run '^$' -bench . -benchmem -count 6 -benchtime 500ms ./internal/benchmarks
+```
+
+For context, a Redis round trip over the network usually takes tens to hundreds of microseconds, longer than encoding a small or medium value with any combination below. The choice matters most for large values, CPU-bound services, and the memory used by Redis.
+
+### Choosing a Serializer
+
+* **MessagePack (default) is the best general choice.** It encodes any Go type without a schema or generated code, and is 12-35% faster and 9-23% smaller than JSON.
+* **Protobuf is the fastest and the most compact.** It marshals and unmarshals medium and large values about 2x faster than MessagePack and is 34-39% smaller. Use it when your values are already Protobuf messages, or when maintaining a schema is worth it, which also makes evolving the type safer. It requires generated types and works best with `TypedCache[*MyMessage]`. Unmarshaling allocates more objects, one for every nested message.
+* **JSON is the slowest and the largest.** Use it when other services or people need to read the cached values, and keep the `encoding/json/v2` semantics in mind, see [JSON Serialization](#json-serialization). It allocates the fewest bytes when marshaling.
+
+| Serializer | Payload | Encoded size | Marshal | Marshal allocs / bytes | Unmarshal | Unmarshal allocs / bytes |
+|------------|---------|-------------:|--------:|-----------------------:|----------:|-------------------------:|
+| msgpack    | small   |        343 B |  498 ns |             5 / 1008 B |    909 ns |               25 / 960 B |
+| json       | small   |        422 B |  670 ns |              4 / 688 B |   1.11 µs |               10 / 704 B |
+| protobuf   | small   |        210 B |  458 ns |              9 / 352 B |    570 ns |             31 / 1.1 KiB |
+| msgpack    | medium  |      2.0 KiB | 2.64 µs |            8 / 8.0 KiB |   4.22 µs |             70 / 3.8 KiB |
+| json       | medium  |      2.2 KiB | 2.96 µs |            4 / 2.5 KiB |   5.56 µs |             34 / 4.3 KiB |
+| protobuf   | medium  |      1.3 KiB | 1.35 µs |           13 / 1.6 KiB |   2.23 µs |            106 / 4.5 KiB |
+| msgpack    | large   |       64 KiB | 67.6 µs |           12 / 128 KiB |    125 µs |           1628 / 116 KiB |
+| json       | large   |       69 KiB | 90.4 µs |             4 / 72 KiB |    169 µs |           1476 / 151 KiB |
+| protobuf   | large   |       42 KiB | 31.9 µs |            13 / 48 KiB |   57.3 µs |           2448 / 128 KiB |
+
+### Choosing a Compression Codec
+
+* **Don't compress small values.** No codec shrank the 343 B order, some made it larger, and the slower levels spent up to 20 µs trying. Compression starts paying off at a couple of KiB: the 2 KiB order shrank 1.75-2.2x. The codec applies to every value of a cache, so decide based on the typical size of its values.
+* **Don't compress incompressible data**, such as images, encrypted, or already compressed values. Every codec left the random bytes at their original size, while spending up to 51 µs per 4 KiB.
+* **S2 is the best choice when latency or CPU matters.** It's the fastest to compress and decompress, 1.2 µs and 0.4 µs for 2 KiB, 1.8 GB/s and 5 GB/s for 64 KiB, and shrinks medium values 1.75x and large values 3.3x. Snappy compresses 3-6% smaller but 1.4-1.6x slower. LZ4 compresses about as well, but is slower than S2 to compress and decompress.
+* **Zstandard is the best choice when the memory used by Redis or network bandwidth matters**, especially for large values. At its default level it stores the 64 KiB order in 13 KiB (4.9x) instead of 19 KiB with S2, for about 3x the compression and 2.3x the decompression time. `SpeedFastest` compresses these values almost as well with 12% less CPU, `SpeedBetterCompression` shrinks large values another 7%, and `SpeedBestCompression` shrinks them 11% more for 6.6x the compression time, which only pays off for large values that are written once and read often.
+* **Gzip and Flate have no advantage over Zstandard.** At their default level they compress within 4% of Zstandard's default level, but compress 1.5-1.7x slower, decompress 2.3-3.4x slower, and allocate 25-60 objects per decompression. Zstandard's `SpeedBetterCompression` matches or beats Gzip's default level on size, compression, and decompression time. Their best level takes over 1 ms for 64 KiB. Use them to keep reading values written with them, see `DecodeCompression`.
+* **Set a decompression limit** when the Redis is shared with other services, see [Decompression Limits](#decompression-limits).
+
+| Codec         | Ratio | Compressed |           Compress | Compress allocs / bytes |         Decompress | Decompress allocs / bytes |
+|---------------|------:|-----------:|-------------------:|------------------------:|-------------------:|--------------------------:|
+| lz4           | 1.77x |    1.1 KiB | 1.88 µs (1.1 GB/s) |             4 / 4.1 KiB |  583 ns (3.5 GB/s) |               3 / 2.7 KiB |
+| s2            | 1.75x |    1.1 KiB | 1.19 µs (1.7 GB/s) |             1 / 2.3 KiB |  421 ns (4.9 GB/s) |               1 / 2.2 KiB |
+| snappy        | 1.81x |    1.1 KiB | 1.93 µs (1.1 GB/s) |             1 / 2.3 KiB |  409 ns (5.0 GB/s) |               1 / 2.2 KiB |
+| zstd-fastest  | 2.06x |      993 B | 7.18 µs (285 MB/s) |             1 / 2.2 KiB | 3.58 µs (573 MB/s) |               1 / 2.3 KiB |
+| zstd-default  | 2.14x |      957 B | 8.22 µs (249 MB/s) |             1 / 2.2 KiB | 3.48 µs (588 MB/s) |               1 / 2.2 KiB |
+| zstd-better   | 2.16x |      948 B | 9.25 µs (222 MB/s) |             1 / 2.2 KiB | 3.45 µs (594 MB/s) |               1 / 2.2 KiB |
+| zstd-best     | 2.17x |      943 B |  25.4 µs (81 MB/s) |             1 / 2.2 KiB | 3.39 µs (604 MB/s) |               1 / 2.2 KiB |
+| flate-speed   | 2.02x |     1017 B | 11.3 µs (181 MB/s) |             4 / 1.9 KiB | 8.36 µs (245 MB/s) |              27 / 5.9 KiB |
+| flate-default | 2.20x |      932 B | 13.8 µs (149 MB/s) |             4 / 1.9 KiB | 7.65 µs (268 MB/s) |              29 / 6.0 KiB |
+| flate-best    | 2.21x |      929 B |  34.7 µs (59 MB/s) |             4 / 1.9 KiB | 7.74 µs (265 MB/s) |              29 / 6.0 KiB |
+| gzip-speed    | 1.98x |    1.0 KiB | 11.8 µs (173 MB/s) |             6 / 3.9 KiB | 8.56 µs (240 MB/s) |              25 / 3.0 KiB |
+| gzip-default  | 2.16x |      950 B | 14.2 µs (145 MB/s) |             5 / 1.9 KiB | 7.99 µs (257 MB/s) |              27 / 3.1 KiB |
+| gzip-best     | 2.17x |      947 B |  35.4 µs (58 MB/s) |             5 / 2.0 KiB | 7.87 µs (260 MB/s) |              27 / 3.1 KiB |
+
+| Codec         | Ratio | Compressed |           Compress | Compress allocs / bytes |         Decompress | Decompress allocs / bytes |
+|---------------|------:|-----------:|-------------------:|------------------------:|-------------------:|--------------------------:|
+| lz4           | 3.51x |     18 KiB | 45.2 µs (1.4 GB/s) |              3 / 19 KiB | 13.9 µs (4.7 GB/s) |                3 / 66 KiB |
+| s2            | 3.34x |     19 KiB | 35.4 µs (1.8 GB/s) |              1 / 64 KiB | 13.2 µs (5.0 GB/s) |                1 / 64 KiB |
+| snappy        | 3.54x |     18 KiB | 50.4 µs (1.3 GB/s) |              1 / 64 KiB | 12.9 µs (5.0 GB/s) |                1 / 64 KiB |
+| zstd-fastest  | 4.83x |     13 KiB | 88.2 µs (738 MB/s) |              1 / 64 KiB | 31.0 µs (2.1 GB/s) |                1 / 64 KiB |
+| zstd-default  | 4.86x |     13 KiB |  100 µs (650 MB/s) |              1 / 64 KiB | 29.7 µs (2.2 GB/s) |                1 / 64 KiB |
+| zstd-better   | 5.20x |     12 KiB |  143 µs (456 MB/s) |              1 / 64 KiB | 26.7 µs (2.4 GB/s) |                1 / 64 KiB |
+| zstd-best     | 5.38x |     12 KiB |   658 µs (99 MB/s) |              1 / 64 KiB | 26.3 µs (2.5 GB/s) |                1 / 64 KiB |
+| flate-speed   | 4.49x |     14 KiB | 79.1 µs (823 MB/s) |              8 / 32 KiB |  112 µs (580 MB/s) |              52 / 206 KiB |
+| flate-default | 5.06x |     13 KiB |  144 µs (453 MB/s) |              8 / 33 KiB |  102 µs (642 MB/s) |              59 / 204 KiB |
+| flate-best    | 5.67x |     11 KiB |  1.09 ms (59 MB/s) |              8 / 34 KiB | 87.8 µs (742 MB/s) |              56 / 204 KiB |
+| gzip-speed    | 4.48x |     14 KiB | 85.0 µs (766 MB/s) |              9 / 32 KiB |  112 µs (583 MB/s) |               46 / 71 KiB |
+| gzip-default  | 5.05x |     13 KiB |  152 µs (427 MB/s) |              9 / 33 KiB | 99.5 µs (654 MB/s) |               53 / 68 KiB |
+| gzip-best     | 5.66x |     11 KiB |  1.11 ms (59 MB/s) |              9 / 34 KiB | 85.4 µs (763 MB/s) |               50 / 68 KiB |
+
+<details>
+<summary>Small values and incompressible data</summary>
+
+A ratio below 1.00x means the compressed value is larger than the original.
+
+| Codec         | Ratio, small (343 B) | Compress | Decompress | Ratio, random (4 KiB) | Compress | Decompress |
+|---------------|---------------------:|---------:|-----------:|----------------------:|---------:|-----------:|
+| lz4           |                0.95x |   471 ns |     186 ns |                 1.00x |  1.59 µs |     703 ns |
+| s2            |                0.99x |   113 ns |      50 ns |                 1.00x |   714 ns |     473 ns |
+| snappy        |                0.99x |   170 ns |      49 ns |                 1.00x |  1.43 µs |     481 ns |
+| zstd-fastest  |                0.96x |   317 ns |     105 ns |                 1.00x |   936 ns |     396 ns |
+| zstd-default  |                0.96x |   856 ns |     103 ns |                 1.00x |  1.83 µs |     364 ns |
+| zstd-better   |                1.01x |  4.39 µs |    1.95 µs |                 1.00x |  4.41 µs |     355 ns |
+| zstd-best     |                1.01x |  9.01 µs |    1.95 µs |                 1.00x |  18.5 µs |     358 ns |
+| flate-speed   |                0.98x |   218 ns |     206 ns |                 1.00x |   910 ns |    1.62 µs |
+| flate-default |                1.05x |  6.26 µs |    3.37 µs |                 1.00x |  1.65 µs |    1.62 µs |
+| flate-best    |                1.05x |  19.5 µs |    3.51 µs |                 1.00x |  50.6 µs |    1.63 µs |
+| gzip-speed    |                0.93x |   265 ns |     263 ns |                 0.99x |  1.22 µs |     952 ns |
+| gzip-default  |                0.99x |  6.40 µs |    3.45 µs |                 0.99x |  2.03 µs |     951 ns |
+| gzip-best     |                0.99x |  19.7 µs |    3.65 µs |                 0.99x |  51.5 µs |     924 ns |
+
+</details>
+
+### Cost per Cache Operation
+
+`TypedCache.Set` and `TypedCache.Get` include serialization, compression, the format header, and building the go-redis command. They are measured with a client storing values in memory, so the network isn't included. The library adds less than 0.5 µs on top of serialization. With the default configuration, setting a 2 KiB value takes 2.9 µs and getting it 4.7 µs. S2 adds 1.3 µs and 0.4 µs, Zstandard 8.2 µs and 3.5 µs, and Gzip 14 µs and 8 µs. Compression also narrows the size differences between serializers: with Zstandard, the JSON encoding of the medium order is smaller (890 B) than the MessagePack encoding (961 B).
+
+<details>
+<summary>Set and Get with every serializer and common codecs</summary>
+
+| Serializer | Codec        |  Stored |     Set | Set allocs / bytes |     Get | Get allocs / bytes |
+|------------|--------------|--------:|--------:|-------------------:|--------:|-------------------:|
+| msgpack    | none         | 2.0 KiB | 2.91 µs |       13 / 8.4 KiB | 4.67 µs |       74 / 6.3 KiB |
+| msgpack    | lz4          | 1.1 KiB | 4.64 µs |        16 / 13 KiB | 5.18 µs |        77 / 10 KiB |
+| msgpack    | s2           | 1.1 KiB | 4.20 µs |        15 / 11 KiB | 5.10 µs |       75 / 7.5 KiB |
+| msgpack    | zstd-default |   961 B | 11.1 µs |        15 / 11 KiB | 8.14 µs |       75 / 7.3 KiB |
+| msgpack    | gzip-default |   954 B | 17.3 µs |        18 / 11 KiB | 12.5 µs |      101 / 8.1 KiB |
+| json       | none         | 2.2 KiB | 3.19 µs |       11 / 5.2 KiB | 5.74 µs |       38 / 6.8 KiB |
+| json       | lz4          | 1.2 KiB | 5.22 µs |       12 / 4.7 KiB | 6.43 µs |       41 / 9.1 KiB |
+| json       | s2           | 1.2 KiB | 4.46 µs |       11 / 5.6 KiB | 6.23 µs |       39 / 8.0 KiB |
+| json       | zstd-default |   890 B | 10.3 µs |       11 / 5.2 KiB | 9.00 µs |       39 / 8.0 KiB |
+| json       | gzip-default |   862 B | 14.1 µs |       14 / 5.1 KiB | 13.2 µs |       45 / 7.8 KiB |
+| protobuf   | none         | 1.3 KiB | 1.46 µs |       19 / 3.2 KiB | 2.33 µs |      111 / 6.1 KiB |
+| protobuf   | lz4          | 1.0 KiB | 3.08 µs |       21 / 5.4 KiB | 2.79 µs |      114 / 8.2 KiB |
+| protobuf   | s2           |   963 B | 2.34 µs |       19 / 3.2 KiB | 2.53 µs |      112 / 7.1 KiB |
+| protobuf   | zstd-default |   864 B | 9.04 µs |       19 / 3.2 KiB | 5.59 µs |      112 / 6.9 KiB |
+| protobuf   | gzip-default |   861 B | 14.4 µs |       22 / 3.9 KiB | 9.74 µs |      136 / 7.9 KiB |
+
+| Serializer | Codec        | Stored |     Set | Set allocs / bytes |     Get | Get allocs / bytes |
+|------------|--------------|-------:|--------:|-------------------:|--------:|-------------------:|
+| msgpack    | none         | 64 KiB | 66.4 µs |       17 / 128 KiB |  128 µs |     1632 / 180 KiB |
+| msgpack    | lz4          | 18 KiB |  113 µs |       20 / 159 KiB |  142 µs |     1635 / 222 KiB |
+| msgpack    | s2           | 19 KiB |  101 µs |       19 / 193 KiB |  138 µs |     1633 / 200 KiB |
+| msgpack    | zstd-default | 13 KiB |  172 µs |       19 / 192 KiB |  158 µs |     1633 / 194 KiB |
+| msgpack    | gzip-default | 13 KiB |  218 µs |       26 / 171 KiB |  228 µs |     1685 / 198 KiB |
+| json       | none         | 69 KiB | 94.7 µs |       11 / 145 KiB |  171 µs |     1480 / 223 KiB |
+| json       | lz4          | 19 KiB |  141 µs |       12 / 101 KiB |  186 µs |     1483 / 270 KiB |
+| json       | s2           | 20 KiB |  128 µs |       11 / 146 KiB |  180 µs |     1481 / 243 KiB |
+| json       | zstd-default | 12 KiB |  197 µs |       11 / 146 KiB |  200 µs |     1481 / 237 KiB |
+| json       | gzip-default | 11 KiB |  241 µs |       18 / 114 KiB |  269 µs |     1505 / 238 KiB |
+| protobuf   | none         | 42 KiB | 33.2 µs |        19 / 96 KiB | 55.4 µs |     2453 / 177 KiB |
+| protobuf   | lz4          | 17 KiB | 69.1 µs |        20 / 72 KiB | 65.8 µs |     2456 / 217 KiB |
+| protobuf   | s2           | 17 KiB | 59.5 µs |        19 / 97 KiB | 63.5 µs |     2454 / 195 KiB |
+| protobuf   | zstd-default | 12 KiB |  129 µs |        19 / 96 KiB | 82.3 µs |     2454 / 190 KiB |
+| protobuf   | gzip-default | 13 KiB |  155 µs |        26 / 88 KiB |  151 µs |     2503 / 194 KiB |
+
+</details>
 
 ## Contributing
 

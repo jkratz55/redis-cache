@@ -68,6 +68,11 @@ This document serves as the operational manual and architectural guide for AI ag
 │   ├── s2/               # S2 codec
 │   ├── snappy/           # Snappy codec
 │   └── zstd/             # Zstandard codec
+├── internal/benchmarks/  # Benchmarks comparing every serializer, codec, and TypedCache with them
+│   ├── benchmarks.go       # Package doc and the generated Order payloads
+│   ├── benchmarks_test.go  # BenchmarkSerializer, BenchmarkCodec, BenchmarkTypedCache, TestPayloads
+│   ├── results.txt         # Raw results published in the README
+│   └── benchpb/          # Protobuf mirror of Order (generated, see go:generate in benchmarks.go)
 ├── examples/             # Runnable examples demonstrating various configurations
 ├── CONTRIBUTING.adoc     # Contribution guidelines
 ├── RELEASE_NOTES.md      # Changelog and migration notes
@@ -175,7 +180,12 @@ go test -run '^$' -fuzz '^FuzzDecode$' -fuzztime 1m .
 
 # Benchmark encoding and decoding with every codec
 go test -run '^$' -bench 'Encode|Decode' -benchmem .
+
+# Compare every serializer and codec (results are published in the README)
+go test -run '^$' -bench . -benchmem -count 6 -benchtime 500ms ./internal/benchmarks > internal/benchmarks/results.txt
 ```
+
+When a change affects serialization, compression, or encoding performance, rerun the `internal/benchmarks` suite, compare it with `internal/benchmarks/results.txt` (e.g. with `benchstat`), and update the results file and the README Performance section if the numbers change meaningfully. Regenerate `benchpb` with `go generate ./internal/benchmarks` (requires `protoc` and `protoc-gen-go`) after changing `order.proto`, and keep `Order.Proto` in sync with it.
 
 ### Testing Guidelines
 - **Unit Testing**: Unit tests should not depend on external Redis instances. Use `github.com/alicebob/miniredis/v2` to spin up an in-memory mock Redis server within tests:
@@ -194,6 +204,7 @@ go test -run '^$' -bench 'Encode|Decode' -benchmem .
 - **Test File Layout**: Test files mirror implementation files. Every test for `foo.go` lives in `foo_test.go`, e.g. `format.go` → `format_test.go`. Don't add files such as `foo_external_test.go` or `foo_legacy_test.go`.
   - A file has a single package clause, so if any test for `foo.go` needs the external `cache_test` package, the whole `foo_test.go` uses `package cache_test`. This is required for tests that import `compression/*` or `cacheproto`, since those packages import `cache`, and for tests that need types declared outside the module's packages.
   - `export_test.go` is the only exception. It contains no tests and only exposes unexported identifiers to external test files.
+  - Benchmarks comparing implementations across packages live in `internal/benchmarks`, not next to the implementations.
 
 ---
 
