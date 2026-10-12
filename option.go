@@ -90,7 +90,12 @@ func DecodeCompression(codecs ...CompressionCodec) Option {
 // BatchMultiGets configures the Cache to use pipelining and split keys up into
 // multiple MGET commands for increased throughput and lower latency when dealing
 // with MGetMap operations with very large sets of keys.
+//
+// A batchSize of 0 disables batching. BatchMultiGets panics if batchSize is negative.
 func BatchMultiGets(batchSize int) Option {
+	if batchSize < 0 {
+		panic(fmt.Errorf("invalid batch size %d: must not be negative", batchSize))
+	}
 	return func(c configurable) {
 		c.setMGetBatch(batchSize)
 	}

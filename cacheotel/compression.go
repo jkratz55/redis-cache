@@ -26,12 +26,12 @@ type InstrumentedCompressionCodec struct {
 // CompressionCodec.
 //
 // The InstrumentedCompressionCodec reports the format ID of the wrapped CompressionCodec.
-// If the wrapped CompressionCodec is nil or doesn't have a format ID,
+// If the wrapped CompressionCodec is nil, including a nil pointer, or doesn't have a format ID,
 // NewInstrumentedCompressionCodec panics. Custom CompressionCodec implementations can be
 // assigned a format ID by implementing cache.FormatIdentifier or by wrapping them with
 // cache.CodecWithID.
 func NewInstrumentedCompressionCodec(codec cache.CompressionCodec, opts ...CompressionOption) *InstrumentedCompressionCodec {
-	if codec == nil {
+	if isNil(codec) {
 		panic(fmt.Errorf("nil CompressionCodec"))
 	}
 	id, ok := cache.FormatIDOf(codec)
@@ -93,4 +93,10 @@ func (i *InstrumentedCompressionCodec) Decompress(data []byte) ([]byte, error) {
 // doesn't alter the compressed bytes.
 func (i *InstrumentedCompressionCodec) FormatID() uint8 {
 	return i.id
+}
+
+// Unwrap returns the wrapped CompressionCodec, which defines the format of the
+// values written by the InstrumentedCompressionCodec.
+func (i *InstrumentedCompressionCodec) Unwrap() cache.CompressionCodec {
+	return i.codec
 }

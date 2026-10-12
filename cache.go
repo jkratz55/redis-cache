@@ -27,7 +27,8 @@ var (
 	ErrKeyNotFound = errors.New("key not found")
 
 	// ErrInvalidTTL is an error value that signals the provided TTL is not valid
-	// for the operation.
+	// for the operation. Negative TTLs other than InfiniteTTL and KeepTTL are never
+	// valid, and Expire doesn't accept KeepTTL either.
 	ErrInvalidTTL = errors.New("invalid ttl")
 )
 
@@ -139,9 +140,14 @@ func (c *Cache) Get(ctx context.Context, key string, v any) error {
 //
 // GetAndExpire is useful for operations such as fetching and extending a session stored in Redis.
 //
-// A ttl value of 0 will remove the TTL on the key if there is one.
+// A ttl value of 0 or InfiniteTTL will remove the TTL on the key if there is one, and KeepTTL leaves
+// it unchanged. Any other negative ttl returns ErrInvalidTTL.
 func (c *Cache) GetAndExpire(ctx context.Context, key string, v any, ttl time.Duration) error {
-	val, err := c.redis.GetEx(ctx, key, normalizeTTL(ttl)).Bytes()
+	ttl, err := normalizeTTL(ttl)
+	if err != nil {
+		return err
+	}
+	val, err := c.redis.GetEx(ctx, key, ttl).Bytes()
 	if err != nil {
 		if errors.Is(err, redis.Nil) {
 			return ErrKeyNotFound
@@ -178,15 +184,20 @@ func (c *Cache) Keys(ctx context.Context) ([]string, error) {
 }
 
 // Set adds an entry to Redis with the given key and value. The entry is set with the provided TTL.
-// If the TTL is 0 the entry will not expire.
+// If the TTL is 0 or InfiniteTTL the entry will not expire, and KeepTTL keeps the TTL of an existing
+// entry. Any other negative TTL returns ErrInvalidTTL.
 //
 // Set will overwrite an existing value for the key if it already exists.
 func (c *Cache) Set(ctx context.Context, key string, v any, ttl time.Duration) error {
+	ttl, err := normalizeTTL(ttl)
+	if err != nil {
+		return err
+	}
 	data, err := c.formats.encode(v)
 	if err != nil {
 		return err
 	}
-	err = c.redis.Set(ctx, key, data, normalizeTTL(ttl)).Err()
+	err = c.redis.Set(ctx, key, data, ttl).Err()
 	if err != nil {
 		err = fmt.Errorf("redis: %w", err)
 	}
@@ -197,13 +208,18 @@ func (c *Cache) Set(ctx context.Context, key string, v any, ttl time.Duration) e
 // If the key already exists, SetIfAbsent will not update Redis and will return false. Otherwise,
 // SetIfAbsent will add the entry to Redis and return true.
 //
-// If the TTL is 0 the entry will not expire.
+// If the TTL is 0 or InfiniteTTL the entry will not expire. Negative TTLs other than InfiniteTTL and
+// KeepTTL return ErrInvalidTTL.
 func (c *Cache) SetIfAbsent(ctx context.Context, key string, v any, ttl time.Duration) (bool, error) {
+	ttl, err := normalizeTTL(ttl)
+	if err != nil {
+		return false, err
+	}
 	data, err := c.formats.encode(v)
 	if err != nil {
 		return false, err
 	}
-	ok, err := c.redis.SetNX(ctx, key, data, normalizeTTL(ttl)).Result()
+	ok, err := c.redis.SetNX(ctx, key, data, ttl).Result()
 	if err != nil {
 		err = fmt.Errorf("redis: %w", err)
 	}
@@ -214,13 +230,18 @@ func (c *Cache) SetIfAbsent(ctx context.Context, key string, v any, ttl time.Dur
 // exists. If the key does not exist, SetIfPresent will not update Redis and will return false.
 // Otherwise, SetIfPresent will update the entry in Redis and return true.
 //
-// If the TTL is 0 the entry will not expire.
+// If the TTL is 0 or InfiniteTTL the entry will not expire, and KeepTTL keeps the TTL of the existing
+// entry. Any other negative TTL returns ErrInvalidTTL.
 func (c *Cache) SetIfPresent(ctx context.Context, key string, v any, ttl time.Duration) (bool, error) {
+	ttl, err := normalizeTTL(ttl)
+	if err != nil {
+		return false, err
+	}
 	data, err := c.formats.encode(v)
 	if err != nil {
 		return false, err
 	}
-	ok, err := c.redis.SetXX(ctx, key, data, normalizeTTL(ttl)).Result()
+	ok, err := c.redis.SetXX(ctx, key, data, ttl).Result()
 	if err != nil {
 		err = fmt.Errorf("redis: %w", err)
 	}
@@ -299,14 +320,19 @@ func (c *Cache) Expire(ctx context.Context, key string, ttl time.Duration) error
 	return expireKey(ctx, c.redis, key, ttl)
 }
 
-// normalizeTTL maps the package TTL semantics to the values go-redis expects.
-// InfiniteTTL is mapped to 0, which go-redis treats as no expiration. All other
-// values, including KeepTTL, are returned unchanged.
-func normalizeTTL(ttl time.Duration) time.Duration {
-	if ttl == InfiniteTTL {
-		return 0
+// normalizeTTL validates ttl and maps the package TTL semantics to the values
+// go-redis expects. InfiniteTTL is mapped to 0, which go-redis treats as no
+// expiration, and KeepTTL is returned unchanged. Any other negative ttl returns
+// ErrInvalidTTL, since go-redis would store the value without an expiration, fail
+// with a Redis error, or leave the TTL unchanged depending on the command.
+func normalizeTTL(ttl time.Duration) (time.Duration, error) {
+	switch {
+	case ttl == InfiniteTTL:
+		return 0, nil
+	case ttl < 0 && ttl != KeepTTL:
+		return 0, fmt.Errorf("%w: %s", ErrInvalidTTL, ttl)
 	}
-	return ttl
+	return ttl, nil
 }
 
 // keyTTL returns the remaining TTL of a key with millisecond precision. InfiniteTTL
@@ -372,16 +398,11 @@ func expireKey(ctx context.Context, rdb RedisClient, key string, ttl time.Durati
 // batch, the more efficient the operation is, but the more memory is used. Values less than or
 // equal to zero default to 1000.
 //
-// If the underlying client is a redis.ClusterClient, including one wrapped by a FailoverClient,
-// Scan will iterate over all masters in the cluster.
+// If the underlying client is a *redis.ClusterClient, including one wrapped by a *FailoverClient,
+// Scan will iterate over all masters in the cluster. Any other client, including a type that embeds
+// one of these, is scanned with its own Scan method.
 func (c *Cache) Scan(ctx context.Context, pattern string, batch int64) ([]string, error) {
 	return scanKeys(ctx, c.redis, pattern, batch)
-}
-
-// activeClient is implemented by RedisClient wrappers, such as FailoverClient, that
-// delegate to another RedisClient.
-type activeClient interface {
-	Active() RedisClient
 }
 
 // masterIterator is implemented by clients that are backed by multiple master nodes,
@@ -391,44 +412,45 @@ type masterIterator interface {
 }
 
 // scanKeys performs SCAN with the given pattern and returns all matching keys. If the
-// client is backed by multiple masters every master is scanned. A batch less than or
-// equal to zero defaults to 1000.
+// client is a *redis.ClusterClient, including one wrapped by a *FailoverClient, every
+// master is scanned. A batch less than or equal to zero defaults to 1000.
+//
+// Only the concrete types are unwrapped, so the Scan method of a type that embeds
+// them and overrides Scan, such as a decorator scoping keys to a tenant, is used.
 func scanKeys(ctx context.Context, rdb RedisClient, pattern string, batch int64) ([]string, error) {
 	if batch <= 0 {
 		batch = 1000
 	}
 
-	// Unwrap clients like FailoverClient so a cluster client behind them is detected.
-	// The depth is bounded to guard against wrappers that return themselves.
-	for range 8 {
-		wrapper, ok := rdb.(activeClient)
+	for {
+		fc, ok := rdb.(*FailoverClient)
 		if !ok {
 			break
 		}
-		inner := wrapper.Active()
-		if inner == nil {
-			break
-		}
-		rdb = inner
+		rdb = fc.current()
 	}
 
-	scan := func(ctx context.Context, client RedisClient) ([]string, error) {
-		keys := make([]string, 0, batch)
-		iter := client.Scan(ctx, 0, pattern, batch).Iterator()
-		for iter.Next(ctx) {
-			keys = append(keys, iter.Val())
-		}
-		if err := iter.Err(); err != nil {
-			return nil, fmt.Errorf("redis: %w", err)
-		}
-		return keys, nil
+	if cluster, ok := rdb.(*redis.ClusterClient); ok {
+		return scanMasters(ctx, cluster, pattern, batch)
 	}
+	return scanClient(ctx, rdb, pattern, batch)
+}
 
-	cluster, ok := rdb.(masterIterator)
-	if !ok {
-		return scan(ctx, rdb)
+// scanClient performs SCAN on a single client.
+func scanClient(ctx context.Context, client RedisClient, pattern string, batch int64) ([]string, error) {
+	keys := make([]string, 0, batch)
+	iter := client.Scan(ctx, 0, pattern, batch).Iterator()
+	for iter.Next(ctx) {
+		keys = append(keys, iter.Val())
 	}
+	if err := iter.Err(); err != nil {
+		return nil, fmt.Errorf("redis: %w", err)
+	}
+	return keys, nil
+}
 
+// scanMasters performs SCAN on every master of cluster and merges the results.
+func scanMasters(ctx context.Context, cluster masterIterator, pattern string, batch int64) ([]string, error) {
 	// ForEachMaster invokes the callback concurrently for each master, so the results
 	// of each node are merged under a lock.
 	var (
@@ -436,7 +458,7 @@ func scanKeys(ctx context.Context, rdb RedisClient, pattern string, batch int64)
 		keys []string
 	)
 	err := cluster.ForEachMaster(ctx, func(ctx context.Context, client *redis.Client) error {
-		nodeKeys, err := scan(ctx, client)
+		nodeKeys, err := scanClient(ctx, client, pattern, batch)
 		if err != nil {
 			return err
 		}
@@ -713,6 +735,10 @@ func Upsert[T any](ctx context.Context, c *Cache, key string, val T, cb UpsertCa
 	if cb == nil {
 		return errors.New("upsert: nil UpsertCallback")
 	}
+	ttl, err := normalizeTTL(ttl)
+	if err != nil {
+		return err
+	}
 
 	// txErr tracks errors returned by the transaction function, which are already
 	// wrapped, so only errors from WATCH itself are wrapped below.
@@ -722,7 +748,7 @@ func Upsert[T any](ctx context.Context, c *Cache, key string, val T, cb UpsertCa
 		return txErr
 	}
 
-	err := c.redis.Watch(ctx, tx, key)
+	err = c.redis.Watch(ctx, tx, key)
 
 	// Since Redis uses optimistic locking the key might have been modified during
 	// the transaction. In such cases the operation will fail from Redis but the
@@ -741,7 +767,8 @@ func Upsert[T any](ctx context.Context, c *Cache, key string, val T, cb UpsertCa
 
 // upsertTx is the transaction executed by Upsert on the watched connection. The
 // value is fetched, unmarshalled and passed to the UpsertCallback. The value
-// returned from the UpsertCallback is the value set for the given key.
+// returned from the UpsertCallback is the value set for the given key with ttl,
+// which must already be normalized.
 func upsertTx[T any](ctx context.Context, c *Cache, tx *redis.Tx, key string, val T, cb UpsertCallback[T], ttl time.Duration) error {
 	found := false
 	var oldVal T
@@ -765,7 +792,7 @@ func upsertTx[T any](ctx context.Context, c *Cache, tx *redis.Tx, key string, va
 		return err
 	}
 	_, err = tx.TxPipelined(ctx, func(pipe redis.Pipeliner) error {
-		return pipe.Set(ctx, key, newData, normalizeTTL(ttl)).Err()
+		return pipe.Set(ctx, key, newData, ttl).Err()
 	})
 	if err != nil && !errors.Is(err, redis.TxFailedErr) {
 		return fmt.Errorf("redis: %w", err)

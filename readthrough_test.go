@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -464,4 +465,66 @@ func TestReadThroughSingleFlight_LoaderPanic(t *testing.T) {
 			panic("boom")
 		})
 	assert.ErrorContains(t, err, "loader func panic: boom")
+}
+
+func TestReadThroughSingleFlight_AbandonedLoad(t *testing.T) {
+	setup()
+	defer tearDown()
+
+	rdb := New(client)
+
+	t.Run("is canceled", func(t *testing.T) {
+		canceled := make(chan struct{})
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+		defer cancel()
+		_, err := ReadThroughSingleFlight[string](ctx, rdb, "abandoned", ReadThroughOptions{},
+			func(ctx context.Context) (string, error) {
+				<-ctx.Done()
+				close(canceled)
+				return "", ctx.Err()
+			})
+		assert.ErrorIs(t, err, context.DeadlineExceeded)
+
+		select {
+		case <-canceled:
+		case <-time.After(time.Second):
+			t.Fatal("load wasn't canceled once no caller was waiting for it")
+		}
+	})
+
+	t.Run("doesn't capture later callers", func(t *testing.T) {
+		// The loader is stuck on a hung dependency and ignores cancellation.
+		hung := make(chan struct{})
+		defer close(hung)
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+		defer cancel()
+		_, err := ReadThroughSingleFlight[string](ctx, rdb, "hung", ReadThroughOptions{},
+			func(ctx context.Context) (string, error) {
+				<-hung
+				return "", errors.New("hung")
+			})
+		assert.ErrorIs(t, err, context.DeadlineExceeded)
+
+		// The dependency recovered, the next caller starts a new load instead of
+		// joining the abandoned one.
+		val, err := ReadThroughSingleFlight[string](context.Background(), rdb, "hung", ReadThroughOptions{},
+			func(ctx context.Context) (string, error) {
+				return "loaded", nil
+			})
+		assert.NoError(t, err)
+		assert.Equal(t, "loaded", val)
+	})
+}
+
+func TestReadThroughSingleFlight_LoaderGoexit(t *testing.T) {
+	setup()
+	defer tearDown()
+
+	rdb := New(client)
+	_, err := ReadThroughSingleFlight[string](context.Background(), rdb, "goexit", ReadThroughOptions{},
+		func(ctx context.Context) (string, error) {
+			runtime.Goexit()
+			return "", nil
+		})
+	assert.ErrorContains(t, err, "loader func did not return")
 }

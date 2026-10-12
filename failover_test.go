@@ -527,6 +527,31 @@ func TestFailoverClient_CloseWaitsForMonitor(t *testing.T) {
 	s1 := miniredis.RunT(t)
 	s2 := miniredis.RunT(t)
 
+	// Health checks are in flight most of the time, and no callback runs.
+	c1 := &controlledClient{Client: redis.NewClient(&redis.Options{Addr: s1.Addr()})}
+	c2 := &controlledClient{Client: redis.NewClient(&redis.Options{Addr: s2.Addr()})}
+	c1.setPingDelay(10 * time.Millisecond)
+
+	opts := FailoverOptions().
+		SetCheckInterval(time.Millisecond).
+		SetCheckTimeout(100 * time.Millisecond)
+
+	fc := newFailoverClient(c1, c2, time.Microsecond, opts)
+	time.Sleep(5 * time.Millisecond)
+
+	assert.NoError(t, fc.Close())
+
+	select {
+	case <-fc.done:
+	default:
+		t.Fatal("monitor goroutine still running after Close returned")
+	}
+}
+
+func TestFailoverClient_NoCallbacksAfterClose(t *testing.T) {
+	s1 := miniredis.RunT(t)
+	s2 := miniredis.RunT(t)
+
 	c1 := &controlledClient{Client: redis.NewClient(&redis.Options{Addr: s1.Addr()})}
 	c2 := &controlledClient{Client: redis.NewClient(&redis.Options{Addr: s2.Addr()})}
 	c1.setPingErr(errors.New("primary down"))
@@ -544,15 +569,60 @@ func TestFailoverClient_CloseWaitsForMonitor(t *testing.T) {
 
 	assert.NoError(t, fc.Close())
 
+	// Close doesn't wait for a callback that is running when it is called.
 	select {
 	case <-fc.done:
-	default:
-		t.Fatal("monitor goroutine still running after Close returned")
+	case <-time.After(time.Second):
+		t.Fatal("monitor goroutine didn't stop after Close")
 	}
 
 	afterClose := checkFailures.Load()
 	time.Sleep(20 * time.Millisecond)
 	assert.Equal(t, afterClose, checkFailures.Load())
+}
+
+func TestFailoverClient_CloseFromCallback(t *testing.T) {
+	s1 := miniredis.RunT(t)
+	s2 := miniredis.RunT(t)
+
+	c1 := &controlledClient{Client: redis.NewClient(&redis.Options{Addr: s1.Addr()})}
+	c2 := &controlledClient{Client: redis.NewClient(&redis.Options{Addr: s2.Addr()})}
+	c1.setPingErr(errors.New("primary down"))
+
+	var fc *FailoverClient
+	created := make(chan struct{})
+	closed := make(chan error, 1)
+	opts := FailoverOptions().
+		SetCheckInterval(time.Millisecond).
+		SetCheckTimeout(500 * time.Microsecond).
+		SetFailureThreshold(1).
+		SetOnFailover(func() {
+			<-created
+			closed <- fc.Close()
+		})
+
+	fc = newFailoverClient(c1, c2, time.Microsecond, opts)
+	close(created)
+
+	select {
+	case err := <-closed:
+		assert.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("Close called from a callback deadlocked")
+	}
+
+	// The monitor goroutine stops once the callback returns, and calling Close
+	// again doesn't block.
+	select {
+	case <-fc.done:
+	case <-time.After(time.Second):
+		t.Fatal("monitor goroutine didn't stop after Close")
+	}
+	assert.NoError(t, fc.Close())
+
+	ctx := context.Background()
+	assert.Error(t, c1.Client.Ping(ctx).Err())
+	assert.Error(t, c2.Client.Ping(ctx).Err())
 }
 
 func TestFailoverClient_Close(t *testing.T) {

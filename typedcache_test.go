@@ -561,13 +561,21 @@ func TestTypedCache_Scan(t *testing.T) {
 }
 
 func TestTypedCache_ScanCluster(t *testing.T) {
-	cluster, expected := newFakeCluster(t, 8, 200)
-	keys, err := NewTyped[string](cluster).Scan(context.Background(), "key:*", 10)
+	ctx := context.Background()
+	cluster := redis.NewClusterClient(&redis.ClusterOptions{Addrs: []string{miniredis.RunT(t).Addr()}})
+	var expected []string
+	for i := range 50 {
+		key := fmt.Sprintf("key:%d", i)
+		assert.NoError(t, cluster.Set(ctx, key, "v", 0).Err())
+		expected = append(expected, key)
+	}
+
+	keys, err := NewTyped[string](cluster).Scan(ctx, "key:*", 10)
 	assert.NoError(t, err)
 	assert.ElementsMatch(t, expected, keys)
 
-	assert.NoError(t, cluster.nodes[2].Close())
-	keys, err = NewTyped[string](cluster).Scan(context.Background(), "key:*", 10)
+	assert.NoError(t, cluster.Close())
+	keys, err = NewTyped[string](cluster).Scan(ctx, "key:*", 10)
 	assert.Error(t, err)
 	assert.Nil(t, keys)
 }
@@ -596,4 +604,199 @@ func TestNewTyped_SerializerWithoutID(t *testing.T) {
 	assert.NotPanics(t, func() {
 		NewTyped[string](client, Serialization(SerializerWithID(140, noIDSerializer{})), Compression(CodecWithID(141, noIDCodec{})))
 	})
+}
+
+func TestTypedCache_SwitchFormats(t *testing.T) {
+	setup()
+	defer tearDown()
+
+	ctx := context.Background()
+	expected := legacyPerson{
+		FirstName: "Bob",
+		LastName:  "Dole",
+		Birthdate: time.Date(1960, 10, 28, 0, 0, 0, 0, time.UTC),
+	}
+
+	writer := NewTyped[legacyPerson](client, Serialization(&JsonSerializer{}), Compression(reverseTestCodec{}))
+	for _, key := range []string{"key1", "key2", "key3"} {
+		assert.NoError(t, writer.Set(ctx, key, expected, 0))
+	}
+
+	for _, batch := range []int{0, 2} {
+		t.Run(fmt.Sprintf("batch=%d", batch), func(t *testing.T) {
+			opts := []Option{
+				Serialization(&MessagePackSerializer{}),
+				Compression(xorTestCodec{}),
+				DecodeCompression(reverseTestCodec{}),
+			}
+			if batch > 0 {
+				opts = append(opts, BatchMultiGets(batch))
+			}
+			reader := NewTyped[legacyPerson](client, opts...)
+
+			p, err := reader.Get(ctx, "key1")
+			assert.NoError(t, err)
+			assert.Equal(t, expected, p)
+
+			p, err = reader.GetAndExpire(ctx, "key1", time.Minute)
+			assert.NoError(t, err)
+			assert.Equal(t, expected, p)
+
+			values, err := reader.MGet(ctx, "key1", "key2", "key3", "missing")
+			assert.NoError(t, err)
+			assert.Equal(t, []legacyPerson{expected, expected, expected}, values)
+
+			m, err := reader.MGetMap(ctx, "key1", "key2", "key3")
+			assert.NoError(t, err)
+			assert.Equal(t, MultiResult[legacyPerson]{"key1": expected, "key2": expected, "key3": expected}, m)
+
+			ptrReader := NewTyped[*legacyPerson](client, opts...)
+			ptr, err := ptrReader.Get(ctx, "key2")
+			assert.NoError(t, err)
+			assert.Equal(t, &expected, ptr)
+
+			ptrs, err := ptrReader.MGet(ctx, "key1", "key2")
+			assert.NoError(t, err)
+			assert.Equal(t, []*legacyPerson{&expected, &expected}, ptrs)
+
+			// The new instance writes in its own format, which the old one can't read.
+			assert.NoError(t, reader.Set(ctx, "new", expected, 0))
+			raw, err := client.Get(ctx, "new").Bytes()
+			assert.NoError(t, err)
+			assertHeader(t, raw, SerializerMsgPack, xorTestCodec{}.FormatID())
+			_, err = writer.Get(ctx, "new")
+			assert.ErrorIs(t, err, ErrUnsupportedFormat)
+		})
+	}
+
+	reader := NewTyped[legacyPerson](client, Compression(xorTestCodec{}), DecodeCompression(reverseTestCodec{}))
+	p, err := reader.GetAndDelete(ctx, "key1")
+	assert.NoError(t, err)
+	assert.Equal(t, expected, p)
+	_, err = reader.Get(ctx, "key1")
+	assert.ErrorIs(t, err, ErrKeyNotFound)
+}
+
+func TestTypedCache_UnsupportedFormat(t *testing.T) {
+	setup()
+	defer tearDown()
+
+	ctx := context.Background()
+	writer := NewTyped[string](client, Compression(reverseTestCodec{}))
+	assert.NoError(t, writer.Set(ctx, "key1", "value1", 0))
+	assert.NoError(t, writer.Set(ctx, "key2", "value2", 0))
+
+	for _, batch := range []int{0, 1} {
+		var opts []Option
+		if batch > 0 {
+			opts = append(opts, BatchMultiGets(batch))
+		}
+		reader := NewTyped[string](client, opts...)
+
+		_, err := reader.Get(ctx, "key1")
+		assert.ErrorIs(t, err, ErrUnsupportedFormat)
+		assert.ErrorContains(t, err, "codec id 202")
+
+		_, err = reader.MGet(ctx, "key1", "key2")
+		assert.ErrorIs(t, err, ErrUnsupportedFormat)
+
+		_, err = reader.MGetMap(ctx, "key1", "key2")
+		assert.ErrorIs(t, err, ErrUnsupportedFormat)
+	}
+}
+
+func TestTypedCache_LegacyValues(t *testing.T) {
+	setup()
+	defer tearDown()
+
+	ctx := context.Background()
+	expected := legacyPerson{
+		FirstName: "Bob",
+		LastName:  "Dole",
+		Birthdate: time.Date(1960, 10, 28, 0, 0, 0, 0, time.UTC),
+	}
+
+	// Values written by previous versions of the library have no header.
+	raw, err := (&JsonSerializer{}).Marshal(expected)
+	assert.NoError(t, err)
+	raw, err = reverseTestCodec{}.Compress(raw)
+	assert.NoError(t, err)
+	for _, key := range []string{"key1", "key2", "key3"} {
+		assert.NoError(t, client.Set(ctx, key, raw, 0).Err())
+	}
+
+	for _, batch := range []int{0, 2} {
+		opts := []Option{Serialization(&JsonSerializer{}), Compression(reverseTestCodec{})}
+		if batch > 0 {
+			opts = append(opts, BatchMultiGets(batch))
+		}
+		c := NewTyped[legacyPerson](client, opts...)
+
+		p, err := c.Get(ctx, "key1")
+		assert.NoError(t, err)
+		assert.Equal(t, expected, p)
+
+		values, err := c.MGet(ctx, "key1", "key2", "key3")
+		assert.NoError(t, err)
+		assert.Equal(t, []legacyPerson{expected, expected, expected}, values)
+
+		m, err := c.MGetMap(ctx, "key1", "key2", "key3")
+		assert.NoError(t, err)
+		assert.Equal(t, MultiResult[legacyPerson]{"key1": expected, "key2": expected, "key3": expected}, m)
+	}
+}
+
+func TestTypedCache_NegativeTTL(t *testing.T) {
+	setup()
+	defer tearDown()
+
+	ctx := context.Background()
+	c := NewTyped[string](client)
+	assert.NoError(t, c.Set(ctx, "existing", "value", time.Minute))
+
+	// A deadline that has already passed.
+	ttl := -5 * time.Second
+	assert.ErrorIs(t, c.Set(ctx, "key", "value", ttl), ErrInvalidTTL)
+	_, err := c.SetIfAbsent(ctx, "key", "value", ttl)
+	assert.ErrorIs(t, err, ErrInvalidTTL)
+	_, err = c.SetIfPresent(ctx, "existing", "new", ttl)
+	assert.ErrorIs(t, err, ErrInvalidTTL)
+	_, err = c.GetAndExpire(ctx, "existing", ttl)
+	assert.ErrorIs(t, err, ErrInvalidTTL)
+
+	assert.False(t, server.Exists("key"))
+	s, err := c.Get(ctx, "existing")
+	assert.NoError(t, err)
+	assert.Equal(t, "value", s)
+	assert.Equal(t, time.Minute, server.TTL("existing"))
+
+	// KeepTTL is still accepted and keeps the TTL.
+	assert.NoError(t, c.Set(ctx, "existing", "new", KeepTTL))
+	s, err = c.GetAndExpire(ctx, "existing", KeepTTL)
+	assert.NoError(t, err)
+	assert.Equal(t, "new", s)
+	assert.Equal(t, time.Minute, server.TTL("existing"))
+}
+
+func TestTypedCache_MGetNegativeBatch(t *testing.T) {
+	setup()
+	defer tearDown()
+
+	ctx := context.Background()
+	c := NewTyped[string](client)
+	// BatchMultiGets rejects negative sizes, MGet and MGetMap must not panic anyway.
+	c.setMGetBatch(-1)
+	for _, key := range []string{"a", "b", "c"} {
+		assert.NoError(t, c.Set(ctx, key, key, 0))
+	}
+
+	for _, keys := range [][]string{{"a"}, {"a", "b", "c"}} {
+		values, err := c.MGet(ctx, keys...)
+		assert.NoError(t, err)
+		assert.Equal(t, keys, values)
+
+		m, err := c.MGetMap(ctx, keys...)
+		assert.NoError(t, err)
+		assert.Len(t, m, len(keys))
+	}
 }

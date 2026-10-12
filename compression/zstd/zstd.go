@@ -1,6 +1,7 @@
 package zstd
 
 import (
+	"errors"
 	"sync"
 
 	"github.com/klauspost/compress/zstd"
@@ -8,16 +9,24 @@ import (
 	cache "github.com/jkratz55/redis-cache/v2"
 )
 
+// ErrClosed is returned by Compress and Decompress once Close has been called.
+var ErrClosed = errors.New("zstd: codec closed")
+
 // Codec is an implementation of cache.CompressionCodec using zstd.
 //
 // The zero-value is not usable. Use NewCodec to create a new instance. Codec is
 // safe for concurrent use. Close should be called once the Codec is no longer
 // needed to release the resources held by the encoder and decoder.
 type Codec struct {
-	encoder   *zstd.Encoder
-	decoder   *zstd.Decoder
-	closeOnce sync.Once
-	closeErr  error
+	encoder        *zstd.Encoder
+	decoder        *zstd.Decoder
+	maxDecodedSize uint64
+
+	// Compress and Decompress hold a read lock, so Close waits for the calls in
+	// flight before releasing the encoder and decoder.
+	mu       sync.RWMutex
+	closed   bool
+	closeErr error
 }
 
 // Option customizes the behavior of Codec.
@@ -54,12 +63,14 @@ func NewCodec(level zstd.EncoderLevel, opts ...Option) (*Codec, error) {
 
 	var decoderOpts []zstd.DOption
 	if o.maxDecodedSize > 0 {
-		// The window can't be larger than the decoded size, but the decoder
-		// requires a window of at least MinWindowSize.
-		window := max(min(o.maxDecodedSize, zstd.MaxWindowSize), zstd.MinWindowSize)
+		// The decoder lowers the window to the max memory, and the encoder declares
+		// a window of twice MinWindowSize for a value of MinWindowSize bytes, so
+		// neither can be smaller than that. Smaller limits are enforced by
+		// Decompress after decoding.
+		limit := max(o.maxDecodedSize, 2*zstd.MinWindowSize)
 		decoderOpts = append(decoderOpts,
-			zstd.WithDecoderMaxMemory(o.maxDecodedSize),
-			zstd.WithDecoderMaxWindow(window))
+			zstd.WithDecoderMaxMemory(limit),
+			zstd.WithDecoderMaxWindow(min(limit, zstd.MaxWindowSize)))
 	}
 	decoder, err := zstd.NewReader(nil, decoderOpts...)
 	if err != nil {
@@ -68,27 +79,48 @@ func NewCodec(level zstd.EncoderLevel, opts ...Option) (*Codec, error) {
 	}
 
 	return &Codec{
-		encoder: encoder,
-		decoder: decoder,
+		encoder:        encoder,
+		decoder:        decoder,
+		maxDecodedSize: o.maxDecodedSize,
 	}, nil
 }
 
 func (c *Codec) Compress(data []byte) ([]byte, error) {
-	compressed := c.encoder.EncodeAll(data, nil)
-	return compressed, nil
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.closed {
+		return nil, ErrClosed
+	}
+	return c.encoder.EncodeAll(data, nil), nil
 }
 
 func (c *Codec) Decompress(data []byte) ([]byte, error) {
-	return c.decoder.DecodeAll(data, nil)
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.closed {
+		return nil, ErrClosed
+	}
+	out, err := c.decoder.DecodeAll(data, nil)
+	if err != nil {
+		return nil, err
+	}
+	if c.maxDecodedSize > 0 && uint64(len(out)) > c.maxDecodedSize {
+		return nil, zstd.ErrDecoderSizeExceeded
+	}
+	return out, nil
 }
 
-// Close releases the resources held by the encoder and decoder. The Codec must
-// not be used after Close is called. Calling Close more than once is a no-op.
+// Close releases the resources held by the encoder and decoder. Close waits for
+// the Compress and Decompress calls in flight to return, after which they return
+// ErrClosed. Calling Close more than once is a no-op.
 func (c *Codec) Close() error {
-	c.closeOnce.Do(func() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if !c.closed {
+		c.closed = true
 		c.closeErr = c.encoder.Close()
 		c.decoder.Close()
-	})
+	}
 	return c.closeErr
 }
 

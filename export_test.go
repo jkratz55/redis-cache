@@ -34,3 +34,9 @@ func (f *FormatsForTest) Decode(data []byte, dst any) error {
 func NopCodecForTest() CompressionCodec {
 	return nopCodec{}
 }
+
+// SerializerWithIDForTest exposes serializerWithID to external test packages.
+type SerializerWithIDForTest = serializerWithID
+
+// CodecWithIDForTest exposes codecWithID to external test packages.
+type CodecWithIDForTest = codecWithID

@@ -61,8 +61,10 @@ const modulePath = "github.com/jkratz55/redis-cache/v2"
 // or be wrapped with SerializerWithID / CodecWithID.
 //
 // Wrappers that don't alter the encoded bytes (such as instrumentation) should
-// forward the ID of the component they wrap. Wrappers that do alter the bytes
-// (such as encryption) must declare their own ID.
+// forward the ID of the component they wrap and implement Unwrap, returning the
+// wrapped Serializer or CompressionCodec. The wrapped component then identifies
+// the format, so a wrapper can forward the ID of a built-in implementation.
+// Wrappers that do alter the bytes (such as encryption) must declare their own ID.
 type FormatIdentifier interface {
 	FormatID() uint8
 }
@@ -121,6 +123,15 @@ type serializerWithID struct {
 
 func (s *serializerWithID) FormatID() uint8 {
 	return s.id
+}
+
+// UnmarshalStrict forwards to the wrapped Serializer if it implements
+// StrictUnmarshaler, otherwise it calls Unmarshal.
+func (s *serializerWithID) UnmarshalStrict(data []byte, v any) error {
+	if su, ok := s.Serializer.(StrictUnmarshaler); ok {
+		return su.UnmarshalStrict(data, v)
+	}
+	return s.Serializer.Unmarshal(data, v)
 }
 
 type codecWithID struct {
@@ -198,15 +209,16 @@ func registerFormat[T any](registry *[256]T, v T, kind string, adapter string) u
 		panic(fmt.Errorf("%s %T has no format id: implement FormatID() uint8 returning an id in the range %d-255 or wrap it with cache.%s",
 			kind, v, MinCustomFormatID, adapter))
 	}
-	if id < MinCustomFormatID && !isBuiltin(v) {
-		panic(fmt.Errorf("%s %T uses reserved format id %d: custom ids must be in the range %d-255, implement FormatID() accordingly or wrap it with cache.%s",
-			kind, v, id, MinCustomFormatID, adapter))
+	impl := implementationType(v, kind)
+	if id < MinCustomFormatID && !isBuiltin(impl) {
+		panic(fmt.Errorf("%s %T uses reserved format id %d: custom ids must be in the range %d-255, implement FormatID() accordingly or wrap it with cache.%s. Wrappers that don't alter the bytes must implement Unwrap() returning the wrapped %s",
+			kind, v, id, MinCustomFormatID, adapter, kind))
 	}
-	existing := any(registry[id])
-	if existing != nil {
-		if implementationType(existing) != implementationType(v) {
+	if any(registry[id]) != nil {
+		existing := implementationType(registry[id], kind)
+		if existing != impl {
 			panic(fmt.Errorf("%s %s and %s both claim format id %d: each format must have a unique id",
-				kind, implementationType(existing), implementationType(v), id))
+				kind, existing, impl, id))
 		}
 		// Same implementation registered more than once, the first registration
 		// (the configured one) wins.
@@ -216,22 +228,45 @@ func registerFormat[T any](registry *[256]T, v T, kind string, adapter string) u
 	return id
 }
 
-// implementationType returns the concrete type of v, looking through the ID
-// adapters so two different implementations wrapped with the same ID are
-// detected as conflicting. Pointer types are dereferenced so a value and a
-// pointer of the same implementation, such as JsonSerializer{} and
-// &JsonSerializer{}, aren't reported as conflicting.
-func implementationType(v any) reflect.Type {
-	var t reflect.Type
-	switch a := v.(type) {
-	case *serializerWithID:
-		t = reflect.TypeOf(a.Serializer)
-	case *codecWithID:
-		t = reflect.TypeOf(a.CompressionCodec)
-	default:
-		t = reflect.TypeOf(v)
+// implementationType returns the concrete type of the implementation that
+// defines the format of v. It looks through the ID adapters and through wrappers
+// that don't alter the bytes, which implement Unwrap and report the same format ID
+// as the component they wrap, such as the cacheotel instrumentation. This way
+// two different implementations behind the same kind of wrapper are detected as
+// conflicting, and a wrapper is only allowed a reserved ID if it wraps a built-in
+// implementation. Pointer types are dereferenced so a value and a pointer of the
+// same implementation, such as JsonSerializer{} and &JsonSerializer{}, aren't
+// reported as conflicting.
+//
+// implementationType panics if a wrapper wraps a nil T.
+func implementationType[T any](v T, kind string) reflect.Type {
+	var cur any = v
+	for {
+		switch a := cur.(type) {
+		case *serializerWithID:
+			cur = a.Serializer
+			continue
+		case *codecWithID:
+			cur = a.CompressionCodec
+			continue
+		}
+		wrapper, ok := cur.(interface{ Unwrap() T })
+		if !ok {
+			break
+		}
+		inner := wrapper.Unwrap()
+		if isNil(inner) {
+			panic(fmt.Errorf("%s %T wraps a nil %s", kind, cur, kind))
+		}
+		id, _ := FormatIDOf(cur)
+		if innerID, ok := FormatIDOf(inner); !ok || innerID != id {
+			break
+		}
+		cur = inner
 	}
-	for t != nil && t.Kind() == reflect.Pointer {
+
+	t := reflect.TypeOf(cur)
+	for t.Kind() == reflect.Pointer {
 		t = t.Elem()
 	}
 	return t
@@ -252,18 +287,13 @@ func isNil(v any) bool {
 	}
 }
 
-// isBuiltin reports whether the concrete type of v is declared within one of the
-// packages of this library that provide or wrap built-in implementations. Only
-// built-in implementations may use the reserved IDs 0-127.
-func isBuiltin(v any) bool {
-	t := reflect.TypeOf(v)
-	for t.Kind() == reflect.Pointer {
-		t = t.Elem()
-	}
+// isBuiltin reports whether t is declared within one of the packages of this
+// library that provide built-in implementations. Only built-in implementations may
+// use the reserved IDs 0-127.
+func isBuiltin(t reflect.Type) bool {
 	pkg := t.PkgPath()
 	return pkg == modulePath ||
 		pkg == modulePath+"/cacheproto" ||
-		pkg == modulePath+"/cacheotel" ||
 		strings.HasPrefix(pkg, modulePath+"/compression/")
 }
 
@@ -292,10 +322,15 @@ func (f *formats) encode(v any) ([]byte, error) {
 // If data starts with the format header, the Serializer and CompressionCodec are
 // selected by the IDs in the header. Otherwise, data is treated as a legacy
 // headerless value and decoded with the configured Serializer and CompressionCodec.
-// If a value looks like it has a header but can't be decoded, decoding is retried
-// once as a legacy value before returning the original error. Values with a valid
-// header referencing an unregistered Serializer or CompressionCodec are never
-// retried and return ErrUnsupportedFormat.
+//
+// A legacy value can start with the same bytes as the header. So if a value with a
+// header can't be decoded, including when it references an unregistered Serializer
+// or CompressionCodec, it is decoded once more as a legacy value. That attempt uses
+// UnmarshalStrict if the configured Serializer implements StrictUnmarshaler, so a
+// corrupt value or a value written in an unsupported format isn't mistaken for a
+// legacy value. If it fails too, the original error is returned, which wraps
+// ErrUnsupportedFormat if the header references an unregistered Serializer or
+// CompressionCodec.
 //
 // If decoding fails, dst is reset to its zero value so it never holds partially
 // decoded data.
@@ -312,14 +347,11 @@ func (f *formats) decode(data []byte, dst any) error {
 	if err == nil {
 		return nil
 	}
-	if errors.Is(err, ErrUnsupportedFormat) {
-		return err
-	}
 
 	// The failed attempt may have partially populated dst, so it is reset before
 	// retrying to avoid mixing data from both attempts.
 	zeroDst(dst)
-	if legacyErr := decodeWith(f.serializer, f.codec, data, dst); legacyErr == nil {
+	if decodeStrict(f.serializer, f.codec, data, dst) == nil {
 		return nil
 	}
 	zeroDst(dst)
@@ -360,4 +392,17 @@ func decodeWith(s Serializer, c CompressionCodec, data []byte, dst any) error {
 		return fmt.Errorf("unmarshal value: %w", err)
 	}
 	return nil
+}
+
+// decodeStrict is like decodeWith but unmarshals with UnmarshalStrict if s
+// implements StrictUnmarshaler.
+func decodeStrict(s Serializer, c CompressionCodec, data []byte, dst any) error {
+	data, err := c.Decompress(data)
+	if err != nil {
+		return err
+	}
+	if su, ok := s.(StrictUnmarshaler); ok {
+		return su.UnmarshalStrict(data, dst)
+	}
+	return s.Unmarshal(data, dst)
 }

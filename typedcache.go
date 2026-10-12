@@ -91,11 +91,16 @@ func (c *TypedCache[T]) Get(ctx context.Context, key string) (T, error) {
 // the value could not be unmarshalled, or the value was compressed and could not be decompressed, the
 // error will be returned.
 //
-// A ttl value of 0 will remove the TTL on the key if there is one.
+// A ttl value of 0 or InfiniteTTL will remove the TTL on the key if there is one, and KeepTTL leaves
+// it unchanged. Any other negative ttl returns ErrInvalidTTL.
 func (c *TypedCache[T]) GetAndExpire(ctx context.Context, key string, ttl time.Duration) (T, error) {
 	var res T
 
-	data, err := c.redis.GetEx(ctx, key, normalizeTTL(ttl)).Bytes()
+	ttl, err := normalizeTTL(ttl)
+	if err != nil {
+		return res, err
+	}
+	data, err := c.redis.GetEx(ctx, key, ttl).Bytes()
 	if err != nil {
 		if errors.Is(err, redis.Nil) {
 			return res, ErrKeyNotFound
@@ -133,7 +138,7 @@ func (c *TypedCache[T]) MGet(ctx context.Context, keys ...string) ([]T, error) {
 		return nil, nil
 	}
 
-	if c.mgetBatch == 0 || numKeys <= c.mgetBatch {
+	if c.mgetBatch <= 0 || numKeys <= c.mgetBatch {
 		results, err := c.redis.MGet(ctx, keys...).Result()
 		if err != nil {
 			return nil, fmt.Errorf("redis: %w", err)
@@ -204,7 +209,7 @@ func (c *TypedCache[T]) MGetMap(ctx context.Context, keys ...string) (MultiResul
 		return nil, nil
 	}
 
-	if c.mgetBatch == 0 || numKeys <= c.mgetBatch {
+	if c.mgetBatch <= 0 || numKeys <= c.mgetBatch {
 		results, err := c.redis.MGet(ctx, keys...).Result()
 		if err != nil {
 			return nil, fmt.Errorf("redis: %w", err)
@@ -271,11 +276,15 @@ func (c *TypedCache[T]) MGetMap(ctx context.Context, keys ...string) (MultiResul
 }
 
 func (c *TypedCache[T]) Set(ctx context.Context, key string, val T, ttl time.Duration) error {
+	ttl, err := normalizeTTL(ttl)
+	if err != nil {
+		return err
+	}
 	data, err := c.formats.encode(val)
 	if err != nil {
 		return err
 	}
-	err = c.redis.Set(ctx, key, data, normalizeTTL(ttl)).Err()
+	err = c.redis.Set(ctx, key, data, ttl).Err()
 	if err != nil {
 		err = fmt.Errorf("redis: %w", err)
 	}
@@ -283,11 +292,15 @@ func (c *TypedCache[T]) Set(ctx context.Context, key string, val T, ttl time.Dur
 }
 
 func (c *TypedCache[T]) SetIfAbsent(ctx context.Context, key string, val T, ttl time.Duration) (bool, error) {
+	ttl, err := normalizeTTL(ttl)
+	if err != nil {
+		return false, err
+	}
 	data, err := c.formats.encode(val)
 	if err != nil {
 		return false, err
 	}
-	ok, err := c.redis.SetNX(ctx, key, data, normalizeTTL(ttl)).Result()
+	ok, err := c.redis.SetNX(ctx, key, data, ttl).Result()
 	if err != nil {
 		err = fmt.Errorf("redis: %w", err)
 	}
@@ -295,11 +308,15 @@ func (c *TypedCache[T]) SetIfAbsent(ctx context.Context, key string, val T, ttl 
 }
 
 func (c *TypedCache[T]) SetIfPresent(ctx context.Context, key string, val T, ttl time.Duration) (bool, error) {
+	ttl, err := normalizeTTL(ttl)
+	if err != nil {
+		return false, err
+	}
 	data, err := c.formats.encode(val)
 	if err != nil {
 		return false, err
 	}
-	ok, err := c.redis.SetXX(ctx, key, data, normalizeTTL(ttl)).Result()
+	ok, err := c.redis.SetXX(ctx, key, data, ttl).Result()
 	if err != nil {
 		err = fmt.Errorf("redis: %w", err)
 	}

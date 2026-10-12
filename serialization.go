@@ -19,6 +19,21 @@ type Serializer interface {
 	Unmarshal([]byte, any) error
 }
 
+// StrictUnmarshaler is implemented by Serializers whose Unmarshal accepts data that
+// wasn't produced by Marshal for the destination type, such as Protobuf, which
+// keeps fields it doesn't recognize instead of failing.
+//
+// Values written by versions of the library before v2.0.0 have no format header
+// and can start with the same bytes as the header. When a value with a header
+// can't be decoded, it is decoded once more as a value without a header, using
+// UnmarshalStrict if the Serializer implements it. UnmarshalStrict must return an
+// error if data contains anything Unmarshal would ignore, so a corrupt value or a
+// value written in an unsupported format isn't mistaken for a value without a
+// header.
+type StrictUnmarshaler interface {
+	UnmarshalStrict([]byte, any) error
+}
+
 // JsonSerializer is a Serializer that uses JSON for marshaling and unmarshalling data.
 type JsonSerializer struct{}
 

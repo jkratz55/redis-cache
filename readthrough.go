@@ -4,14 +4,98 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
-
-	"golang.org/x/sync/singleflight"
 )
 
-var (
-	readThroughGroup = singleflight.Group{}
-)
+var readThroughGroup flightGroup
+
+// flightGroup deduplicates concurrent calls for the same key, like
+// singleflight.Group. Unlike singleflight.Group, a call is canceled and forgotten
+// once no caller is waiting for its result anymore, so a call stuck on a hung
+// dependency doesn't capture every later caller.
+type flightGroup struct {
+	mu    sync.Mutex
+	calls map[string]*flightCall
+}
+
+// flightCall is an in-flight or completed call of a flightGroup. val and err are
+// set before done is closed.
+type flightCall struct {
+	done    chan struct{}
+	val     any
+	err     error
+	waiters int
+	cancel  context.CancelFunc
+}
+
+// join returns the in-flight call for key, or starts fn in a new goroutine if
+// there is none. The context passed to fn keeps the values of ctx, but it is only
+// canceled once every caller that joined the call has left it. Every call to join
+// must be followed by a call to leave.
+func (g *flightGroup) join(ctx context.Context, key string, fn func(ctx context.Context) (any, error)) *flightCall {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	if c, ok := g.calls[key]; ok {
+		c.waiters++
+		return c
+	}
+
+	callCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	c := &flightCall{done: make(chan struct{}), waiters: 1, cancel: cancel}
+	if g.calls == nil {
+		g.calls = make(map[string]*flightCall)
+	}
+	g.calls[key] = c
+
+	go func() {
+		// The call is finished from a deferred function so the waiting callers are
+		// released even if fn exits the goroutine with runtime.Goexit.
+		returned := false
+		defer func() {
+			if !returned {
+				c.val, c.err = nil, errors.New("loader func did not return")
+			}
+			cancel()
+			g.forget(key, c)
+			close(c.done)
+		}()
+		c.val, c.err = fn(callCtx)
+		returned = true
+	}()
+
+	return c
+}
+
+// leave removes a caller from c. Once no caller is waiting for c anymore, c is
+// canceled and forgotten, so the next caller for the key starts a new call.
+func (g *flightGroup) leave(key string, c *flightCall) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	c.waiters--
+	if c.waiters > 0 {
+		return
+	}
+	// Canceling and forgetting under the lock ensures no caller joins c after it
+	// has been abandoned.
+	c.cancel()
+	g.forgetLocked(key, c)
+}
+
+// forget removes c from the group if it is still the call for key.
+func (g *flightGroup) forget(key string, c *flightCall) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.forgetLocked(key, c)
+}
+
+func (g *flightGroup) forgetLocked(key string, c *flightCall) {
+	if g.calls[key] == c {
+		delete(g.calls, key)
+	}
+}
 
 // RedisOperation represents a Redis operation/command
 type RedisOperation string
@@ -77,8 +161,8 @@ type ReadThroughOptions struct {
 	//
 	// ReadThroughSingleFlight runs the shared work with a context that keeps the values of the
 	// first caller's context but isn't canceled with it, so one caller canceling doesn't fail the
-	// others. If LoaderTimeout is 0 (the default) there is no timeout, and a LoaderFunc that
-	// doesn't return may outlive all callers.
+	// others. The shared work is canceled once every waiting caller's context is done. If
+	// LoaderTimeout is 0 (the default) there is no other timeout.
 	LoaderTimeout time.Duration
 }
 
@@ -225,7 +309,9 @@ func readThroughUpdate[T any](
 // The shared LoaderFunc and cache update run with a context that keeps the values of the first caller's
 // context but isn't canceled with it, optionally bounded by ReadThroughOptions.LoaderTimeout. Each caller
 // waits for the shared result until its own context is done, in which case the context error is returned
-// to that caller only. A panic in the LoaderFunc is returned as an error to all waiting callers.
+// to that caller only. Once no caller is waiting for the shared result anymore, the shared context is
+// canceled and the next caller for the key starts a new load. A panic in the LoaderFunc is returned as
+// an error to all waiting callers.
 //
 // OnCacheHit or OnCacheMiss is invoked exactly once per caller, based on the caller's own cache lookup.
 func ReadThroughSingleFlight[T any](
@@ -253,12 +339,11 @@ func ReadThroughSingleFlight[T any](
 		opts.OnCacheError(key, RedisOperationGET, err)
 	}
 
-	// The shared work must not be canceled when the caller that started it goes
-	// away, otherwise every waiting caller would fail with that caller's error.
-	flightCtx := context.WithoutCancel(ctx)
-
-	ch := readThroughGroup.DoChan(key, func() (val any, err error) {
-		// DoChan runs fn in its own goroutine, so an unrecovered panic would crash
+	// The shared work isn't canceled when the caller that started it goes away,
+	// otherwise every waiting caller would fail with that caller's error. It is
+	// canceled once no caller is waiting for it anymore.
+	call := readThroughGroup.join(ctx, key, func(flightCtx context.Context) (val any, err error) {
+		// The call runs in its own goroutine, so an unrecovered panic would crash
 		// the process instead of propagating to the caller.
 		defer func() {
 			if r := recover(); r != nil {
@@ -298,15 +383,17 @@ func ReadThroughSingleFlight[T any](
 		return result, nil
 	})
 
+	defer readThroughGroup.leave(key, call)
+
 	select {
 	case <-ctx.Done():
 		var zero T
 		return zero, ctx.Err()
-	case res := <-ch:
-		if res.Err != nil {
+	case <-call.done:
+		if call.err != nil {
 			var zero T
-			return zero, fmt.Errorf("singleflight: %w", res.Err)
+			return zero, fmt.Errorf("singleflight: %w", call.err)
 		}
-		return res.Val.(T), nil
+		return call.val.(T), nil
 	}
 }

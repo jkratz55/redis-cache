@@ -325,6 +325,28 @@ func (g gobSerializer) FormatID() uint8 {
 	return 130
 }
 
+// noIDSerializer has no format ID.
+type noIDSerializer struct{}
+
+func (noIDSerializer) Marshal(v any) ([]byte, error) { return msgpack.Marshal(v) }
+
+func (noIDSerializer) Unmarshal(b []byte, v any) error { return msgpack.Unmarshal(b, v) }
+
+// noIDCodec has no format ID and XORs every byte so its output differs from the input.
+type noIDCodec struct{}
+
+func (noIDCodec) Compress(data []byte) ([]byte, error) { return xor(data), nil }
+
+func (noIDCodec) Decompress(data []byte) ([]byte, error) { return xor(data), nil }
+
+func xor(data []byte) []byte {
+	out := make([]byte, len(data))
+	for i, b := range data {
+		out[i] = b ^ 0x5A
+	}
+	return out
+}
+
 // assertHeader asserts the value starts with the format header for the given
 // serializer and codec IDs and returns the payload following the header.
 func assertHeader(t *testing.T, b []byte, serializerID, codecID uint8) []byte {
@@ -922,19 +944,23 @@ func TestCache_ScanCluster(t *testing.T) {
 
 	t.Run("merges keys from all masters", func(t *testing.T) {
 		cluster, expected := newFakeCluster(t, 8, 200)
-		keys, err := New(cluster).Scan(ctx, "key:*", 10)
+		keys, err := scanMasters(ctx, cluster, "key:*", 10)
 		assert.NoError(t, err)
 		assert.ElementsMatch(t, expected, keys)
 	})
 
 	t.Run("unwraps FailoverClient", func(t *testing.T) {
-		cluster, expected := newFakeCluster(t, 3, 50)
+		cluster := redis.NewClusterClient(&redis.ClusterOptions{Addrs: []string{miniredis.RunT(t).Addr()}})
+		var expected []string
+		for i := range 50 {
+			key := fmt.Sprintf("key:%d", i)
+			assert.NoError(t, cluster.Set(ctx, key, "v", 0).Err())
+			expected = append(expected, key)
+		}
 		secondary := redis.NewClient(&redis.Options{Addr: miniredis.RunT(t).Addr()})
 		fc := NewFailoverClient(cluster, secondary, FailoverOptions().SetCheckInterval(time.Hour))
 		defer func() {
-			close(fc.closeChan)
-			<-fc.done
-			_ = secondary.Close()
+			assert.NoError(t, fc.Close())
 		}()
 
 		keys, err := New(fc).Scan(ctx, "key:*", 0)
@@ -945,10 +971,82 @@ func TestCache_ScanCluster(t *testing.T) {
 	t.Run("returns nil keys on error", func(t *testing.T) {
 		cluster, _ := newFakeCluster(t, 3, 10)
 		assert.NoError(t, cluster.nodes[1].Close())
-		keys, err := New(cluster).Scan(ctx, "key:*", 0)
+		keys, err := scanMasters(ctx, cluster, "key:*", 0)
 		assert.Error(t, err)
 		assert.Nil(t, keys)
 	})
+}
+
+// tenantClient scopes Scan to the keys of a tenant by overriding the Scan method of
+// the embedded FailoverClient.
+type tenantClient struct {
+	*FailoverClient
+	prefix string
+}
+
+func (c tenantClient) Scan(ctx context.Context, cursor uint64, match string, count int64) *redis.ScanCmd {
+	return c.FailoverClient.Scan(ctx, cursor, c.prefix+match, count)
+}
+
+func TestCache_ScanUsesClientScanOverride(t *testing.T) {
+	setup()
+	defer tearDown()
+
+	ctx := context.Background()
+	for _, key := range []string{"tenantA:1", "tenantA:2", "tenantB:1"} {
+		assert.NoError(t, client.Set(ctx, key, "v", 0).Err())
+	}
+
+	secondary := redis.NewClient(&redis.Options{Addr: miniredis.RunT(t).Addr()})
+	fc := NewFailoverClient(client, secondary, FailoverOptions().SetCheckInterval(time.Hour))
+	defer func() {
+		close(fc.closeChan)
+		<-fc.done
+		_ = secondary.Close()
+	}()
+
+	c := New(tenantClient{FailoverClient: fc, prefix: "tenantA:"})
+	keys, err := c.Scan(ctx, "*", 0)
+	assert.NoError(t, err)
+	assert.ElementsMatch(t, []string{"tenantA:1", "tenantA:2"}, keys)
+
+	keys, err = c.Keys(ctx)
+	assert.NoError(t, err)
+	assert.ElementsMatch(t, []string{"tenantA:1", "tenantA:2"}, keys)
+}
+
+func TestCache_NegativeTTL(t *testing.T) {
+	setup()
+	defer tearDown()
+
+	ctx := context.Background()
+	c := New(client)
+	assert.NoError(t, c.Set(ctx, "existing", "value", time.Minute))
+
+	// A deadline that has already passed.
+	ttl := -5 * time.Second
+	assert.ErrorIs(t, c.Set(ctx, "key", "value", ttl), ErrInvalidTTL)
+	_, err := c.SetIfAbsent(ctx, "key", "value", ttl)
+	assert.ErrorIs(t, err, ErrInvalidTTL)
+	_, err = c.SetIfPresent(ctx, "existing", "new", ttl)
+	assert.ErrorIs(t, err, ErrInvalidTTL)
+	var s string
+	assert.ErrorIs(t, c.GetAndExpire(ctx, "existing", &s, ttl), ErrInvalidTTL)
+	err = Upsert[string](ctx, c, "existing", "new", func(found bool, oldValue string, newValue string) string {
+		return newValue
+	}, ttl)
+	assert.ErrorIs(t, err, ErrInvalidTTL)
+
+	assert.False(t, server.Exists("key"))
+	assert.NoError(t, c.Get(ctx, "existing", &s))
+	assert.Equal(t, "value", s)
+	assert.Equal(t, time.Minute, server.TTL("existing"))
+
+	// KeepTTL is still accepted and keeps the TTL.
+	assert.NoError(t, c.Set(ctx, "existing", "new", KeepTTL))
+	assert.NoError(t, c.GetAndExpire(ctx, "existing", &s, KeepTTL))
+	assert.Equal(t, "new", s)
+	assert.Equal(t, time.Minute, server.TTL("existing"))
 }
 
 func TestCache_ScanFailoverClient(t *testing.T) {
@@ -980,3 +1078,167 @@ func (xorTestCodec) Compress(data []byte) ([]byte, error) { return xor(data), ni
 func (xorTestCodec) Decompress(data []byte) ([]byte, error) { return xor(data), nil }
 
 func (xorTestCodec) FormatID() uint8 { return 201 }
+
+// reverseTestCodec is a custom codec that reverses the bytes so its output
+// differs from xorTestCodec.
+type reverseTestCodec struct{}
+
+func (reverseTestCodec) Compress(data []byte) ([]byte, error) { return reverse(data), nil }
+
+func (reverseTestCodec) Decompress(data []byte) ([]byte, error) { return reverse(data), nil }
+
+func (reverseTestCodec) FormatID() uint8 { return 202 }
+
+func reverse(data []byte) []byte {
+	out := make([]byte, len(data))
+	for i, b := range data {
+		out[len(data)-1-i] = b
+	}
+	return out
+}
+
+type legacyPerson struct {
+	FirstName string
+	LastName  string
+	Birthdate time.Time
+}
+
+func TestCache_SwitchFormats(t *testing.T) {
+	setup()
+	defer tearDown()
+
+	ctx := context.Background()
+	expected := legacyPerson{
+		FirstName: "Bob",
+		LastName:  "Dole",
+		Birthdate: time.Date(1960, 10, 28, 0, 0, 0, 0, time.UTC),
+	}
+
+	writer := New(client, Serialization(&JsonSerializer{}), Compression(reverseTestCodec{}))
+	for _, key := range []string{"key1", "key2", "key3"} {
+		assert.NoError(t, writer.Set(ctx, key, expected, 0))
+	}
+
+	for _, batch := range []int{0, 2} {
+		t.Run(fmt.Sprintf("batch=%d", batch), func(t *testing.T) {
+			opts := []Option{
+				Serialization(&MessagePackSerializer{}),
+				Compression(xorTestCodec{}),
+				DecodeCompression(reverseTestCodec{}),
+			}
+			if batch > 0 {
+				opts = append(opts, BatchMultiGets(batch))
+			}
+			reader := New(client, opts...)
+
+			var p legacyPerson
+			assert.NoError(t, reader.Get(ctx, "key1", &p))
+			assert.Equal(t, expected, p)
+
+			p = legacyPerson{}
+			assert.NoError(t, reader.GetAndExpire(ctx, "key1", &p, time.Minute))
+			assert.Equal(t, expected, p)
+
+			values, err := MGet[legacyPerson](ctx, reader, "key1", "key2", "key3", "missing")
+			assert.NoError(t, err)
+			assert.Equal(t, []legacyPerson{expected, expected, expected}, values)
+
+			m, err := MGetMap[legacyPerson](ctx, reader, "key1", "key2", "key3")
+			assert.NoError(t, err)
+			assert.Equal(t, MultiResult[legacyPerson]{"key1": expected, "key2": expected, "key3": expected}, m)
+
+			// The new instance writes in its own format, which the old one can't read
+			// unless it registers it.
+			assert.NoError(t, reader.Set(ctx, "new", expected, 0))
+			raw, err := client.Get(ctx, "new").Bytes()
+			assert.NoError(t, err)
+			assertHeader(t, raw, SerializerMsgPack, xorTestCodec{}.FormatID())
+			err = writer.Get(ctx, "new", &p)
+			assert.ErrorIs(t, err, ErrUnsupportedFormat)
+		})
+	}
+
+	reader := New(client, Compression(xorTestCodec{}), DecodeCompression(reverseTestCodec{}))
+	var p legacyPerson
+	assert.NoError(t, reader.GetAndDelete(ctx, "key1", &p))
+	assert.Equal(t, expected, p)
+	assert.ErrorIs(t, reader.Get(ctx, "key1", &p), ErrKeyNotFound)
+}
+
+func TestCache_UnsupportedFormat(t *testing.T) {
+	setup()
+	defer tearDown()
+
+	ctx := context.Background()
+	writer := New(client, Compression(reverseTestCodec{}))
+	assert.NoError(t, writer.Set(ctx, "key1", "value1", 0))
+	assert.NoError(t, writer.Set(ctx, "key2", "value2", 0))
+
+	for _, batch := range []int{0, 1} {
+		var opts []Option
+		if batch > 0 {
+			opts = append(opts, BatchMultiGets(batch))
+		}
+		reader := New(client, opts...)
+
+		var s string
+		err := reader.Get(ctx, "key1", &s)
+		assert.ErrorIs(t, err, ErrUnsupportedFormat)
+		assert.ErrorContains(t, err, "codec id 202")
+
+		_, err = MGet[string](ctx, reader, "key1", "key2")
+		assert.ErrorIs(t, err, ErrUnsupportedFormat)
+
+		_, err = MGetMap[string](ctx, reader, "key1", "key2")
+		assert.ErrorIs(t, err, ErrUnsupportedFormat)
+	}
+}
+
+func TestCache_LegacyValues(t *testing.T) {
+	setup()
+	defer tearDown()
+
+	ctx := context.Background()
+	expected := legacyPerson{
+		FirstName: "Bob",
+		LastName:  "Dole",
+		Birthdate: time.Date(1960, 10, 28, 0, 0, 0, 0, time.UTC),
+	}
+
+	// Values written by previous versions of the library have no header.
+	raw, err := (&JsonSerializer{}).Marshal(expected)
+	assert.NoError(t, err)
+	raw, err = reverseTestCodec{}.Compress(raw)
+	assert.NoError(t, err)
+	for _, key := range []string{"key1", "key2", "key3"} {
+		assert.NoError(t, client.Set(ctx, key, raw, 0).Err())
+	}
+
+	for _, batch := range []int{0, 2} {
+		opts := []Option{Serialization(&JsonSerializer{}), Compression(reverseTestCodec{})}
+		if batch > 0 {
+			opts = append(opts, BatchMultiGets(batch))
+		}
+		c := New(client, opts...)
+
+		var p legacyPerson
+		assert.NoError(t, c.Get(ctx, "key1", &p))
+		assert.Equal(t, expected, p)
+
+		results, err := MGetMap[legacyPerson](ctx, c, "key1", "key2", "key3")
+		assert.NoError(t, err)
+		assert.Equal(t, MultiResult[legacyPerson]{"key1": expected, "key2": expected, "key3": expected}, results)
+	}
+
+	// Upsert reads the legacy value and writes it back with the header.
+	c := New(client, Serialization(&JsonSerializer{}), Compression(reverseTestCodec{}))
+	err = Upsert[legacyPerson](ctx, c, "key1", legacyPerson{}, func(found bool, oldValue legacyPerson, newValue legacyPerson) legacyPerson {
+		assert.True(t, found)
+		assert.Equal(t, expected, oldValue)
+		return oldValue
+	}, 0)
+	assert.NoError(t, err)
+	stored, err := client.Get(ctx, "key1").Bytes()
+	assert.NoError(t, err)
+	assertHeader(t, stored, SerializerJSON, reverseTestCodec{}.FormatID())
+}

@@ -3,6 +3,7 @@ package cacheotel
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -25,16 +26,16 @@ type InstrumentedSerializer struct {
 // NewInstrumentedSerializer returns a new InstrumentedSerializer that wraps the given Serializer.
 //
 // The InstrumentedSerializer reports the format ID of the wrapped Serializer. If the
-// wrapped Serializer is nil or doesn't have a format ID, NewInstrumentedSerializer
+// wrapped Serializer is nil, including a nil pointer, or doesn't have a format ID, NewInstrumentedSerializer
 // panics. Custom Serializer implementations can be assigned a format ID by
 // implementing cache.FormatIdentifier or by wrapping them with cache.SerializerWithID.
 func NewInstrumentedSerializer(serializer cache.Serializer, opts ...SerializerOption) *InstrumentedSerializer {
-	if serializer == nil {
+	if isNil(serializer) {
 		panic(fmt.Errorf("nil Serializer"))
 	}
 	id, ok := cache.FormatIDOf(serializer)
 	if !ok {
-		panic(fmt.Errorf("Serializer %T has no format id: implement FormatID() uint8 returning an id in the range %d-255 or wrap it with cache.SerializerWithID",
+		panic(fmt.Errorf("serializer %T has no format id: implement FormatID() uint8 returning an id in the range %d-255 or wrap it with cache.SerializerWithID",
 			serializer, cache.MinCustomFormatID))
 	}
 
@@ -76,6 +77,26 @@ func (i *InstrumentedSerializer) Marshal(v any) ([]byte, error) {
 func (i *InstrumentedSerializer) Unmarshal(bytes []byte, v any) error {
 	start := time.Now()
 	err := i.serializer.Unmarshal(bytes, v)
+	i.recordUnmarshal(start, err)
+	return err
+}
+
+// UnmarshalStrict calls UnmarshalStrict on the wrapped Serializer if it implements
+// cache.StrictUnmarshaler, otherwise Unmarshal. It's recorded as an unmarshal
+// operation.
+func (i *InstrumentedSerializer) UnmarshalStrict(bytes []byte, v any) error {
+	start := time.Now()
+	var err error
+	if su, ok := i.serializer.(cache.StrictUnmarshaler); ok {
+		err = su.UnmarshalStrict(bytes, v)
+	} else {
+		err = i.serializer.Unmarshal(bytes, v)
+	}
+	i.recordUnmarshal(start, err)
+	return err
+}
+
+func (i *InstrumentedSerializer) recordUnmarshal(start time.Time, err error) {
 	ctx := context.Background()
 	i.duration.Record(ctx, time.Since(start).Seconds(),
 		metric.WithAttributes(
@@ -84,11 +105,31 @@ func (i *InstrumentedSerializer) Unmarshal(bytes []byte, v any) error {
 	if err != nil {
 		i.errs.Add(ctx, 1, metric.WithAttributes(attribute.String("operation", "unmarshal")))
 	}
-	return err
 }
 
 // FormatID returns the format ID of the wrapped Serializer since instrumentation
 // doesn't alter the encoded bytes.
 func (i *InstrumentedSerializer) FormatID() uint8 {
 	return i.id
+}
+
+// Unwrap returns the wrapped Serializer, which defines the format of the values
+// written by the InstrumentedSerializer.
+func (i *InstrumentedSerializer) Unwrap() cache.Serializer {
+	return i.serializer
+}
+
+// isNil reports whether v is nil, including interfaces holding a typed nil
+// pointer, map, slice, func or channel.
+func isNil(v any) bool {
+	if v == nil {
+		return true
+	}
+	rv := reflect.ValueOf(v)
+	switch rv.Kind() {
+	case reflect.Pointer, reflect.Map, reflect.Slice, reflect.Func, reflect.Chan, reflect.Interface, reflect.UnsafePointer:
+		return rv.IsNil()
+	default:
+		return false
+	}
 }

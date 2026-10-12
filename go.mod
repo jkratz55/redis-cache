@@ -1,6 +1,6 @@
 module github.com/jkratz55/redis-cache/v2
 
-go 1.26.0
+go 1.27.0
 
 require (
 	github.com/alicebob/miniredis/v2 v2.40.0
@@ -17,8 +17,6 @@ require (
 	go.opentelemetry.io/otel/metric v1.47.0
 	go.opentelemetry.io/otel/sdk v1.47.0
 	go.opentelemetry.io/otel/sdk/metric v1.47.0
-	go.opentelemetry.io/otel/trace v1.47.0
-	golang.org/x/sync v0.24.0
 	google.golang.org/protobuf v1.36.12
 )
 
@@ -41,6 +39,7 @@ require (
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.47.0 // indirect
 	go.opentelemetry.io/otel/log v1.47.0 // indirect
+	go.opentelemetry.io/otel/trace v1.47.0 // indirect
 	go.opentelemetry.io/proto/otlp v1.11.1 // indirect
 	go.uber.org/atomic v1.12.0 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect

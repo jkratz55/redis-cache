@@ -15,9 +15,9 @@ This document serves as the operational manual and architectural guide for AI ag
 - **Pluggable Serialization**: MessagePack (default via `vmihailenco/msgpack/v5`), JSON (`encoding/json/v2`), and Protobuf (via `cacheproto`).
 - **Pluggable Compression**: Codecs for Deflate/Flate, Gzip, LZ4, S2, Snappy, and Zstandard.
 - **Pipelined Batching**: Optional transparent batch chunking for `MGet` and `MGetMap` operations via `BatchMultiGets(batchSize)`.
-- **Cache Patterns**: Built-in support for Read-Through (with optional `singleflight` thundering-herd protection) and Write-Through (synchronous or asynchronous).
+- **Cache Patterns**: Built-in support for Read-Through (with optional single-flight thundering-herd protection) and Write-Through (synchronous or asynchronous).
 - **High Availability**: Built-in `FailoverClient` providing automatic failover and recovery across primary and secondary Redis instances.
-- **Observability**: First-class OpenTelemetry metrics and distributed tracing via the `cacheotel` package.
+- **Observability**: OpenTelemetry metrics for serialization and compression via the `cacheotel` package. Redis command tracing and metrics come from instrumenting the Redis client itself (e.g. `redisotel`).
 
 ---
 
@@ -31,7 +31,11 @@ This document serves as the operational manual and architectural guide for AI ag
 ├── typedcache_test.go    # Unit tests for TypedCache[T]
 ├── serialization.go      # Serializer interface, JsonSerializer, MessagePackSerializer
 ├── codec.go              # CompressionCodec interface and nopCodec default
+├── format.go             # Value header, format IDs, and the serializer/codec registry
+├── format_test.go        # Format tests (external cache_test package, uses the built-in codecs)
+├── export_test.go        # Exposes unexported identifiers to external tests (contains no tests)
 ├── option.go             # Functional options for Cache and TypedCache configuration
+├── option_test.go        # Unit tests for options
 ├── readthrough.go        # ReadThrough and ReadThroughSingleFlight implementations
 ├── readthrough_test.go   # Unit tests for read-through patterns
 ├── writethrough.go       # WriteThrough implementation and WriteThroughError
@@ -44,13 +48,13 @@ This document serves as the operational manual and architectural guide for AI ag
 ├── version.go            # Library version string (v2.0.0)
 ├── doc.go                # Package documentation
 ├── cacheproto/           # Protobuf serializer (ProtobufSerializer)
-│   └── proto.go
+│   ├── proto.go
+│   └── proto_test.go
 ├── cacheotel/            # OpenTelemetry instrumentation package
-│   ├── cache.go          # InstrumentedCache and InstrumentedTypedCache wrappers
 │   ├── serialization.go  # InstrumentedSerializer
 │   ├── compression.go    # InstrumentedCompressionCodec
 │   ├── options.go        # Telemetry configuration options
-│   └── otel.go           # Metrics & tracing definitions
+│   └── otel.go           # Instrumentation scope name
 ├── compression/          # Compression codec implementations
 │   ├── flate/            # Deflate/Flate codec
 │   ├── gzip/             # Gzip codec
@@ -98,6 +102,8 @@ type Serializer interface {
 - `JsonSerializer`: Standard JSON serialization.
 - `cacheproto.ProtobufSerializer`: Serializes types implementing `google.golang.org/protobuf/proto.Message`.
 
+Serializers whose `Unmarshal` tolerates input it didn't produce (e.g. Protobuf keeps unknown fields) should also implement the optional `StrictUnmarshaler` interface. It is used when a value with a format header fails to decode and is retried as a headerless legacy value, so corrupt values aren't mistaken for legacy ones. Wrappers that don't alter the bytes (e.g. the `cacheotel` wrappers) must forward the wrapped component's format ID, implement `Unwrap()`, and forward `UnmarshalStrict`.
+
 ### 3.4 Compression (`CompressionCodec`)
 Defined in `codec.go`:
 ```go
@@ -110,24 +116,25 @@ Available implementations are located under `compression/<algorithm>/` (e.g., `c
 
 ### 3.5 Read-Through & Write-Through
 - **`ReadThrough[T]`**: Synchronous fetch from Redis. On cache miss, executes `LoaderFunc[T]`, caches the result, and returns. Redis errors do not fail the call (invokes `OnCacheError` hook).
-- **`ReadThroughSingleFlight[T]`**: Wraps read-through logic inside a `singleflight.Group` keyed by cache key, preventing duplicate backend queries during cache stampedes.
+- **`ReadThroughSingleFlight[T]`**: Deduplicates concurrent loads of the same cache key, preventing duplicate backend queries during cache stampedes. The shared load is canceled once no caller is waiting for it anymore.
 - **`WriteThrough[T]`**: Updates system of record via `WriteThroughWriter[T]`, then updates Redis synchronously or asynchronously (`UpdateCacheAsync: true`). Returns `*WriteThroughError` allowing callers to verify if the primary source succeeded despite cache failures (`err.SourceUpdated`).
 
 ### 3.6 Failover Client (`FailoverClient`)
 Wraps a primary and secondary `RedisClient`. Conducts periodic health checks (`Ping`) in a background goroutine. Automatically switches traffic to secondary upon `FailureThreshold` consecutive check failures, and recovers back to primary after `SuccessThreshold` consecutive successes.
 
 ### 3.7 OpenTelemetry Instrumentation (`cacheotel`)
-Wraps `Cache`, `TypedCache`, `Serializer`, and `CompressionCodec` instances to record:
-- Histogram: `cache.execution_duration` with attributes `operation` and `success`.
-- Histogram: `cache.mget_keys` recording key count in batch operations.
-- Tracing spans: Span for each operation (e.g., `cache.get`, `cache.set`) with span status and `cache.hit` attributes.
+Wraps `Serializer` and `CompressionCodec` instances (`NewInstrumentedSerializer`, `NewInstrumentedCompressionCodec`) to record:
+- Histograms: `cache.serialization.duration` and `cache.compression.duration` with attributes `operation` and `success`.
+- Counters: `cache.serialization.errors` and `cache.compression.errors` with attribute `operation`.
+
+The wrappers forward the format ID of the component they wrap, so values they write are readable by uninstrumented instances.
 
 ---
 
 ## 4. Development Workflow & Tooling
 
 ### Prerequisites
-- **Go**: Version 1.25+ (configured for Go 1.26 in `go.mod`).
+- **Go**: Version 1.27+ (configured in `go.mod`).
 - **Redis**: Redis 7+ compatibility target.
 
 ### Standard Commands
@@ -163,6 +170,9 @@ go test -v -race .
   ```
 - **Assertions**: Standardize on `github.com/stretchr/testify/assert` and `github.com/stretchr/testify/require`.
 - **Error Conditions**: Test cache miss (`ErrKeyNotFound`), corrupt data unmarshaling errors, nil client panics, and TTL expiration behavior.
+- **Test File Layout**: Test files mirror implementation files. Every test for `foo.go` lives in `foo_test.go`, e.g. `format.go` → `format_test.go`. Don't add files such as `foo_external_test.go` or `foo_legacy_test.go`.
+  - A file has a single package clause, so if any test for `foo.go` needs the external `cache_test` package, the whole `foo_test.go` uses `package cache_test`. This is required for tests that import `compression/*` or `cacheproto`, since those packages import `cache`, and for tests that need types declared outside the module's packages.
+  - `export_test.go` is the only exception. It contains no tests and only exposes unexported identifiers to external test files.
 
 ---
 
@@ -181,7 +191,6 @@ When modifying or extending this codebase, adhere to the following rules:
    - When introducing new caching operations (e.g., `GetAndExpire`, `SetIfAbsent`), ensure parity across:
      - `Cache` in `cache.go`
      - `TypedCache` in `typedcache.go`
-     - `cacheotel.InstrumentedCache` and `cacheotel.InstrumentedTypedCache` in `cacheotel/cache.go`
      - Unit tests in `cache_test.go` and `typedcache_test.go`
 
 4. **Error Handling Conventions**:

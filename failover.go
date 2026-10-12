@@ -235,7 +235,13 @@ type FailoverClient struct {
 	closeChan    chan struct{}
 	done         chan struct{}
 	failedOver   atomic.Bool
-	closeOnce    sync.Once
+
+	// mu guards closed and inCallback, which ensure no callback starts after Close
+	// and that Close doesn't wait for a callback that is running, which may be the
+	// caller of Close.
+	mu         sync.Mutex
+	closed     bool
+	inCallback bool
 }
 
 // clientRef wraps a RedisClient so it can be stored in an atomic.Pointer.
@@ -327,6 +333,24 @@ func safeCall(fn func()) {
 	fn()
 }
 
+// callback invokes the callback fn unless Close has been called.
+func (f *FailoverClient) callback(fn func()) {
+	f.mu.Lock()
+	if f.closed {
+		f.mu.Unlock()
+		return
+	}
+	f.inCallback = true
+	f.mu.Unlock()
+
+	defer func() {
+		f.mu.Lock()
+		f.inCallback = false
+		f.mu.Unlock()
+	}()
+	safeCall(fn)
+}
+
 func (f *FailoverClient) monitorClients() {
 	defer close(f.done)
 
@@ -374,7 +398,7 @@ func (f *FailoverClient) monitorClients() {
 			if primaryErr != nil {
 				failures++
 				successes = 0
-				safeCall(func() { f.config.OnCheckFailure("primary", primaryErr) })
+				f.callback(func() { f.config.OnCheckFailure("primary", primaryErr) })
 			} else {
 				failures = 0
 				successes++
@@ -386,19 +410,19 @@ func (f *FailoverClient) monitorClients() {
 			if failures >= int64(f.config.FailureThreshold) && !failedOver && secondaryErr == nil {
 				f.active.Store(f.secondaryRef)
 				f.failedOver.Store(true)
-				safeCall(f.config.OnFailover)
+				f.callback(f.config.OnFailover)
 				failures = 0
 				successes = 0
 			} else if successes >= int64(f.config.SuccessThreshold) && failedOver {
 				f.active.Store(f.primaryRef)
 				f.failedOver.Store(false)
-				safeCall(f.config.OnRecovered)
+				f.callback(f.config.OnRecovered)
 				failures = 0
 				successes = 0
 			}
 
 			if secondaryErr != nil {
-				safeCall(func() { f.config.OnCheckFailure("secondary", secondaryErr) })
+				f.callback(func() { f.config.OnCheckFailure("secondary", secondaryErr) })
 			}
 
 		case <-f.closeChan:
@@ -488,18 +512,27 @@ func (f *FailoverClient) Pipeline() redis.Pipeliner {
 }
 
 // Close stops the failover client from monitoring the primary and secondary Redis clients
-// and closes the underlying Redis clients. Close waits for the monitoring goroutine to stop,
-// so no callbacks are invoked after Close returns.
+// and closes the underlying Redis clients. No callbacks are invoked after Close is called.
+// Close waits for the monitoring goroutine to stop, unless a callback is running, so a
+// callback can call Close. In that case the running callback may still be running when
+// Close returns.
 //
 // Close is a no-op if Close has already been called.
 func (f *FailoverClient) Close() error {
-	var err error
-	f.closeOnce.Do(func() {
-		close(f.closeChan)
+	f.mu.Lock()
+	if f.closed {
+		f.mu.Unlock()
+		return nil
+	}
+	f.closed = true
+	wait := !f.inCallback
+	f.mu.Unlock()
+
+	close(f.closeChan)
+	if wait {
 		<-f.done
-		err = errors.Join(f.primary.Close(), f.secondary.Close())
-	})
-	return err
+	}
+	return errors.Join(f.primary.Close(), f.secondary.Close())
 }
 
 // IsPrimary returns true if the failover client is currently using the primary Redis client.

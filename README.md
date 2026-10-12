@@ -4,7 +4,7 @@ Redis Cache is a thin abstraction layer on top of the go-redis client. The goal 
 
 Redis Cache provides two cores types, `Cache` and `TypedCache`. They are functionally identical, but have different APIs. The `Cache` type is more generic and flexible, allowing a single instance to be used with multiple types. It's API is similar to built in Marshal/Unmarshal functions in the GO ecosystem. It expects a pointer to a struct to be passed in, and will marshal/unmarshal the struct into bytes. Meanwhile, the `TypedCache` type is more specific and only works with a single type. However, it simplifes the API, and is type-safe thanks to generics. Unlike the `Cache` type, the `TypedCache` type allows us to support MGet as a method, rather than a standalone function. `TypedCache` also works much better when using Protobuf for encoding/serialization. Which one to choose largely depends on your use case and preferences.
 
-Instrumentation is key to any production ready application. Redis Cache provides OpenTelemetry tracing and metrics out of the box which the `cacheotel` pacakge. The `cacheotel` package provides wrapped versions of the `Cache` and `TypedCache` types that automatically instrument the calls with OpenTelemetry. When used in combination with tracing/metrics on the Redis client itself, this can provide a very rich observability story. Specifically, you can see how long the client takes to get a response from Redis, and how long it takes to handle encoding/compression.
+Instrumentation is key to any production ready application. The `cacheotel` package provides OpenTelemetry instrumented wrappers for the `Serializer` and `CompressionCodec` used by `Cache` and `TypedCache`. When used in combination with tracing/metrics on the Redis client itself, such as `redisotel`, this can provide a very rich observability story. Specifically, you can see how long the client takes to get a response from Redis, and how long it takes to handle encoding/compression.
 
 ## Features
 
@@ -93,7 +93,8 @@ Rules for custom implementations:
 
 * **An ID is a permanent contract.** The ID is stored in Redis alongside every value. Once values have been written with an ID, it must never be used for a different format by any service sharing the same Redis.
 * **Layered codecs need their own ID.** A codec that changes the bytes of another codec (e.g. encryption on top of gzip) produces a different format and must declare its own ID. IDs are only discovered through `FormatID()`; `Unwrap()` is never followed, so a wrapper can't accidentally inherit the ID of what it wraps.
-* **Pass-through wrappers forward the inner ID.** Wrappers that don't alter the bytes, like `cacheotel.InstrumentedSerializer` and `cacheotel.InstrumentedCompressionCodec`, implement `FormatID()` by returning the ID of the wrapped component (use `cache.FormatIDOf`).
+* **Pass-through wrappers forward the inner ID.** Wrappers that don't alter the bytes, like `cacheotel.InstrumentedSerializer` and `cacheotel.InstrumentedCompressionCodec`, implement `FormatID()` by returning the ID of the wrapped component (use `cache.FormatIDOf`) and `Unwrap()` by returning the wrapped component. The wrapped component then identifies the format, so a wrapper can forward the ID of a built-in implementation.
+* **Tolerant serializers should implement `StrictUnmarshaler`.** Values written by older versions of the library have no header and can start with the same bytes as the header, so a value that fails to decode is also decoded as a value without a header. If `Unmarshal` accepts input it didn't produce, such as unknown fields, implement `UnmarshalStrict` so a corrupt value isn't mistaken for an old value.
 * Implementations must be safe for concurrent use.
 
 See `examples/customserializer` for a runnable example.
@@ -104,7 +105,7 @@ Please see [CONTRIBUTING.md](CONTRIBUTING.md) for details.
 
 ## Requirements
 
-* Go 1.25+ 
+* Go 1.27+
 * Redis 7+
 
 ## Getting Redis Cache

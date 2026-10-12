@@ -91,9 +91,9 @@ func main() {
 
 	serializer := cacheotel.NewInstrumentedSerializer(&cache.MessagePackSerializer{})
 
-	// Create instance of the instrumented cache instead of cache.Cache. This will automatically
-	// capture execution time of not only the client, but compression and serialization.
-	rdb := cacheotel.InstrumentCache(cache.New(client, cache.Serialization(serializer)))
+	// The Redis client is instrumented by redisotel and the serializer by cacheotel, so the
+	// cache captures the execution time of both the Redis commands and serialization.
+	rdb := cache.New(client, cache.Serialization(serializer))
 
 	ctx := context.Background()
 
@@ -114,7 +114,7 @@ func main() {
 	}
 
 	keys := []string{"key0", "key1", "key2", "key3", "key4", "key5", "key6", "key7", "key8", "key9"}
-	vals, err := cacheotel.MGet[string](ctx, rdb, keys...)
+	vals, err := cache.MGet[string](ctx, rdb, keys...)
 	if err != nil {
 		panic(err)
 	}
