@@ -59,10 +59,11 @@ IDs 0-127 are reserved for built-in implementations, IDs 128-255 are available f
 
 ### Inspecting Values
 
-Tools such as Redis Insight and `redis-cli` show stored values as raw bytes, since they don't know the header, the serializer, or the codec. `cmd/cli` fetches values and prints how each one is encoded and compressed, along with the decoded data:
+Tools such as Redis Insight and `redis-cli` show stored values as raw bytes, since they don't know the header, the serializer, or the codec. `rediscache-inspect` fetches values and prints how each one is encoded and compressed, along with the decoded data:
 
 ```console
-$ go run github.com/jkratz55/redis-cache/v2/cmd/cli -url redis://localhost:6379/0 user:42
+$ go install github.com/jkratz55/redis-cache/v2/cmd/rediscache-inspect@latest
+$ rediscache-inspect -url redis://localhost:6379/0 user:42
 Key          user:42
 Encoding     MessagePack (ID 1)
 Compression  none (ID 0)
@@ -90,9 +91,9 @@ Header       v1
 * `-o json` prints one JSON object per key, for example for `jq`, and `-hex` adds a hex dump of the bytes stored in Redis.
 * `-url` defaults to `$REDIS_URL`. Use `rediss://` for TLS, and `-cluster` for Redis Cluster.
 * Values are decompressed up to 64 MiB, set by `-max-size`.
-* To inspect every key matching a pattern, pipe the keys from `redis-cli --scan --pattern 'user:*'` to `xargs`.
+* To inspect every key matching a pattern, pipe the keys from `redis-cli --scan --pattern 'user:*'` to `xargs rediscache-inspect`.
 
-The exit status is 1 if a key is missing, holds another Redis type, or can't be decoded, so the CLI can be used in scripts.
+The exit status is 1 if a key is missing, holds another Redis type, or can't be decoded, so `rediscache-inspect` can be used in scripts.
 
 ## Bring your own Serializer/Codec
 

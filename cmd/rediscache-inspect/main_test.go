@@ -88,8 +88,8 @@ func TestRun_Errors(t *testing.T) {
 		status int
 		stderr string
 	}{
-		{"help", []string{"-h"}, 0, "Usage: cli [flags] key..."},
-		{"no keys", []string{"-url", url}, 2, "Usage: cli [flags] key..."},
+		{"help", []string{"-h"}, 0, "Usage: rediscache-inspect [flags] key..."},
+		{"no keys", []string{"-url", url}, 2, "Usage: rediscache-inspect [flags] key..."},
 		{"unknown flag", []string{"-nope", "key"}, 2, "flag provided but not defined: -nope"},
 		{"invalid output", []string{"-url", url, "-o", "yaml", "key"}, 2, `invalid -o "yaml": must be text or json`},
 		{"invalid legacy encoding", []string{"-url", url, "-legacy-encoding", "xml", "key"}, 2, `invalid -legacy-encoding "xml"`},

@@ -1,9 +1,10 @@
-// Command cli fetches values written by redis-cache from Redis and prints how each
-// value is encoded and compressed, along with the decoded data.
+// Command rediscache-inspect fetches values written by redis-cache from Redis and
+// prints how each value is encoded and compressed, along with the decoded data.
 //
 // Usage:
 //
-//	go run github.com/jkratz55/redis-cache/v2/cmd/cli [flags] key...
+//	go install github.com/jkratz55/redis-cache/v2/cmd/rediscache-inspect@latest
+//	rediscache-inspect [flags] key...
 //
 // Values are decoded without their Go types: MessagePack and JSON values are
 // printed as JSON, keeping the order of their fields, and Protobuf values are
@@ -14,7 +15,7 @@
 //
 // To inspect every key matching a pattern, combine it with redis-cli:
 //
-//	redis-cli --scan --pattern 'user:*' | xargs go run github.com/jkratz55/redis-cache/v2/cmd/cli
+//	redis-cli --scan --pattern 'user:*' | xargs rediscache-inspect
 //
 // The exit status is 0 if every key was found and decoded, 1 if a key was
 // missing, held another Redis type, couldn't be decoded, or Redis failed, and 2
@@ -56,10 +57,10 @@ type config struct {
 // run runs the command with args and returns its exit status.
 func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	cfg := config{maxSize: 64 << 20}
-	fs := flag.NewFlagSet("cli", flag.ContinueOnError)
+	fs := flag.NewFlagSet("rediscache-inspect", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	fs.Usage = func() {
-		fmt.Fprintf(fs.Output(), "Usage: cli [flags] key...\n\n"+
+		fmt.Fprintf(fs.Output(), "Usage: rediscache-inspect [flags] key...\n\n"+
 			"Fetches values written by redis-cache and prints their encoding, compression, and data.\n\n"+
 			"Flags:\n")
 		fs.PrintDefaults()
