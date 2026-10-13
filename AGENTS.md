@@ -60,6 +60,12 @@ This document serves as the operational manual and architectural guide for AI ag
 │   ├── failover.go       # ObserveFailoverClient: active FailoverClient side gauge
 │   ├── options.go        # Telemetry configuration options
 │   └── otel.go           # Package doc, instrumentation scope name, shared helpers
+├── cmd/cli/              # CLI printing the encoding, compression, and data of stored values
+│   ├── main.go           # Flags, Redis access, and exit status
+│   ├── inspect.go        # Header parsing, decompression, and detection of values without a header
+│   ├── msgpack.go        # MessagePack to JSON, keeping the order of map keys
+│   ├── proto.go          # Protobuf without a schema, like protoc --decode_raw
+│   └── render.go         # Text and JSON output
 ├── compression/          # Compression codec implementations
 │   ├── internal/limit/   # Decompressed size limits shared by the codecs
 │   ├── flate/            # Deflate/Flate codec
@@ -153,6 +159,9 @@ Wraps `Serializer` and `CompressionCodec` instances (`NewInstrumentedSerializer`
 
 The wrappers forward the format ID of the component they wrap, so values they write are readable by uninstrumented instances.
 
+### 3.8 Inspection CLI (`cmd/cli`)
+Fetches values and prints their encoding, compression, TTL, and decoded data without the Go types: MessagePack and JSON as JSON (map key order is kept), Protobuf like `protoc --decode_raw`, anything else as text or a hex dump. It redeclares the header constants and names the built-in formats in `inspect.go`, so add new built-in serializers and codecs there. `TestInspect_BuiltInFormats` encodes values through the library, so it fails if the header and the CLI drift apart. Never decode untrusted MessagePack maps or arrays with `DecodeInterface`: msgpack v5.4.1 allocates their declared length up front.
+
 ---
 
 ## 4. Development Workflow & Tooling
@@ -178,6 +187,9 @@ go test -race ./...
 # Run specific package tests
 go test -v -race ./compression/zstd
 go test -v -race .
+
+# Inspect stored values
+go run ./cmd/cli -url redis://localhost:6379/0 user:42
 
 # Fuzz decoding of untrusted values
 go test -run '^$' -fuzz '^FuzzDecode$' -fuzztime 1m .

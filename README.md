@@ -57,6 +57,43 @@ IDs 0-127 are reserved for built-in implementations, IDs 128-255 are available f
 |                                 |                          | `compression/snappy` | 5 (`CodecSnappy`) |
 |                                 |                          | `compression/zstd`   | 6 (`CodecZstd`)   |
 
+### Inspecting Values
+
+Tools such as Redis Insight and `redis-cli` show stored values as raw bytes, since they don't know the header, the serializer, or the codec. `cmd/cli` fetches values and prints how each one is encoded and compressed, along with the decoded data:
+
+```console
+$ go run github.com/jkratz55/redis-cache/v2/cmd/cli -url redis://localhost:6379/0 user:42
+Key          user:42
+Encoding     MessagePack (ID 1)
+Compression  none (ID 0)
+Size         101 B in Redis
+TTL          9m41s
+Header       v1
+
+{
+  "ID": 42,
+  "Name": "Ada Lovelace",
+  "Email": "ada@example.com",
+  "Tags": [
+    "admin",
+    "beta"
+  ],
+  "Created": "2026-10-01T09:30:00Z",
+  "Limits": {
+    "rps": 0.5
+  }
+}
+```
+
+* MessagePack and JSON values are printed as JSON, with fields in the order they were written. Protobuf values are printed without a schema, like `protoc --decode_raw`. Values written with a custom serializer or codec are printed as a hex dump.
+* Values without a header, written by v1.x, the release candidates, or other clients, are detected as JSON, MessagePack, or plain text, compressed with Gzip, Zstandard, or LZ4. Flate, S2, and Snappy values and Protobuf values can't be detected, so set `-legacy-compression` and `-legacy-encoding` for them.
+* `-o json` prints one JSON object per key, for example for `jq`, and `-hex` adds a hex dump of the bytes stored in Redis.
+* `-url` defaults to `$REDIS_URL`. Use `rediss://` for TLS, and `-cluster` for Redis Cluster.
+* Values are decompressed up to 64 MiB, set by `-max-size`.
+* To inspect every key matching a pattern, pipe the keys from `redis-cli --scan --pattern 'user:*'` to `xargs`.
+
+The exit status is 1 if a key is missing, holds another Redis type, or can't be decoded, so the CLI can be used in scripts.
+
 ## Bring your own Serializer/Codec
 
 Custom `Serializer` and `CompressionCodec` implementations are fully supported but must have a format ID in the range 128-255. `New` and `NewTyped` panic if a serializer or codec doesn't have a valid ID, or if two different implementations claim the same ID.
