@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"iter"
 	"reflect"
 	"sync"
 	"time"
@@ -512,108 +513,139 @@ func (c *Cache) setMGetBatch(i int) {
 	c.mgetBatch = i
 }
 
-// MultiResult is a type representing returning multiple entries from the Cache.
-type MultiResult[T any] map[string]T
+// MultiResult holds the values read by MGet. Like the reply to the Redis MGET command, it has an
+// entry for every requested key in the order the keys were requested, including keys that don't
+// exist and keys requested more than once.
+//
+// A key is found if its value was decoded and missing if it doesn't exist in Redis. A key whose value
+// couldn't be decoded is neither, its error is in the *MultiKeyError returned with the MultiResult.
+//
+// The zero value is an empty MultiResult.
+type MultiResult[T any] struct {
+	// entries holds an entry for every requested key, in the order of the keys.
+	entries []resultEntry
+	// values holds the values of the keys that were found, in the order of the keys.
+	values []T
+	// missing is the number of keys that don't exist.
+	missing int
+}
 
-// Keys returns all the keys found.
-func (mr MultiResult[T]) Keys() []string {
-	keys := make([]string, 0, len(mr))
-	for key := range mr {
-		keys = append(keys, key)
+// resultEntry is the entry of a key in a MultiResult.
+type resultEntry struct {
+	key string
+	// value is the index of the key's value in MultiResult.values, or entryMissing
+	// or entryFailed if the key has no value.
+	value int32
+}
+
+const (
+	// entryMissing is the value index of a key that doesn't exist.
+	entryMissing int32 = -1
+	// entryFailed is the value index of a key whose value couldn't be decoded.
+	entryFailed int32 = -2
+)
+
+// Len returns the number of keys requested.
+func (r MultiResult[T]) Len() int {
+	return len(r.entries)
+}
+
+// At returns the value of the i-th requested key and whether it was found, like the i-th element of the
+// reply to MGET. If the key doesn't exist or its value couldn't be decoded, At returns the zero value
+// and false. At panics if i isn't in the range [0, Len()).
+func (r MultiResult[T]) At(i int) (T, bool) {
+	if idx := r.entries[i].value; idx >= 0 {
+		return r.values[idx], true
+	}
+	var zero T
+	return zero, false
+}
+
+// All returns an iterator over the keys that were found and their values, in the order the keys were
+// requested. A key requested more than once is yielded every time.
+func (r MultiResult[T]) All() iter.Seq2[string, T] {
+	return func(yield func(string, T) bool) {
+		for _, e := range r.entries {
+			if e.value >= 0 && !yield(e.key, r.values[e.value]) {
+				return
+			}
+		}
+	}
+}
+
+// Values returns the values of the keys that were found, in the order the keys were requested. Values
+// doesn't copy the values, so the returned slice shares its memory with r.
+func (r MultiResult[T]) Values() []T {
+	return r.values
+}
+
+// Missing returns the keys that don't exist in Redis, in the order they were requested, for example to
+// load them from the source of truth. A key requested more than once is returned every time. Keys whose
+// value couldn't be decoded aren't missing, so loading the missing keys and caching them doesn't
+// overwrite a value written in a format this instance can't read.
+func (r MultiResult[T]) Missing() []string {
+	if r.missing == 0 {
+		return nil
+	}
+	keys := make([]string, 0, r.missing)
+	for _, e := range r.entries {
+		if e.value == entryMissing {
+			keys = append(keys, e.key)
+		}
 	}
 	return keys
 }
 
-// Values returns all the values found.
-//
-// Note: This operation can be expensive as it allocates a new slice and copies all the values from
-// the result.
-func (mr MultiResult[T]) Values() []T {
-	values := make([]T, 0, len(mr))
-	for _, val := range mr {
-		values = append(values, val)
+// Map returns the values of the keys that were found, by key.
+func (r MultiResult[T]) Map() map[string]T {
+	m := make(map[string]T, len(r.values))
+	for key, val := range r.All() {
+		m[key] = val
 	}
-	return values
+	return m
 }
 
-// Get returns the value and a boolean indicating if the key exists. If the key
-// doesn't exist the value will be the default zero value.
-func (mr MultiResult[T]) Get(key string) (T, bool) {
-	val, ok := mr[key]
-	return val, ok
-}
-
-// IsEmpty returns a boolean indicating if the results are empty.
-func (mr MultiResult[T]) IsEmpty() bool {
-	return len(mr) == 0
-}
-
-// MGetMap retrieves multiple keys in a single operation and returns the result as a map key -> value.
+// MGet retrieves the values of multiple keys in a single operation and decodes them into T.
 //
-// If a key doesn't exist in Redis it will not be present in the result map.
+// Like the reply to the Redis MGET command, the MultiResult has an entry for every key in the order of
+// keys. Use Values for the values that were found, At to read them by position, All or Map to read them
+// by key, and Missing for the keys that don't exist, for example to load them from the source of truth.
 //
 // If the values of some keys can't be decoded, for example because they are corrupt or were written in
-// a format that isn't registered, those keys aren't present in the result map either. MGetMap then
-// returns the values of the other keys along with a *MultiKeyError holding the error of every key that
-// couldn't be decoded. If the Redis command fails, MGetMap returns a nil map and the error.
+// a format that isn't registered, MGet returns the values of the other keys along with a *MultiKeyError
+// holding the error of every key that couldn't be decoded. Those keys are neither found nor missing. If
+// the Redis command fails, MGet returns an empty MultiResult and the error. If no keys are provided, MGet
+// returns an empty MultiResult without sending a command to Redis.
 //
-// MGetMap is useful when you want to fetch multiple keys and their relationship between each other
-// is important. For example, if you want to fetch a user's profile and their friends, you can use
-// MGetMap to fetch both the profile and the friends in a single operation. If you just want the values
-// and don't care about the relationship between the keys, use MGet instead.
-//
-// MGetMap uses the MGET command. On Redis Cluster, a single MGET command can only read keys of the same
+// MGet uses the MGET command. On Redis Cluster, a single MGET command can only read keys of the same
 // hash slot, otherwise Redis returns a CROSSSLOT error. Use hash tags, such as "{user:1}:profile" and
 // "{user:1}:friends", to store related keys in the same slot. BatchMultiGets splits keys by count, not
 // by slot, so it doesn't lift this restriction.
-func MGetMap[R any](ctx context.Context, c *Cache, keys ...string) (MultiResult[R], error) {
-	results, err := mget(ctx, c.redis, c.mgetBatch, keys)
-	if err != nil {
-		return nil, err
-	}
-
-	resultMap := make(map[string]R, len(keys))
-	err = decodeMulti(ctx, c.formats, keys, results,
-		func(data []byte) (R, error) {
-			var val R
-			err := c.formats.decode(ctx, data, &val)
-			return val, err
-		},
-		func(key string, val R) {
-			resultMap[key] = val
-		})
-	return resultMap, err
+func MGet[T any](ctx context.Context, c *Cache, keys ...string) (MultiResult[T], error) {
+	return multiGet(ctx, c.redis, c.formats, c.mgetBatch, keys, func(data []byte) (T, error) {
+		var val T
+		err := c.formats.decode(ctx, data, &val)
+		return val, err
+	})
 }
 
-// MGet retrieves multiple keys in a single operation and returns the result as a slice.
-//
-// If a key doesn't exist in Redis it will not be present in the result slice. Due to missing keys
-// being omitted it isn't possible to correlate the keys with their values. If you need to fetch
-// multiple keys and their relationship between each other is important, use MGetMap instead.
-//
-// If the values of some keys can't be decoded, for example because they are corrupt or were written in
-// a format that isn't registered, those values aren't present in the result slice either. MGet then
-// returns the other values along with a *MultiKeyError holding the error of every key that couldn't be
-// decoded. If the Redis command fails, MGet returns a nil slice and the error.
-//
-// MGet uses the MGET command, so on Redis Cluster all keys must be in the same hash slot, see MGetMap.
-func MGet[T any](ctx context.Context, c *Cache, keys ...string) ([]T, error) {
-	results, err := mget(ctx, c.redis, c.mgetBatch, keys)
-	if err != nil {
-		return nil, err
-	}
+// multiGet reads keys with mget and decodes their values with decode.
+func multiGet[T any](
+	ctx context.Context,
+	rdb RedisClient,
+	f *formats,
+	batch int,
+	keys []string,
+	decode func(data []byte) (T, error)) (MultiResult[T], error) {
 
-	values := make([]T, 0, len(keys))
-	err = decodeMulti(ctx, c.formats, keys, results,
-		func(data []byte) (T, error) {
-			var val T
-			err := c.formats.decode(ctx, data, &val)
-			return val, err
-		},
-		func(key string, val T) {
-			values = append(values, val)
-		})
-	return values, err
+	if len(keys) == 0 {
+		return MultiResult[T]{}, nil
+	}
+	results, err := mget(ctx, rdb, batch, keys)
+	if err != nil {
+		return MultiResult[T]{}, err
+	}
+	return decodeMulti(ctx, f, keys, results, decode)
 }
 
 // mget returns the values of keys in the same order as keys, with nil for every key
@@ -651,45 +683,49 @@ func mget(ctx context.Context, rdb RedisClient, batch int, keys []string) ([]any
 	return results, nil
 }
 
-// decodeMulti decodes the values returned by mget for keys and calls add with every
-// key whose value was decoded, in the order of keys. Keys that don't exist are
-// skipped. Keys whose value can't be decoded are skipped as well and their errors
-// are returned as a *MultiKeyError. The lookup is reported to the OnLookup hook.
+// decodeMulti decodes the values returned by mget for keys. The errors of keys whose
+// value can't be decoded are returned as a *MultiKeyError along with the result. The
+// lookup is reported to the OnLookup hook.
 func decodeMulti[T any](
 	ctx context.Context,
 	f *formats,
 	keys []string,
 	results []any,
-	decode func(data []byte) (T, error),
-	add func(key string, val T)) error {
+	decode func(data []byte) (T, error)) (MultiResult[T], error) {
 
-	var (
-		hits int
-		errs map[string]error
-	)
+	// The entries copy the keys since the caller can reuse its slice.
+	r := MultiResult[T]{
+		entries: make([]resultEntry, len(keys)),
+		values:  make([]T, 0, len(keys)),
+	}
+	var errs map[string]error
 	for i, res := range results {
+		r.entries[i].key = keys[i]
 		if res == nil {
 			// The key doesn't exist.
+			r.entries[i].value = entryMissing
+			r.missing++
 			continue
 		}
-		hits++
 
 		val, err := decodeResult(res, decode)
 		if err != nil {
+			r.entries[i].value = entryFailed
 			if errs == nil {
 				errs = make(map[string]error)
 			}
 			errs[keys[i]] = fmt.Errorf("decode key %q to type %s: %w", keys[i], reflect.TypeFor[T](), err)
 			continue
 		}
-		add(keys[i], val)
+		r.entries[i].value = int32(len(r.values))
+		r.values = append(r.values, val)
 	}
 
-	f.hooks.lookup(ctx, hits, len(results)-hits)
+	f.hooks.lookup(ctx, len(results)-r.missing, r.missing)
 	if errs != nil {
-		return &MultiKeyError{Errors: errs}
+		return r, &MultiKeyError{Errors: errs}
 	}
-	return nil
+	return r, nil
 }
 
 // decodeResult decodes a single value returned by MGET.

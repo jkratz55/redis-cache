@@ -45,9 +45,9 @@ func (e RetryableError) Unwrap() error {
 	return e.cause
 }
 
-// MultiKeyError is returned by operations on multiple keys, such as MGet and
-// MGetMap, when some keys failed while others succeeded. The results of the keys
-// that succeeded are returned along with the MultiKeyError.
+// MultiKeyError is returned by operations on multiple keys, such as MGet, when
+// some keys failed while others succeeded. The results of the keys that succeeded
+// are returned along with the MultiKeyError.
 type MultiKeyError struct {
 	// Errors holds the error of every key that failed, by key.
 	Errors map[string]error

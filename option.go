@@ -90,11 +90,11 @@ func DecodeCompression(codecs ...CompressionCodec) Option {
 
 // BatchMultiGets configures the Cache to use pipelining and split keys up into
 // multiple MGET commands for increased throughput and lower latency when dealing
-// with MGetMap operations with very large sets of keys.
+// with MGet operations with very large sets of keys.
 //
 // Keys are split by count, not by hash slot. On Redis Cluster every MGET command
-// must only contain keys of the same hash slot, so batching doesn't make MGet and
-// MGetMap work with keys of different slots.
+// must only contain keys of the same hash slot, so batching doesn't make MGet work
+// with keys of different slots.
 //
 // A batchSize of 0 disables batching. BatchMultiGets panics if batchSize is negative.
 func BatchMultiGets(batchSize int) Option {

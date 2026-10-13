@@ -137,16 +137,48 @@ Set a limit comfortably above your largest value whenever the Redis is shared wi
 
 ## Reading Multiple Keys
 
-`MGet` and `MGetMap` skip keys that don't exist. If some values can't be decoded, for example because they are corrupt or were written in a format that isn't registered, those keys are skipped as well and the values of the other keys are returned along with a `*cache.MultiKeyError` holding the error of each key that failed:
+`MGet` reads several keys with a single `MGET` command. Like the reply to `MGET`, the `MultiResult` it returns has an entry for every key, in the order the keys were requested, including keys that don't exist:
 
 ```go
-values, err := cache.MGetMap[Person](ctx, c, keys...)
+res, err := users.MGet(ctx, keys...) // or cache.MGet[User](ctx, c, keys...)
+
+for i, key := range keys {
+    if user, ok := res.At(i); ok {
+        // user is the value of key.
+    }
+}
+
+found := res.Values() // the values that were found, in the order of keys
+byKey := res.Map()    // the values that were found, by key
+for key, user := range res.All() {
+    // every key that was found and its value, in the order of keys
+}
+```
+
+`Values` doesn't copy the values, while `Map` builds a new map on every call, so prefer `At` or `All` when you go through the keys anyway.
+
+`Missing` returns the keys that don't exist, for example to load them from the source of truth and cache them:
+
+```go
+if missing := res.Missing(); len(missing) > 0 {
+    loaded, err := db.LoadUsers(ctx, missing) // map[string]User
+    // ...
+    for key, user := range loaded {
+        err = users.Set(ctx, key, user, 10*time.Minute)
+    }
+}
+```
+
+If some values can't be decoded, for example because they are corrupt or were written in a format that isn't registered, the values of the other keys are returned along with a `*cache.MultiKeyError` holding the error of each key that failed. Those keys are neither found nor missing, so loading the missing keys doesn't overwrite a value written by a newer service in a format this one can't read:
+
+```go
+res, err := users.MGet(ctx, keys...)
 if mkErr, ok := errors.AsType[*cache.MultiKeyError](err); ok {
     for key, keyErr := range mkErr.Errors {
-        // values holds every other key, handle or reload the failed ones.
+        // res holds every other key, handle the failed ones.
     }
 } else if err != nil {
-    return err // Redis failed, values is nil.
+    return err // Redis failed, res is empty.
 }
 ```
 
@@ -154,13 +186,15 @@ if mkErr, ok := errors.AsType[*cache.MultiKeyError](err); ok {
 
 Redis Cluster doesn't support commands on keys of different hash slots, and the library doesn't split them for you:
 
-* `MGet`, `MGetMap`, `MSet`, and `Delete` with several keys send a single command, which fails with a `CROSSSLOT` error unless every key is in the same hash slot. Use hash tags, such as `{user:1}:profile` and `{user:1}:friends`, to store related keys in the same slot. `BatchMultiGets` splits keys by count, not by slot, so it doesn't lift this restriction.
+* `MGet`, `MSet`, and `Delete` with several keys send a single command, which fails with a `CROSSSLOT` error unless every key is in the same hash slot. Use hash tags, such as `{user:1}:profile` and `{user:1}:friends`, to store related keys in the same slot. `BatchMultiGets` splits keys by count, not by slot, so it doesn't lift this restriction.
 * `Flush`, `FlushAsync`, `FlushDB`, and `FlushDBAsync` send `FLUSHDB` to a single master, so they only delete the keys of that node. Use `ForEachMaster` on the `*redis.ClusterClient` to flush every node.
 * `Keys` and `Scan` scan every master of a `*redis.ClusterClient`, including one wrapped by a `FailoverClient`.
 
 ## Read-Through and Write-Through
 
 `ReadThrough` and `ReadThroughSingleFlight` load a value from the source of truth on a cache miss and cache it. `ReadThroughSingleFlight` shares a load between concurrent callers of the same `Cache` loading the same key and type. Both read Redis once per call.
+
+If a cached value can't be decoded, both report it to `OnCacheError` with `cache.RedisOperationDecode` and load the value from the source of truth. The loaded value replaces a corrupt value. It doesn't replace a value written in a format that isn't registered, which is typically written by a newer service that switched serializer or codec before every reader registered it, so the two services don't keep replacing each other's values. Set `ReadThroughOptions.OverwriteUnsupportedFormat` to replace it anyway.
 
 `WriteThrough` updates the source of truth and then the cache. Keeping both consistent is best effort: if the cache update fails, `WriteThrough` deletes the key so the previous value isn't served anymore, but the delete can fail too, for example while Redis is unavailable. The update and the delete share `CacheWriteTimeout`, so an unavailable Redis delays a write once. Concurrent writes of the same key can also update the source of truth and the cache in a different order. Set a TTL so a stale value eventually expires.
 

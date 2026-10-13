@@ -14,7 +14,7 @@ This document serves as the operational manual and architectural guide for AI ag
   - `TypedCache[T]`: Generic, compile-time type-safe cache dedicated to a single type `T`.
 - **Pluggable Serialization**: MessagePack (default via `vmihailenco/msgpack/v5`), JSON (`encoding/json/v2`), and Protobuf (via `cacheproto`).
 - **Pluggable Compression**: Codecs for Deflate/Flate, Gzip, LZ4, S2, Snappy, and Zstandard.
-- **Pipelined Batching**: Optional transparent batch chunking for `MGet` and `MGetMap` operations via `BatchMultiGets(batchSize)`.
+- **Pipelined Batching**: Optional transparent batch chunking for `MGet` operations via `BatchMultiGets(batchSize)`.
 - **Cache Patterns**: Built-in support for Read-Through (with optional single-flight thundering-herd protection) and Write-Through (synchronous or asynchronous).
 - **High Availability**: Built-in `FailoverClient` providing automatic failover and recovery across primary and secondary Redis instances.
 - **Observability**: `Hooks` (configured with the `Instrumentation` option) report cache hits and misses, value sizes, decode errors, and single-flight loads. The `cacheotel` package records them, serialization and compression durations, and the active `FailoverClient` side as OpenTelemetry metrics. Redis command tracing and metrics come from instrumenting the Redis client itself (e.g. `redisotel`).
@@ -90,10 +90,12 @@ This document serves as the operational manual and architectural guide for AI ag
 | **Instantiation** | `cache.New(client, opts...)` | `cache.NewTyped[T](client, opts...)` |
 | **Type Handling** | Accepts any pointer destination `v any` per call | Parameterized to a single type `T` (supports values or pointers) |
 | **Get Signature** | `Get(ctx, key, &dest) error` | `Get(ctx, key) (T, error)` |
-| **MGet Signature** | Package-level function or method returning `MultiResult` | Method returning `[]T, error` or `MGetMap` returning `MultiResult[T]` |
+| **MGet Signature** | Package-level function `MGet[T]` returning `MultiResult[T]` | Method returning `MultiResult[T]` |
 | **Protobuf Fit** | Requires pointer handling per call | Optimal when instantiated as `*TypedCache[*MyProtoMsg]` |
 
 Both types require initialization via their constructor functions (`New` / `NewTyped`); their zero values are not usable. Both panic if passed a `nil` `RedisClient`.
+
+`MultiResult[T]` mirrors the reply to `MGET`: an entry for every requested key, in request order, including missing and duplicate keys. Every key is found, missing, or failed to decode, in which case its error is in the `*MultiKeyError` returned with the result. `At(i)` reads by position, `All` and `Values` return the found entries in request order, `Map` returns them by key, and `Missing` returns the keys that don't exist. `Missing` excludes keys that failed to decode, so loading and caching the missing keys can't overwrite values written in a format the instance can't read. Found values are stored compactly with an index per key, so `Values` doesn't copy; keep it that way.
 
 ### 3.2 Configuration Options
 Both `Cache` and `TypedCache` accept functional options implementing `Option func(c configurable)`:
@@ -132,7 +134,7 @@ Available implementations are located under `compression/<algorithm>/`: `flate.N
 The lz4 codec writes 64 KiB blocks: LZ4's default 4 MiB blocks make every compression and decompression after a garbage collection allocate more than 8 MiB. The gzip codec sizes its buffer from the trailer's declared size, bounded to 8 times the compressed size and 1 MiB, since the trailer is only verified at the end. Size hints taken from a value must always be bounded like this.
 
 ### 3.5 Read-Through & Write-Through
-- **`ReadThrough[T]`**: Synchronous fetch from Redis. On cache miss, executes `LoaderFunc[T]`, caches the result, and returns. Redis errors do not fail the call (invokes `OnCacheError` hook).
+- **`ReadThrough[T]`**: Synchronous fetch from Redis. On cache miss, executes `LoaderFunc[T]`, caches the result, and returns. Redis errors do not fail the call (invokes `OnCacheError` hook). A cached value that can't be decoded is reported with `RedisOperationDecode` and loaded again. The loaded value replaces corrupt values, but not values in an unregistered format (`ErrUnsupportedFormat`) unless `OverwriteUnsupportedFormat` is set, so services migrating to a new format don't keep replacing each other's values. Both read-through functions share this logic in `readThroughGet`.
 - **`ReadThroughSingleFlight[T]`**: Deduplicates concurrent loads of the same cache key, preventing duplicate backend queries during cache stampedes. Loads are only shared per `*Cache` and per type `T` (each `Cache` owns its `flightGroup`, keyed by `flightKey{type, key}`). The shared load is canceled once no caller is waiting for it anymore. Every call reads Redis once; the shared load doesn't read it again before loading.
 - **`WriteThrough[T]`**: Updates system of record via `WriteThroughWriter[T]`, then updates Redis synchronously or asynchronously (`UpdateCacheAsync: true`). If the cache update fails, the key is deleted so the previous value isn't served; this is best effort since the delete can fail too. The update and the delete share `CacheWriteTimeout`. Returns `*WriteThroughError` allowing callers to verify if the primary source succeeded despite cache failures (`err.SourceUpdated`).
 - User callbacks invoked from goroutines started by the library (async updates, the shared single-flight load) are wrapped with `safeCall`, so a panicking callback can't crash the process.
@@ -230,7 +232,7 @@ When modifying or extending this codebase, adhere to the following rules:
 4. **Error Handling Conventions**:
    - Sentinel error `ErrKeyNotFound` is returned when a requested key does not exist. Do not leak raw `redis.Nil`.
    - Wrap internal Redis and serialization errors using `fmt.Errorf("redis: %w", err)` or `fmt.Errorf("marshal value: %w", err)` to preserve unwrap chains.
-   - Multi-key reads (`MGet`, `MGetMap`) return the values that could be decoded along with a `*MultiKeyError` holding the error of each key that couldn't. A Redis error fails the whole call with a nil result.
+   - Multi-key reads (`MGet`) return a `MultiResult` with the values that could be decoded along with a `*MultiKeyError` holding the error of each key that couldn't. A Redis error fails the whole call with an empty `MultiResult`.
 
 5. **Panics vs. Returned Errors**:
    - Constructors (`New`, `NewTyped`, `Serialization(nil)`, `Compression(nil)`) should panic on invalid setup/nil arguments to fail fast at startup.

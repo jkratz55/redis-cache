@@ -79,6 +79,7 @@ func main() {
 		panic("ohhhhh snap")
 	}
 	fmt.Println(time.Since(start).Milliseconds())
-	fmt.Println(results)
-	fmt.Println(len(results))
+	values := results.Values()
+	fmt.Println(values)
+	fmt.Println(len(values))
 }

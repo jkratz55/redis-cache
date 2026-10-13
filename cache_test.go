@@ -423,38 +423,33 @@ func TestMGet(t *testing.T) {
 		Last   string
 	}
 
-	val, _ := msgpack.Marshal(name{
+	billy := name{
 		First:  "Billy",
 		Middle: "Joel",
 		Last:   "Bob",
-	})
-	if err := client.Set(context.Background(), "key123", val, 0).Err(); err != nil {
-		t.Errorf("failed to setup data in Redis")
 	}
-	val, _ = msgpack.Marshal(name{
+	shelly := name{
 		First:  "Shelly",
 		Middle: "Jane",
 		Last:   "Bob",
-	})
+	}
+	val, _ := msgpack.Marshal(billy)
+	if err := client.Set(context.Background(), "key123", val, 0).Err(); err != nil {
+		t.Errorf("failed to setup data in Redis")
+	}
+	val, _ = msgpack.Marshal(shelly)
 	if err := client.Set(context.Background(), "key456", val, 0).Err(); err != nil {
 		t.Errorf("failed to setup data in Redis")
 	}
 
 	cache := New(client)
-	results, err := MGetMap[name](context.Background(), cache, "key123", "key456")
+	results, err := MGet[name](context.Background(), cache, "key123", "missing", "key456", "key123")
 	assert.NoError(t, err)
-	assert.Equal(t, map[string]name{
-		"key123": name{
-			First:  "Billy",
-			Middle: "Joel",
-			Last:   "Bob",
-		},
-		"key456": name{
-			First:  "Shelly",
-			Middle: "Jane",
-			Last:   "Bob",
-		},
-	}, map[string]name(results))
+	assert.Equal(t, 4, results.Len())
+	assert.Equal(t, []*name{&billy, nil, &shelly, &billy}, atValues(results))
+	assert.Equal(t, []name{billy, shelly, billy}, results.Values())
+	assert.Equal(t, map[string]name{"key123": billy, "key456": shelly}, results.Map())
+	assert.Equal(t, []string{"missing"}, results.Missing())
 }
 
 func TestMGetBatch(t *testing.T) {
@@ -474,93 +469,15 @@ func TestMGetBatch(t *testing.T) {
 	}
 
 	val, _ := msgpack.Marshal(testVal)
-	expected := make(map[string]name)
-
-	keys := make([]string, 0, 10000)
-	for i := range 10000 {
-		key := fmt.Sprintf("key%d", i)
-		keys = append(keys, key)
-		expected[key] = testVal
-		if err := client.Set(context.Background(), key, val, 0).Err(); err != nil {
-			t.Errorf("failed to setup data in Redis")
-		}
-	}
-
-	cache := New(client, BatchMultiGets(1000))
-	results, err := MGetMap[name](context.Background(), cache, keys...)
-	assert.NoError(t, err)
-	assert.Equal(t, 10000, len(results))
-	assert.Equal(t, MultiResult[name](expected), results)
-}
-
-func TestMGetValues(t *testing.T) {
-	setup()
-	defer tearDown()
-
-	type name struct {
-		First  string
-		Middle string
-		Last   string
-	}
-
-	val, _ := msgpack.Marshal(name{
-		First:  "Billy",
-		Middle: "Joel",
-		Last:   "Bob",
-	})
-	if err := client.Set(context.Background(), "key123", val, 0).Err(); err != nil {
-		t.Errorf("failed to setup data in Redis")
-	}
-	val, _ = msgpack.Marshal(name{
-		First:  "Shelly",
-		Middle: "Jane",
-		Last:   "Bob",
-	})
-	if err := client.Set(context.Background(), "key456", val, 0).Err(); err != nil {
-		t.Errorf("failed to setup data in Redis")
-	}
-
-	cache := New(client)
-	results, err := MGet[name](context.Background(), cache, "key123", "key456")
-	assert.NoError(t, err)
-	assert.ElementsMatch(t, []name{
-		{
-			First:  "Billy",
-			Middle: "Joel",
-			Last:   "Bob",
-		},
-		{
-			First:  "Shelly",
-			Middle: "Jane",
-			Last:   "Bob",
-		},
-	}, results)
-}
-
-func TestMGetValuesBatch(t *testing.T) {
-	setup()
-	defer tearDown()
-
-	type name struct {
-		First  string
-		Middle string
-		Last   string
-	}
-
-	testVal := name{
-		First:  "Billy",
-		Middle: "Joel",
-		Last:   "Bob",
-	}
-
-	val, _ := msgpack.Marshal(testVal)
 	expected := make([]name, 0, 10000)
-	keys := make([]string, 0, 10000)
+	expectedMap := make(map[string]name)
 
+	keys := make([]string, 0, 10000)
 	for i := range 10000 {
 		key := fmt.Sprintf("key%d", i)
 		keys = append(keys, key)
 		expected = append(expected, testVal)
+		expectedMap[key] = testVal
 		if err := client.Set(context.Background(), key, val, 0).Err(); err != nil {
 			t.Errorf("failed to setup data in Redis")
 		}
@@ -569,8 +486,94 @@ func TestMGetValuesBatch(t *testing.T) {
 	cache := New(client, BatchMultiGets(1000))
 	results, err := MGet[name](context.Background(), cache, keys...)
 	assert.NoError(t, err)
-	assert.Equal(t, 10000, len(results))
-	assert.Equal(t, expected, results)
+	assert.Equal(t, 10000, results.Len())
+	assert.Equal(t, expected, results.Values())
+	assert.Equal(t, expectedMap, results.Map())
+	assert.Nil(t, results.Missing())
+}
+
+func TestMultiResult(t *testing.T) {
+	setup()
+	defer tearDown()
+
+	ctx := context.Background()
+	c := New(client)
+	assert.NoError(t, c.Set(ctx, "a", "A", 0))
+	assert.NoError(t, c.Set(ctx, "b", "B", 0))
+	assert.NoError(t, client.Set(ctx, "corrupt", []byte{0xC1, 0x01, SerializerMsgPack, CodecNone, 0xC1}, 0).Err())
+
+	t.Run("zero value", func(t *testing.T) {
+		var r MultiResult[string]
+		assert.Zero(t, r.Len())
+		assert.Nil(t, r.Values())
+		assert.Nil(t, r.Missing())
+		assert.Empty(t, r.Map())
+		for range r.All() {
+			t.Error("the zero value yielded an entry")
+		}
+		assert.Panics(t, func() { r.At(0) })
+	})
+
+	t.Run("found, missing and corrupt keys", func(t *testing.T) {
+		keys := []string{"b", "missing", "a", "corrupt", "b", "missing"}
+		r, err := MGet[string](ctx, c, keys...)
+		assert.ErrorContains(t, err, `decode key "corrupt" to type string`)
+		assert.Equal(t, 6, r.Len())
+		assert.Equal(t, []*string{new("B"), nil, new("A"), nil, new("B"), nil}, atValues(r))
+		assert.Equal(t, []string{"B", "A", "B"}, r.Values())
+		// Values doesn't copy the values.
+		assert.Zero(t, testing.AllocsPerRun(10, func() { r.Values() }))
+		assert.Equal(t, map[string]string{"a": "A", "b": "B"}, r.Map())
+		// The corrupt key is neither found nor missing.
+		assert.Equal(t, []string{"missing", "missing"}, r.Missing())
+
+		var all [][2]string
+		for key, val := range r.All() {
+			all = append(all, [2]string{key, val})
+		}
+		assert.Equal(t, [][2]string{{"b", "B"}, {"a", "A"}, {"b", "B"}}, all)
+
+		yielded := 0
+		for range r.All() {
+			yielded++
+			break
+		}
+		assert.Equal(t, 1, yielded)
+
+		// The result doesn't change when the caller reuses its slice of keys.
+		keys[0], keys[1] = "changed", "changed"
+		assert.Equal(t, []string{"missing", "missing"}, r.Missing())
+		assert.Equal(t, map[string]string{"a": "A", "b": "B"}, r.Map())
+	})
+
+	t.Run("every key found", func(t *testing.T) {
+		r, err := MGet[string](ctx, c, "a", "b")
+		assert.NoError(t, err)
+		assert.Equal(t, []*string{new("A"), new("B")}, atValues(r))
+		assert.Equal(t, []string{"A", "B"}, r.Values())
+		assert.Nil(t, r.Missing())
+	})
+
+	t.Run("no key found", func(t *testing.T) {
+		r, err := MGet[string](ctx, c, "x", "y")
+		assert.NoError(t, err)
+		assert.Equal(t, []*string{nil, nil}, atValues(r))
+		assert.Empty(t, r.Values())
+		assert.Empty(t, r.Map())
+		assert.Equal(t, []string{"x", "y"}, r.Missing())
+	})
+}
+
+// atValues returns the value of every entry of r, by position, with nil for the
+// keys that weren't found.
+func atValues[T any](r MultiResult[T]) []*T {
+	values := make([]*T, r.Len())
+	for i := range values {
+		if val, ok := r.At(i); ok {
+			values[i] = &val
+		}
+	}
+	return values
 }
 
 func TestUpsertTTL(t *testing.T) {
@@ -829,8 +832,6 @@ func TestCache_ErrorWrapping(t *testing.T) {
 
 			_, err := MGet[string](ctx, c, "good", "bad")
 			assert.ErrorContains(t, err, `decode key "bad" to type string`)
-			_, err = MGetMap[string](ctx, c, "good", "bad")
-			assert.ErrorContains(t, err, `decode key "bad" to type string`)
 		}
 	})
 }
@@ -856,16 +857,9 @@ func TestCache_MGetPartialResults(t *testing.T) {
 		t.Run(fmt.Sprintf("batch=%d", batch), func(t *testing.T) {
 			c := New(client, BatchMultiGets(batch))
 
-			values, err := MGet[string](ctx, c, keys...)
+			res, err := MGet[string](ctx, c, keys...)
 			assertMultiKeyError(t, err)
-			assert.Equal(t, []string{"key0", "key1", "key2", "key4", "key5", "key6", "key8", "key9"}, values)
-
-			m, err := MGetMap[string](ctx, c, keys...)
-			assertMultiKeyError(t, err)
-			assert.Len(t, m, 8)
-			for _, key := range []string{"key0", "key1", "key2", "key4", "key5", "key6", "key8", "key9"} {
-				assert.Equal(t, key, m[key])
-			}
+			assertPartialResult(t, res)
 		})
 	}
 
@@ -875,13 +869,34 @@ func TestCache_MGetPartialResults(t *testing.T) {
 		defer rdb.Close()
 		s.SetError("boom")
 
-		values, err := MGet[string](ctx, New(rdb), "a", "b")
+		res, err := MGet[string](ctx, New(rdb), "a", "b")
 		assert.EqualError(t, err, "redis: boom")
-		assert.Nil(t, values)
-		m, err := MGetMap[string](ctx, New(rdb), "a", "b")
-		assert.EqualError(t, err, "redis: boom")
-		assert.Nil(t, m)
+		assert.Equal(t, MultiResult[string]{}, res)
+
+		// Without keys no command is sent, so Redis can't fail it.
+		res, err = MGet[string](ctx, New(rdb))
+		assert.NoError(t, err)
+		assert.Equal(t, MultiResult[string]{}, res)
 	})
+}
+
+// assertPartialResult asserts res holds the values of key0 to key9 except key3 and
+// key7, which can't be decoded, and that the 11th key is missing.
+func assertPartialResult(t *testing.T, res MultiResult[string]) {
+	t.Helper()
+	found := []string{"key0", "key1", "key2", "key4", "key5", "key6", "key8", "key9"}
+	assert.Equal(t, 11, res.Len())
+	assert.Equal(t, found, res.Values())
+	assert.Equal(t, []string{"missing"}, res.Missing())
+	for _, i := range []int{3, 7, 10} {
+		_, ok := res.At(i)
+		assert.False(t, ok, i)
+	}
+	m := res.Map()
+	assert.Len(t, m, len(found))
+	for _, key := range found {
+		assert.Equal(t, key, m[key])
+	}
 }
 
 // assertMultiKeyError asserts err is a *MultiKeyError for key3, which is corrupt,
@@ -1212,13 +1227,11 @@ func TestCache_SwitchFormats(t *testing.T) {
 			assert.NoError(t, reader.GetAndExpire(ctx, "key1", &p, time.Minute))
 			assert.Equal(t, expected, p)
 
-			values, err := MGet[legacyPerson](ctx, reader, "key1", "key2", "key3", "missing")
+			res, err := MGet[legacyPerson](ctx, reader, "key1", "key2", "key3", "missing")
 			assert.NoError(t, err)
-			assert.Equal(t, []legacyPerson{expected, expected, expected}, values)
-
-			m, err := MGetMap[legacyPerson](ctx, reader, "key1", "key2", "key3")
-			assert.NoError(t, err)
-			assert.Equal(t, MultiResult[legacyPerson]{"key1": expected, "key2": expected, "key3": expected}, m)
+			assert.Equal(t, []legacyPerson{expected, expected, expected}, res.Values())
+			assert.Equal(t, map[string]legacyPerson{"key1": expected, "key2": expected, "key3": expected}, res.Map())
+			assert.Equal(t, []string{"missing"}, res.Missing())
 
 			// The new instance writes in its own format, which the old one can't read
 			// unless it registers it.
@@ -1259,11 +1272,11 @@ func TestCache_UnsupportedFormat(t *testing.T) {
 		assert.ErrorIs(t, err, ErrUnsupportedFormat)
 		assert.ErrorContains(t, err, "codec id 202")
 
-		_, err = MGet[string](ctx, reader, "key1", "key2")
+		res, err := MGet[string](ctx, reader, "key1", "key2")
 		assert.ErrorIs(t, err, ErrUnsupportedFormat)
-
-		_, err = MGetMap[string](ctx, reader, "key1", "key2")
-		assert.ErrorIs(t, err, ErrUnsupportedFormat)
+		assert.Empty(t, res.Values())
+		// Keys in a format that isn't registered aren't missing either.
+		assert.Nil(t, res.Missing())
 	}
 }
 
@@ -1298,9 +1311,9 @@ func TestCache_LegacyValues(t *testing.T) {
 		assert.NoError(t, c.Get(ctx, "key1", &p))
 		assert.Equal(t, expected, p)
 
-		results, err := MGetMap[legacyPerson](ctx, c, "key1", "key2", "key3")
+		results, err := MGet[legacyPerson](ctx, c, "key1", "key2", "key3")
 		assert.NoError(t, err)
-		assert.Equal(t, MultiResult[legacyPerson]{"key1": expected, "key2": expected, "key3": expected}, results)
+		assert.Equal(t, []legacyPerson{expected, expected, expected}, results.Values())
 	}
 
 	// Upsert reads the legacy value and writes it back with the header.

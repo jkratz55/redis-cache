@@ -115,13 +115,17 @@ func (c *TypedCache[T]) GetAndDelete(ctx context.Context, key string) (T, error)
 	return c.decompressAndUnmarshal(ctx, data)
 }
 
-// MGet retrieves multiple values from Redis for the given keys. Keys that don't exist are skipped.
+// MGet retrieves the values of multiple keys in a single operation.
+//
+// Like the reply to the Redis MGET command, the MultiResult has an entry for every key in the order of
+// keys. Use Values for the values that were found, At to read them by position, All or Map to read them
+// by key, and Missing for the keys that don't exist, for example to load them from the source of truth.
 //
 // If the values of some keys can't be decoded, for example because they are corrupt or were written in
-// a format that isn't registered, those values are skipped as well. MGet then returns the other values
-// along with a *MultiKeyError holding the error of every key that couldn't be decoded. If the Redis
-// command fails, MGet returns a nil slice and the error. If no keys are provided, MGet returns nil
-// without sending a command to Redis.
+// a format that isn't registered, MGet returns the values of the other keys along with a *MultiKeyError
+// holding the error of every key that couldn't be decoded. Those keys are neither found nor missing. If
+// the Redis command fails, MGet returns an empty MultiResult and the error. If no keys are provided, MGet
+// returns an empty MultiResult without sending a command to Redis.
 //
 // When T is a pointer type, a stored nil decodes to a non-nil pointer to the zero value of the
 // element type.
@@ -130,59 +134,10 @@ func (c *TypedCache[T]) GetAndDelete(ctx context.Context, key string) (T, error)
 // hash slot, otherwise Redis returns a CROSSSLOT error. Use hash tags, such as "{user:1}:profile" and
 // "{user:1}:friends", to store related keys in the same slot. BatchMultiGets splits keys by count, not
 // by slot, so it doesn't lift this restriction.
-func (c *TypedCache[T]) MGet(ctx context.Context, keys ...string) ([]T, error) {
-	if len(keys) == 0 {
-		return nil, nil
-	}
-
-	results, err := mget(ctx, c.redis, c.mgetBatch, keys)
-	if err != nil {
-		return nil, err
-	}
-
-	values := make([]T, 0, len(keys))
-	err = decodeMulti(ctx, c.formats, keys, results,
-		func(data []byte) (T, error) {
-			return c.decompressAndUnmarshal(ctx, data)
-		},
-		func(key string, val T) {
-			values = append(values, val)
-		})
-	return values, err
-}
-
-// MGetMap retrieves multiple values from Redis for the given keys and returns them as a map
-// key -> value. Keys that don't exist aren't present in the result map.
-//
-// If the values of some keys can't be decoded, for example because they are corrupt or were written in
-// a format that isn't registered, those keys aren't present in the result map either. MGetMap then
-// returns the values of the other keys along with a *MultiKeyError holding the error of every key that
-// couldn't be decoded. If the Redis command fails, MGetMap returns a nil map and the error. If no keys
-// are provided, MGetMap returns nil without sending a command to Redis.
-//
-// When T is a pointer type, a stored nil decodes to a non-nil pointer to the zero value of the
-// element type.
-//
-// MGetMap uses the MGET command, so on Redis Cluster all keys must be in the same hash slot, see MGet.
-func (c *TypedCache[T]) MGetMap(ctx context.Context, keys ...string) (MultiResult[T], error) {
-	if len(keys) == 0 {
-		return nil, nil
-	}
-
-	results, err := mget(ctx, c.redis, c.mgetBatch, keys)
-	if err != nil {
-		return nil, err
-	}
-
-	resultMap := make(map[string]T, len(keys))
-	err = decodeMulti(ctx, c.formats, keys, results,
-		func(data []byte) (T, error) {
-			return c.decompressAndUnmarshal(ctx, data)
-		},
-		func(key string, val T) {
-			resultMap[key] = val
-		})
-	return resultMap, err
+func (c *TypedCache[T]) MGet(ctx context.Context, keys ...string) (MultiResult[T], error) {
+	return multiGet(ctx, c.redis, c.formats, c.mgetBatch, keys, func(data []byte) (T, error) {
+		return c.decompressAndUnmarshal(ctx, data)
+	})
 }
 
 // Set adds an entry to Redis with the given key and value. The entry is set with the provided TTL.

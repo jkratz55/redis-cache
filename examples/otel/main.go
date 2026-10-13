@@ -124,7 +124,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	fmt.Println(vals)
+	fmt.Println(vals.Values())
 
 	// Setup Prometheus metrics endpoint and other handlers for testing/demo
 	http.Handle("/metrics", promhttp.Handler())

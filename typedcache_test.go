@@ -236,38 +236,33 @@ func TestTypedCache_MGet(t *testing.T) {
 		Last   string
 	}
 
-	val, _ := msgpack.Marshal(name{
+	billy := name{
 		First:  "Billy",
 		Middle: "Joel",
 		Last:   "Bob",
-	})
-	if err := client.Set(context.Background(), "key123", val, 0).Err(); err != nil {
-		t.Errorf("failed to setup data in Redis")
 	}
-	val, _ = msgpack.Marshal(name{
+	shelly := name{
 		First:  "Shelly",
 		Middle: "Jane",
 		Last:   "Bob",
-	})
+	}
+	val, _ := msgpack.Marshal(billy)
+	if err := client.Set(context.Background(), "key123", val, 0).Err(); err != nil {
+		t.Errorf("failed to setup data in Redis")
+	}
+	val, _ = msgpack.Marshal(shelly)
 	if err := client.Set(context.Background(), "key456", val, 0).Err(); err != nil {
 		t.Errorf("failed to setup data in Redis")
 	}
 
 	rdb := NewTyped[name](client)
-	results, err := rdb.MGetMap(context.Background(), "key123", "key456")
+	results, err := rdb.MGet(context.Background(), "key123", "missing", "key456", "key123")
 	assert.NoError(t, err)
-	assert.Equal(t, map[string]name{
-		"key123": {
-			First:  "Billy",
-			Middle: "Joel",
-			Last:   "Bob",
-		},
-		"key456": {
-			First:  "Shelly",
-			Middle: "Jane",
-			Last:   "Bob",
-		},
-	}, map[string]name(results))
+	assert.Equal(t, 4, results.Len())
+	assert.Equal(t, []*name{&billy, nil, &shelly, &billy}, atValues(results))
+	assert.Equal(t, []name{billy, shelly, billy}, results.Values())
+	assert.Equal(t, map[string]name{"key123": billy, "key456": shelly}, results.Map())
+	assert.Equal(t, []string{"missing"}, results.Missing())
 }
 
 func TestTypedCache_MGetBatch(t *testing.T) {
@@ -287,23 +282,27 @@ func TestTypedCache_MGetBatch(t *testing.T) {
 	}
 
 	val, _ := msgpack.Marshal(testVal)
-	expected := make(map[string]name)
+	expected := make([]name, 0, 10000)
+	expectedMap := make(map[string]name)
 
 	keys := make([]string, 0, 10000)
 	for i := range 10000 {
 		key := fmt.Sprintf("key%d", i)
 		keys = append(keys, key)
-		expected[key] = testVal
+		expected = append(expected, testVal)
+		expectedMap[key] = testVal
 		if err := client.Set(context.Background(), key, val, 0).Err(); err != nil {
 			t.Errorf("failed to setup data in Redis")
 		}
 	}
 
 	rdb := NewTyped[name](client, BatchMultiGets(1000))
-	results, err := rdb.MGetMap(context.Background(), keys...)
+	results, err := rdb.MGet(context.Background(), keys...)
 	assert.NoError(t, err)
-	assert.Equal(t, 10000, len(results))
-	assert.Equal(t, MultiResult[name](expected), results)
+	assert.Equal(t, 10000, results.Len())
+	assert.Equal(t, expected, results.Values())
+	assert.Equal(t, expectedMap, results.Map())
+	assert.Nil(t, results.Missing())
 }
 
 func TestTypedCache_Delete(t *testing.T) {
@@ -527,8 +526,6 @@ func TestTypedCache_ErrorWrapping(t *testing.T) {
 
 			_, err := c.MGet(ctx, "good", "bad")
 			assert.ErrorContains(t, err, `decode key "bad" to type string`)
-			_, err = c.MGetMap(ctx, "good", "bad")
-			assert.ErrorContains(t, err, `decode key "bad" to type string`)
 		}
 	})
 }
@@ -554,26 +551,17 @@ func TestTypedCache_MGetPartialResults(t *testing.T) {
 		t.Run(fmt.Sprintf("batch=%d", batch), func(t *testing.T) {
 			c := NewTyped[string](client, BatchMultiGets(batch))
 
-			values, err := c.MGet(ctx, keys...)
+			res, err := c.MGet(ctx, keys...)
 			assertMultiKeyError(t, err)
-			assert.Equal(t, []string{"key0", "key1", "key2", "key4", "key5", "key6", "key8", "key9"}, values)
-
-			m, err := c.MGetMap(ctx, keys...)
-			assertMultiKeyError(t, err)
-			assert.Len(t, m, 8)
-			for _, key := range []string{"key0", "key1", "key2", "key4", "key5", "key6", "key8", "key9"} {
-				assert.Equal(t, key, m[key])
-			}
+			assertPartialResult(t, res)
 		})
 	}
 
 	t.Run("pointer type", func(t *testing.T) {
 		c := NewTyped[*string](client)
-		values, err := c.MGet(ctx, "key0", "key3")
+		res, err := c.MGet(ctx, "key0", "key3")
 		assert.ErrorContains(t, err, `decode key "key3" to type *string`)
-		if assert.Len(t, values, 1) {
-			assert.Equal(t, "key0", *values[0])
-		}
+		assert.Equal(t, []**string{new(new("key0")), nil}, atValues(res))
 	})
 
 	t.Run("redis error", func(t *testing.T) {
@@ -583,12 +571,14 @@ func TestTypedCache_MGetPartialResults(t *testing.T) {
 		s.SetError("boom")
 
 		c := NewTyped[string](rdb)
-		values, err := c.MGet(ctx, "a", "b")
+		res, err := c.MGet(ctx, "a", "b")
 		assert.EqualError(t, err, "redis: boom")
-		assert.Nil(t, values)
-		m, err := c.MGetMap(ctx, "a", "b")
-		assert.EqualError(t, err, "redis: boom")
-		assert.Nil(t, m)
+		assert.Equal(t, MultiResult[string]{}, res)
+
+		// Without keys no command is sent, so Redis can't fail it.
+		res, err = c.MGet(ctx)
+		assert.NoError(t, err)
+		assert.Equal(t, MultiResult[string]{}, res)
 	})
 }
 
@@ -708,13 +698,11 @@ func TestTypedCache_SwitchFormats(t *testing.T) {
 			assert.NoError(t, err)
 			assert.Equal(t, expected, p)
 
-			values, err := reader.MGet(ctx, "key1", "key2", "key3", "missing")
+			res, err := reader.MGet(ctx, "key1", "key2", "key3", "missing")
 			assert.NoError(t, err)
-			assert.Equal(t, []legacyPerson{expected, expected, expected}, values)
-
-			m, err := reader.MGetMap(ctx, "key1", "key2", "key3")
-			assert.NoError(t, err)
-			assert.Equal(t, MultiResult[legacyPerson]{"key1": expected, "key2": expected, "key3": expected}, m)
+			assert.Equal(t, []legacyPerson{expected, expected, expected}, res.Values())
+			assert.Equal(t, map[string]legacyPerson{"key1": expected, "key2": expected, "key3": expected}, res.Map())
+			assert.Equal(t, []string{"missing"}, res.Missing())
 
 			ptrReader := NewTyped[*legacyPerson](client, opts...)
 			ptr, err := ptrReader.Get(ctx, "key2")
@@ -723,7 +711,7 @@ func TestTypedCache_SwitchFormats(t *testing.T) {
 
 			ptrs, err := ptrReader.MGet(ctx, "key1", "key2")
 			assert.NoError(t, err)
-			assert.Equal(t, []*legacyPerson{&expected, &expected}, ptrs)
+			assert.Equal(t, []*legacyPerson{&expected, &expected}, ptrs.Values())
 
 			// The new instance writes in its own format, which the old one can't read.
 			assert.NoError(t, reader.Set(ctx, "new", expected, 0))
@@ -763,11 +751,11 @@ func TestTypedCache_UnsupportedFormat(t *testing.T) {
 		assert.ErrorIs(t, err, ErrUnsupportedFormat)
 		assert.ErrorContains(t, err, "codec id 202")
 
-		_, err = reader.MGet(ctx, "key1", "key2")
+		res, err := reader.MGet(ctx, "key1", "key2")
 		assert.ErrorIs(t, err, ErrUnsupportedFormat)
-
-		_, err = reader.MGetMap(ctx, "key1", "key2")
-		assert.ErrorIs(t, err, ErrUnsupportedFormat)
+		assert.Empty(t, res.Values())
+		// Keys in a format that isn't registered aren't missing either.
+		assert.Nil(t, res.Missing())
 	}
 }
 
@@ -802,13 +790,10 @@ func TestTypedCache_LegacyValues(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Equal(t, expected, p)
 
-		values, err := c.MGet(ctx, "key1", "key2", "key3")
+		res, err := c.MGet(ctx, "key1", "key2", "key3")
 		assert.NoError(t, err)
-		assert.Equal(t, []legacyPerson{expected, expected, expected}, values)
-
-		m, err := c.MGetMap(ctx, "key1", "key2", "key3")
-		assert.NoError(t, err)
-		assert.Equal(t, MultiResult[legacyPerson]{"key1": expected, "key2": expected, "key3": expected}, m)
+		assert.Equal(t, []legacyPerson{expected, expected, expected}, res.Values())
+		assert.Equal(t, map[string]legacyPerson{"key1": expected, "key2": expected, "key3": expected}, res.Map())
 	}
 }
 
@@ -850,19 +835,15 @@ func TestTypedCache_MGetNegativeBatch(t *testing.T) {
 
 	ctx := context.Background()
 	c := NewTyped[string](client)
-	// BatchMultiGets rejects negative sizes, MGet and MGetMap must not panic anyway.
+	// BatchMultiGets rejects negative sizes, MGet must not panic anyway.
 	c.setMGetBatch(-1)
 	for _, key := range []string{"a", "b", "c"} {
 		assert.NoError(t, c.Set(ctx, key, key, 0))
 	}
 
 	for _, keys := range [][]string{{"a"}, {"a", "b", "c"}} {
-		values, err := c.MGet(ctx, keys...)
+		res, err := c.MGet(ctx, keys...)
 		assert.NoError(t, err)
-		assert.Equal(t, keys, values)
-
-		m, err := c.MGetMap(ctx, keys...)
-		assert.NoError(t, err)
-		assert.Len(t, m, len(keys))
+		assert.Equal(t, keys, res.Values())
 	}
 }

@@ -33,7 +33,7 @@
 * **Codec levels are validated**: `gzip.NewCodec` and the new `flate.NewCodec` panic if the compression level is invalid. Previously an invalid gzip level failed every `Compress` call.
 * **Decoding of values with a header**: values written by older versions can start with the same bytes as the header. So a value with a header that can't be decoded, including one that references an unregistered serializer or codec, is decoded once more as a value without a header. That attempt uses the new `StrictUnmarshaler` interface if the serializer implements it, as `cacheproto.ProtobufSerializer` does, so a corrupt value or a value in an unsupported format isn't mistaken for an old value. If it fails too, the original error is returned, which wraps `ErrUnsupportedFormat` if the format isn't registered. When decoding fails, the destination is reset to its zero value instead of holding partially decoded data.
 * **Negative TTLs are rejected**: every method that takes a TTL returns `ErrInvalidTTL` for a negative TTL other than `InfiniteTTL` and `KeepTTL`. Previously `Set` stored the value without an expiration, `SetIfAbsent` and `SetIfPresent` failed with a Redis error, and `GetAndExpire` left the TTL unchanged.
-* **`BatchMultiGets` validates the batch size**: it panics if the batch size is negative. Previously a negative batch size made `TypedCache.MGet` and `TypedCache.MGetMap` panic.
+* **`BatchMultiGets` validates the batch size**: it panics if the batch size is negative. Previously a negative batch size made `TypedCache.MGet` panic.
 * Built-in codecs and `cacheproto.ProtobufSerializer` now import the root `cache` package to return the shared format ID constants.
 * **`JsonSerializer` uses `encoding/json/v2`**: `JsonSerializer` now uses `encoding/json/v2` with its default options instead of `encoding/json`, which was used by the JSON option of v1.x and by the release candidates. The defaults differ: `time.Duration` can't be marshaled or unmarshaled without a format option, object names are matched case-sensitively when unmarshaling, so differently cased names are silently ignored, and nil slices and maps are marshaled as `[]` and `{}` instead of `null`. See the `encoding/json/v2` documentation for every difference. JSON values written by older versions may fail to decode or decode differently, which `ReadThrough` turns into a load from the source of truth on every request. To keep the behavior of `encoding/json`, use your own serializer with a custom format ID. Values written by older versions have no header, so they are decoded with it:
 
@@ -47,12 +47,25 @@
     c := cache.New(client, cache.Serialization(JSONv1Serializer{}))
     ```
 * **`TypedCache.Client` returns `RedisClient`**: it returned `redis.UniversalClient` and panicked for any other `RedisClient`, including `FailoverClient`. It now returns the client provided to `NewTyped`, like `Cache.Client`. Use a type assertion if you need a method `RedisClient` doesn't have.
-* **`MGet` and `MGetMap` return partial results**: when some values can't be decoded, the values of the other keys are returned along with a `*MultiKeyError` holding the error of every key that failed, instead of returning no values. Code checking `err != nil` keeps working, but the returned values are no longer nil when decoding fails. A Redis error still returns nil values.
+* **`MGet` returns a `MultiResult` like the reply to `MGET`**: the `MGet` function of `Cache` and `TypedCache.MGet` return a `MultiResult[T]` with an entry for every requested key, in the order of the keys, including keys that don't exist. `At(i)` returns the value of the i-th key and whether it was found, `All` and `Values` return the keys and values that were found in the order of the keys, `Map` returns them by key, and `Missing` returns the keys that don't exist, for example to load them from the source of truth. In v1.x, `MGet` returned `MultiResult` as a `map[string]T` and the `MGetValues` function returned the values that were found as a slice. `MultiResult` is now a struct, so indexing it, ranging over it, and calling `len` on it don't compile. Its `Get`, `Keys`, and `IsEmpty` methods and `MGetValues` have been removed:
+
+    ```go
+    // v1.x
+    m, err := cache.MGet[User](ctx, c, keys...)
+    user, ok := m.Get("user:1")
+    values, err := cache.MGetValues[User](ctx, c, keys...)
+
+    // v2
+    res, err := cache.MGet[User](ctx, c, keys...)
+    user, ok := res.At(0) // the value of keys[0], or use res.Map()["user:1"]
+    values := res.Values()
+    ```
+
+  When some values can't be decoded, the values of the other keys are returned along with a `*MultiKeyError` holding the error of every key that failed, instead of no values. Those keys are neither found nor missing, so loading the missing keys doesn't overwrite values written in a format the service can't read. Code checking `err != nil` keeps working. A Redis error returns an empty `MultiResult`. The `MGet` function of `Cache` called without keys returns an empty `MultiResult` without sending a command, like `TypedCache.MGet`, instead of failing with a Redis error.
 
 #### New Features
 
 * **Read-Through Caching**: New `ReadThrough` and `ReadThroughSingleFlight` functions provide built-in support for read-through caching patterns. `ReadThroughSingleFlight` deduplicates concurrent loads of the same key to prevent cache stampedes.
-* **MGetMap**: Added `MGetMap` to both `Cache` and `TypedCache`, returning a `MultiResult` map for easier access to multiple keys.
 * **Upsert**: Added `Upsert` function to `Cache` for atomic update operations.
 * **S2 Compression**: Added support for S2 compression algorithm.
 * **Protobuf Pointer Support**: `TypedCache` now has improved support for Protobuf messages when using pointers.
@@ -65,7 +78,7 @@
 * **Decompression limits**: every built-in codec accepts a `WithMaxDecodedSize(n)` option (`flate.NewCodec`, `gzip.NewCodec`, `lz4.NewCodec`, `s2.NewCodec`, and `snappy.NewCodec` now take options, `zstd.NewCodec` already did). Values that would decompress to more than `n` bytes fail with an error wrapping the new `cache.ErrMaxDecodedSizeExceeded`, which protects services sharing a Redis against corrupt or malicious values exhausting memory. For example, without a limit a 6-byte value can make the S2 and Snappy codecs allocate 4 GiB. There is no limit by default.
 * **Instrumentation hooks**: the new `Instrumentation` option configures `Hooks` invoked on cache lookups (hits and misses), when values are encoded and decoded (sizes and decode errors), and when `ReadThroughSingleFlight` starts or joins a load. Hooks receive the context of the operation and their panics are recovered.
 * **cacheotel metrics**: `cacheotel.NewHooks` records `cache.lookups`, `cache.value.size`, `cache.value.serialized_size`, `cache.decode.errors` (by reason: `unsupported_format`, `size_limit`, or `invalid`), and `cache.singleflight.calls`. `cacheotel.ObserveFailoverClient` reports which client of a `FailoverClient` is active with the `cache.failover.active` gauge. `cacheotel.WithAttributes` adds attributes, such as a cache name, to every measurement, and `cacheotel.WithSizeBoundaries` sets the buckets of the size histograms.
-* **MultiKeyError**: returned by `MGet` and `MGetMap` with the error of every key that couldn't be decoded, by key. `errors.Is` and `errors.As` match the error of any key.
+* **MultiKeyError**: returned by `MGet` with the error of every key that couldn't be decoded, by key. `errors.Is` and `errors.As` match the error of any key.
 * **FailoverOpts.HealthCheck**: replaces the default `PING` health check, for example with a write to a canary key, which also detects a Redis that answers `PING` but rejects writes. A panic in the health check counts as a failed check, and so does a check that doesn't return within `CheckTimeout` plus 100 ms. Such a check isn't started again until it returns, and `Close` doesn't wait for it, so a check that ignores its context can't stop failover or hang `Close`.
 
 #### Bug Fixes
@@ -83,6 +96,7 @@
 * `ReadThroughSingleFlight` no longer shares loads between different `Cache` instances or different types. The release candidates shared one load per key across the whole process, so a caller could receive a value loaded for another cache, possibly backed by a different Redis, without its own loader running or its cache being populated, and a caller loading a different type for the same key panicked. A loader returning a nil interface value no longer panics either.
 * `WriteThrough` deletes the key when updating the cache fails after the source of truth was updated, so the previous value isn't served anymore. This is best effort, the delete can fail too, in which case the error wraps both errors. The update and the delete share `CacheWriteTimeout`, so an unavailable Redis delays a write once, not twice.
 * `ReadThroughSingleFlight` reads Redis once per call. The shared load no longer reads Redis again before invoking the `LoaderFunc`, which cost every miss another round trip and reported it twice to `Hooks.OnLookup`.
+* `ReadThrough` and `ReadThroughSingleFlight` no longer replace a cached value written in a format that isn't registered, such as a value written by a newer service with a codec this one doesn't register yet. They return the loaded value without caching it, so services migrating to a new format don't keep replacing each other's values and loading from the source of truth. Set the new `ReadThroughOptions.OverwriteUnsupportedFormat` to replace such values. Corrupt values are still replaced. Values that can't be decoded are reported to `OnCacheError` with the new `RedisOperationDecode` instead of `RedisOperationGET`, so they can be told apart from Redis failing.
 * A panic in `OnCacheError` or `OnAsyncUpdateCompleted` invoked from a goroutine started by `ReadThrough`, `ReadThroughSingleFlight`, or `WriteThrough` is recovered instead of crashing the process.
 * `FailoverClient.IsPrimary`, `IsSecondary`, and `Active` are derived from a single atomic state, so they no longer briefly disagree while `FailoverClient` switches clients.
 
@@ -103,6 +117,8 @@
 #### Upgrading from a Release Candidate
 
 The cache-level instrumentation in `cacheotel` has been removed. `cacheotel.Init`, `InstrumentCache` and `InstrumentedCache`, `InstrumentTypedCache` and `InstrumentedTypedCache`, the `cacheotel.TypedCache` interface, `cacheotel.MGet`, `cacheotel.MGetMap`, `cacheotel.Upsert`, `cacheotel.Option`, `WithTraceProvider` and `WithMgetKeyBoundaries` no longer exist. Use `cache.Cache` and `cache.TypedCache` directly with `cacheotel.NewInstrumentedSerializer` and `cacheotel.NewInstrumentedCompressionCodec`, and instrument the Redis client, for example with `redisotel`, for command metrics and tracing. See `examples/otel`.
+
+`MGetMap` has been removed, and `MGet` returns a `MultiResult[T]` instead of a slice of the values that were found. Use `res.Values()` for the slice `MGet` returned and `res.Map()` for the map `MGetMap` returned, or `res.At(i)` and `res.All()`, which don't allocate. See the breaking changes for `MultiResult`.
 
 The `cache.execution_duration` and `cache.mget_keys` metrics, and the spans for each operation with the `cache.hit` attribute, are no longer recorded. Cache hits and misses are recorded by `cacheotel.NewHooks` as `cache.lookups`, and values written in a format that isn't registered as `cache.decode.errors`.
 

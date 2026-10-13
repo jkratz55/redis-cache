@@ -44,7 +44,7 @@
 //
 // # Redis Cluster
 //
-// Commands on several keys, used by MGet, MGetMap, MSet and Delete, fail with a
+// Commands on several keys, used by MGet, MSet and Delete, fail with a
 // CROSSSLOT error unless every key is in the same hash slot. BatchMultiGets doesn't
 // group keys by slot. Flush and FlushDB only flush a single node of a cluster, while
 // Keys and Scan scan every master.

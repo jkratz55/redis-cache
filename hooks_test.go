@@ -74,7 +74,7 @@ func TestHooks_Cache(t *testing.T) {
 
 	_, err := MGet[string](ctx, c, "a", "b", "c")
 	assert.NoError(t, err)
-	_, err = MGetMap[string](ctx, c, "b")
+	_, err = MGet[string](ctx, c, "b")
 	assert.NoError(t, err)
 	assert.Equal(t, 4, rec.hits)
 	assert.Equal(t, 4, rec.misses)
@@ -116,7 +116,7 @@ func TestHooks_TypedCache(t *testing.T) {
 	assert.NoError(t, err)
 	_, err = c.Get(ctx, "missing")
 	assert.ErrorIs(t, err, ErrKeyNotFound)
-	_, err = c.MGetMap(ctx, "a", "b", "missing")
+	_, err = c.MGet(ctx, "a", "b", "missing")
 	assert.NoError(t, err)
 	assert.Equal(t, 3, rec.hits)
 	assert.Equal(t, 2, rec.misses)

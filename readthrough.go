@@ -116,6 +116,10 @@ const (
 	RedisOperationGET RedisOperation = "GET"
 	// RedisOperationSET represents a Redis SET operation
 	RedisOperationSET RedisOperation = "SET"
+	// RedisOperationDecode represents decoding a value read with GET. It isn't a Redis
+	// command: OnCacheError reports it when a value exists but can't be decoded, for
+	// example because it's corrupt or was written in a format that isn't registered.
+	RedisOperationDecode RedisOperation = "DECODE"
 
 	defaultCacheReadTimeout  = 500 * time.Millisecond
 	defaultCacheWriteTimeout = 500 * time.Millisecond
@@ -153,7 +157,9 @@ type ReadThroughOptions struct {
 	// Default is a no-op.
 	OnCacheHit func(key string)
 
-	// OnCacheError is invoked when an error occurs while reading or writing to the cache.
+	// OnCacheError is invoked when an error occurs while reading or writing to the cache. A cached
+	// value that can't be decoded is reported with RedisOperationDecode, so it can be told apart
+	// from Redis failing.
 	//
 	// OnCacheError can be invoked from a goroutine started by ReadThrough or
 	// ReadThroughSingleFlight, such as the asynchronous cache update when UpdateAsync is true.
@@ -180,6 +186,17 @@ type ReadThroughOptions struct {
 	// others. The shared work is canceled once every waiting caller's context is done. If
 	// LoaderTimeout is 0 (the default) there is no other timeout.
 	LoaderTimeout time.Duration
+
+	// OverwriteUnsupportedFormat stores the loaded value over a cached value written in a format
+	// that isn't registered on the Cache, such as a Serializer or CompressionCodec that a newer
+	// service started writing before this one registered it with DecodeSerializers or
+	// DecodeCompression.
+	//
+	// By default such a value is left in place and the loaded value is returned without being
+	// cached, so services using different formats don't keep replacing each other's values while
+	// they are upgraded. Values that can't be decoded for any other reason, such as corrupt values,
+	// are always overwritten, which repairs the cache.
+	OverwriteUnsupportedFormat bool
 }
 
 // safeCallbacks returns a copy of o whose OnCacheError recovers panics. It is used
@@ -226,6 +243,10 @@ func (o *ReadThroughOptions) init() {
 // However, hooks/callbacks are provided via ReadThroughOptions OnCacheError to allow for logging or
 // instrumentation. Additionally, there are hooks for cache misses and hits via ReadThroughOptions.
 //
+// If the cached value can't be decoded, the error is reported to OnCacheError with RedisOperationDecode
+// and the LoaderFunc is invoked. The loaded value replaces a corrupt value, but not a value written in a
+// format that isn't registered on rdb, unless ReadThroughOptions.OverwriteUnsupportedFormat is set.
+//
 // Since all operations ReadThrough performs are synchronous, it is recommended to use short timeouts
 // for Redis operations to avoid blocking the caller. The default for GET and SET operations is 500ms
 // to be conservative.
@@ -242,30 +263,58 @@ func ReadThrough[T any](
 
 	opts.init()
 
-	redisCtx, redisCancel := context.WithTimeout(ctx, opts.CacheReadTimeout)
-	defer redisCancel()
-
-	var result T
-	err := rdb.Get(redisCtx, key, &result)
-	if err == nil {
-		opts.OnCacheHit(key)
+	result, found, store := readThroughGet[T](ctx, rdb, key, opts)
+	if found {
 		return result, nil
 	}
 
-	if errors.Is(err, ErrKeyNotFound) {
-		opts.OnCacheMiss(key)
-	} else {
-		opts.OnCacheError(key, RedisOperationGET, err)
-	}
-
-	result, err = loader(ctx)
+	result, err := loader(ctx)
 	if err != nil {
 		return result, fmt.Errorf("loader func: %w", err)
 	}
 
-	readThroughStore(ctx, rdb, key, result, opts)
+	if store {
+		readThroughStore(ctx, rdb, key, result, opts)
+	}
 
 	return result, nil
+}
+
+// readThroughGet reads key from the cache and reports the outcome to the callbacks of
+// opts. found reports whether the value was read and decoded. If it wasn't, store
+// reports whether the loaded value should be cached: a value written in a format that
+// isn't registered is only overwritten if OverwriteUnsupportedFormat is set.
+func readThroughGet[T any](
+	ctx context.Context,
+	rdb *Cache,
+	key string,
+	opts ReadThroughOptions) (result T, found, store bool) {
+
+	redisCtx, redisCancel := context.WithTimeout(ctx, opts.CacheReadTimeout)
+	defer redisCancel()
+
+	// Reading and decoding are separate steps, unlike Get, so a value that can't be
+	// decoded is reported differently from Redis failing.
+	data, err := readValue(redisCtx, rdb.formats, rdb.redis.Get(redisCtx, key))
+	switch {
+	case errors.Is(err, ErrKeyNotFound):
+		opts.OnCacheMiss(key)
+		return result, false, true
+	case err != nil:
+		opts.OnCacheError(key, RedisOperationGET, err)
+		return result, false, true
+	}
+
+	if err := rdb.formats.decode(redisCtx, data, &result); err != nil {
+		opts.OnCacheError(key, RedisOperationDecode, err)
+		// A value in a format that isn't registered was most likely written by a newer
+		// service. Replacing it would make that service and this one keep replacing
+		// each other's values and loading from the source of truth.
+		return result, false, opts.OverwriteUnsupportedFormat || !errors.Is(err, ErrUnsupportedFormat)
+	}
+
+	opts.OnCacheHit(key)
+	return result, true, false
 }
 
 // readThroughStore stores the loaded value in the cache, either synchronously or in a
@@ -326,6 +375,11 @@ func readThroughUpdate[T any](
 // However, hooks/callbacks are provided via ReadThroughOptions OnCacheError to allow for logging or
 // instrumentation. Additionally, there are hooks for cache misses and hits via ReadThroughOptions.
 //
+// If the cached value can't be decoded, the error is reported to OnCacheError with RedisOperationDecode
+// and the LoaderFunc is invoked. The loaded value replaces a corrupt value, but not a value written in a
+// format that isn't registered on rdb, unless ReadThroughOptions.OverwriteUnsupportedFormat is set. A
+// shared load caches its value based on the lookup of the caller that started it.
+//
 // Since all operations ReadThroughSingleFlight performs are synchronous, it is recommended to use short
 // timeouts for Redis operations to avoid blocking the caller. The default for GET and SET
 // operations is 500ms to be conservative.
@@ -358,20 +412,9 @@ func ReadThroughSingleFlight[T any](
 
 	opts.init()
 
-	redisCtx, redisCancel := context.WithTimeout(ctx, opts.CacheReadTimeout)
-	defer redisCancel()
-
-	var result T
-	err := rdb.Get(redisCtx, key, &result)
-	if err == nil {
-		opts.OnCacheHit(key)
+	result, found, store := readThroughGet[T](ctx, rdb, key, opts)
+	if found {
 		return result, nil
-	}
-
-	if errors.Is(err, ErrKeyNotFound) {
-		opts.OnCacheMiss(key)
-	} else {
-		opts.OnCacheError(key, RedisOperationGET, err)
 	}
 
 	// The shared work runs in its own goroutine, where a panicking callback would
@@ -406,7 +449,11 @@ func ReadThroughSingleFlight[T any](
 			return result, fmt.Errorf("loader func: %w", err)
 		}
 
-		readThroughStore(loaderCtx, rdb, key, result, flightOpts)
+		// Whether the value is cached depends on the lookup of the caller that
+		// started the load.
+		if store {
+			readThroughStore(loaderCtx, rdb, key, result, flightOpts)
+		}
 
 		return result, nil
 	})

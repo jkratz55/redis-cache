@@ -16,8 +16,8 @@ import (
 type Hooks struct {
 	// OnLookup is invoked after keys are read from Redis with the number of keys
 	// that were found (hits) and not found (misses). Get, GetAndExpire and
-	// GetAndDelete report a single hit or miss, MGet and MGetMap report every
-	// requested key. A key that was found but can't be decoded counts as a hit, its
+	// GetAndDelete report a single hit or miss, MGet reports every requested
+	// key. A key that was found but can't be decoded counts as a hit, its
 	// decode error is reported to OnDecode. OnLookup isn't invoked if the Redis
 	// command fails.
 	OnLookup func(ctx context.Context, hits, misses int)

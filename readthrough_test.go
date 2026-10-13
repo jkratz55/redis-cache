@@ -752,3 +752,84 @@ func TestReadThroughSingleFlight_OneReadPerCall(t *testing.T) {
 	assert.Equal(t, int64(1), hits.Load())
 	assert.Equal(t, int64(1), misses.Load())
 }
+
+func TestReadThrough_UndecodableValues(t *testing.T) {
+	readThroughs := map[string]func(context.Context, *Cache, string, ReadThroughOptions, LoaderFunc[string]) (string, error){
+		"ReadThrough":             ReadThrough[string],
+		"ReadThroughSingleFlight": ReadThroughSingleFlight[string],
+	}
+	ctx := context.Background()
+	loader := func(ctx context.Context) (string, error) { return "loaded", nil }
+
+	for name, readThrough := range readThroughs {
+		t.Run(name, func(t *testing.T) {
+			setup()
+			defer tearDown()
+
+			// A newer service writes with a codec the reader hasn't registered yet.
+			writer := New(client, Compression(reverseTestCodec{}))
+			reader := New(client)
+
+			t.Run("unsupported format isn't overwritten", func(t *testing.T) {
+				assert.NoError(t, writer.Set(ctx, "key", "written by a newer service", 0))
+				var rec cacheErrorRecorder
+
+				val, err := readThrough(ctx, reader, "key", ReadThroughOptions{OnCacheError: rec.record}, loader)
+				assert.NoError(t, err)
+				assert.Equal(t, "loaded", val)
+				assert.Equal(t, []RedisOperation{RedisOperationDecode}, rec.ops)
+				if assert.Len(t, rec.errs, 1) {
+					assert.ErrorIs(t, rec.errs[0], ErrUnsupportedFormat)
+				}
+
+				var cached string
+				assert.NoError(t, writer.Get(ctx, "key", &cached))
+				assert.Equal(t, "written by a newer service", cached)
+			})
+
+			t.Run("OverwriteUnsupportedFormat", func(t *testing.T) {
+				assert.NoError(t, writer.Set(ctx, "key", "written by a newer service", 0))
+
+				opts := ReadThroughOptions{OverwriteUnsupportedFormat: true}
+				val, err := readThrough(ctx, reader, "key", opts, loader)
+				assert.NoError(t, err)
+				assert.Equal(t, "loaded", val)
+
+				var cached string
+				assert.NoError(t, reader.Get(ctx, "key", &cached))
+				assert.Equal(t, "loaded", cached)
+			})
+
+			t.Run("corrupt value is overwritten", func(t *testing.T) {
+				assert.NoError(t, client.Set(ctx, "key", []byte{0xC1, 0x01, SerializerMsgPack, CodecNone, 0xC1}, 0).Err())
+				var rec cacheErrorRecorder
+
+				val, err := readThrough(ctx, reader, "key", ReadThroughOptions{OnCacheError: rec.record}, loader)
+				assert.NoError(t, err)
+				assert.Equal(t, "loaded", val)
+				assert.Equal(t, []RedisOperation{RedisOperationDecode}, rec.ops)
+				if assert.Len(t, rec.errs, 1) {
+					assert.NotErrorIs(t, rec.errs[0], ErrUnsupportedFormat)
+				}
+
+				var cached string
+				assert.NoError(t, reader.Get(ctx, "key", &cached))
+				assert.Equal(t, "loaded", cached)
+			})
+		})
+	}
+}
+
+// cacheErrorRecorder records the calls to OnCacheError.
+type cacheErrorRecorder struct {
+	mu   sync.Mutex
+	ops  []RedisOperation
+	errs []error
+}
+
+func (r *cacheErrorRecorder) record(key string, op RedisOperation, err error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.ops = append(r.ops, op)
+	r.errs = append(r.errs, err)
+}
