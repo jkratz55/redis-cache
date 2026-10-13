@@ -278,7 +278,7 @@ c := cache.New(client,
 | `cache.singleflight.calls`                                   | `NewHooks`                        | `ReadThroughSingleFlight` calls after a miss, by `shared`                                      |
 | `cache.failover.active`                                      | `ObserveFailoverClient`           | Which client of a `FailoverClient` is active                                                   |
 
-`cache.Instrumentation` accepts any `cache.Hooks`, so other instrumentation, such as logging, can be plugged in as well. Instrument the Redis client itself, for example with `redisotel`, for command latency and tracing. See `examples/otel`.
+`cache.Instrumentation` accepts any `cache.Hooks`, so other instrumentation, such as logging, can be plugged in as well. Instrument the Redis client itself for command metrics and tracing: `redisotel-native` records the duration of every command by name, and `redisotel` records traces. `redisotel.InstrumentMetrics` only records connection pool metrics. See `examples/otel`.
 
 ## Performance
 

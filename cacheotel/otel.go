@@ -5,7 +5,8 @@
 // NewHooks records cache hits and misses, the size of cached values, decode errors
 // and single-flight loads, and ObserveFailoverClient reports which client of a
 // FailoverClient is active. Metrics and tracing for the Redis commands themselves
-// come from instrumenting the Redis client, for example with redisotel.
+// come from instrumenting the Redis client, for example with redisotel-native for
+// metrics and redisotel for tracing.
 package cacheotel
 
 import (

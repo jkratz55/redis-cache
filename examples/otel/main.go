@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	redisotelnative "github.com/redis/go-redis/extra/redisotel-native/v9"
 	"github.com/redis/go-redis/extra/redisotel/v9"
 	"github.com/redis/go-redis/v9"
 	"go.opentelemetry.io/otel"
@@ -65,8 +66,25 @@ func main() {
 		panic(err)
 	}
 
-	provider := metric.NewMeterProvider(metric.WithReader(exporter))
+	// redisotel-native has no option to leave out attributes, so the view drops the ones
+	// that add series without adding information. db.operation.batch.size is the number
+	// of commands in a pipeline, which varies with the number of keys when MGet is batched
+	// with BatchMultiGets. The library version is constant, and the peer address and port
+	// repeat server.address but change with the IP the address resolves to.
+	provider := metric.NewMeterProvider(
+		metric.WithReader(exporter))
 	otel.SetMeterProvider(provider)
+
+	// redisotel.InstrumentMetrics only records connection pool metrics, without the
+	// command. redisotel-native records the duration of every command in
+	// db.client.operation.duration with the command in db.operation.name, along with
+	// connection metrics. It applies to every Redis client and must be initialized
+	// before they are created.
+	redisMetrics := redisotelnative.GetObservabilityInstance()
+	if err := redisMetrics.Init(redisotelnative.NewConfig().WithEnabled(true)); err != nil {
+		panic(err)
+	}
+	defer redisMetrics.Shutdown()
 
 	client := redis.NewClient(&redis.Options{
 		Addr: "localhost:6379",
@@ -74,9 +92,6 @@ func main() {
 	defer client.Close()
 
 	if err := redisotel.InstrumentTracing(client); err != nil {
-		panic(err)
-	}
-	if err := redisotel.InstrumentMetrics(client); err != nil {
 		panic(err)
 	}
 
@@ -94,9 +109,10 @@ func main() {
 	cacheName := cacheotel.WithAttributes(attribute.String("cache.name", "example"))
 	serializer := cacheotel.NewInstrumentedSerializer(&cache.MessagePackSerializer{}, cacheName)
 
-	// The Redis client is instrumented by redisotel and the serializer by cacheotel, so the
-	// cache captures the execution time of both the Redis commands and serialization. The
-	// hooks record cache hits and misses, the size of values, and decode errors.
+	// The Redis client is instrumented by redisotel and redisotel-native and the serializer
+	// by cacheotel, so the cache captures the execution time of both the Redis commands and
+	// serialization. The hooks record cache hits and misses, the size of values, and decode
+	// errors.
 	rdb := cache.New(client,
 		cache.Serialization(serializer),
 		cache.Instrumentation(cacheotel.NewHooks(cacheName)))

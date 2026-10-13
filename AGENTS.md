@@ -17,7 +17,7 @@ This document serves as the operational manual and architectural guide for AI ag
 - **Pipelined Batching**: Optional transparent batch chunking for `MGet` operations via `BatchMultiGets(batchSize)`.
 - **Cache Patterns**: Built-in support for Read-Through (with optional single-flight thundering-herd protection) and Write-Through (synchronous or asynchronous).
 - **High Availability**: Built-in `FailoverClient` providing automatic failover and recovery across primary and secondary Redis instances.
-- **Observability**: `Hooks` (configured with the `Instrumentation` option) report cache hits and misses, value sizes, decode errors, and single-flight loads. The `cacheotel` package records them, serialization and compression durations, and the active `FailoverClient` side as OpenTelemetry metrics. Redis command tracing and metrics come from instrumenting the Redis client itself (e.g. `redisotel`).
+- **Observability**: `Hooks` (configured with the `Instrumentation` option) report cache hits and misses, value sizes, decode errors, and single-flight loads. The `cacheotel` package records them, serialization and compression durations, and the active `FailoverClient` side as OpenTelemetry metrics. Redis command metrics and tracing come from instrumenting the Redis client itself: `redisotel-native` records command durations by command name, `redisotel` records traces (its `InstrumentMetrics` only records connection pool metrics).
 
 ---
 
