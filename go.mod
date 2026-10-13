@@ -4,7 +4,7 @@ go 1.27.0
 
 require (
 	github.com/alicebob/miniredis/v2 v2.40.0
-	github.com/klauspost/compress v1.20.1
+	github.com/klauspost/compress v1.20.3
 	github.com/pierrec/lz4/v4 v4.1.33
 	github.com/prometheus/client_golang v1.25.0
 	github.com/redis/go-redis/extra/redisotel/v9 v9.23.0
