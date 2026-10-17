@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
 	"github.com/vmihailenco/msgpack/v5"
@@ -98,7 +99,7 @@ func TestTypedCache_Set(t *testing.T) {
 	assert.NoError(t, err)
 
 	var s string
-	err = msgpack.Unmarshal(b, &s)
+	err = msgpack.Unmarshal(assertHeader(t, b, SerializerMsgPack, CodecNone), &s)
 	assert.NoError(t, err)
 	assert.Equal(t, "value123", s)
 }
@@ -139,7 +140,7 @@ func TestTypedCache_SetIfAbsent(t *testing.T) {
 	assert.NoError(t, err)
 
 	var s string
-	err = msgpack.Unmarshal(b, &s)
+	err = msgpack.Unmarshal(assertHeader(t, b, SerializerMsgPack, CodecNone), &s)
 	assert.NoError(t, err)
 	assert.Equal(t, "value123", s)
 }
@@ -165,7 +166,7 @@ func TestTypedCache_SetIfPresent(t *testing.T) {
 	assert.NoError(t, err)
 
 	var s string
-	err = msgpack.Unmarshal(b, &s)
+	err = msgpack.Unmarshal(assertHeader(t, b, SerializerMsgPack, CodecNone), &s)
 	assert.NoError(t, err)
 	assert.Equal(t, "value123", s)
 }
@@ -217,7 +218,7 @@ func TestTypedCache_MSet(t *testing.T) {
 	}
 
 	var p person
-	err = msgpack.Unmarshal([]byte(res), &p)
+	err = msgpack.Unmarshal(assertHeader(t, []byte(res), SerializerMsgPack, CodecNone), &p)
 	assert.NoError(t, err)
 	assert.Equal(t, expected, p)
 
@@ -235,38 +236,33 @@ func TestTypedCache_MGet(t *testing.T) {
 		Last   string
 	}
 
-	val, _ := msgpack.Marshal(name{
+	billy := name{
 		First:  "Billy",
 		Middle: "Joel",
 		Last:   "Bob",
-	})
-	if err := client.Set(context.Background(), "key123", val, 0).Err(); err != nil {
-		t.Errorf("failed to setup data in Redis")
 	}
-	val, _ = msgpack.Marshal(name{
+	shelly := name{
 		First:  "Shelly",
 		Middle: "Jane",
 		Last:   "Bob",
-	})
+	}
+	val, _ := msgpack.Marshal(billy)
+	if err := client.Set(context.Background(), "key123", val, 0).Err(); err != nil {
+		t.Errorf("failed to setup data in Redis")
+	}
+	val, _ = msgpack.Marshal(shelly)
 	if err := client.Set(context.Background(), "key456", val, 0).Err(); err != nil {
 		t.Errorf("failed to setup data in Redis")
 	}
 
 	rdb := NewTyped[name](client)
-	results, err := rdb.MGetMap(context.Background(), "key123", "key456")
+	results, err := rdb.MGet(context.Background(), "key123", "missing", "key456", "key123")
 	assert.NoError(t, err)
-	assert.Equal(t, map[string]name{
-		"key123": {
-			First:  "Billy",
-			Middle: "Joel",
-			Last:   "Bob",
-		},
-		"key456": {
-			First:  "Shelly",
-			Middle: "Jane",
-			Last:   "Bob",
-		},
-	}, map[string]name(results))
+	assert.Equal(t, 4, results.Len())
+	assert.Equal(t, []*name{&billy, nil, &shelly, &billy}, atValues(results))
+	assert.Equal(t, []name{billy, shelly, billy}, results.Values())
+	assert.Equal(t, map[string]name{"key123": billy, "key456": shelly}, results.Map())
+	assert.Equal(t, []string{"missing"}, results.Missing())
 }
 
 func TestTypedCache_MGetBatch(t *testing.T) {
@@ -286,23 +282,27 @@ func TestTypedCache_MGetBatch(t *testing.T) {
 	}
 
 	val, _ := msgpack.Marshal(testVal)
-	expected := make(map[string]name)
+	expected := make([]name, 0, 10000)
+	expectedMap := make(map[string]name)
 
 	keys := make([]string, 0, 10000)
-	for i := 0; i < 10000; i++ {
+	for i := range 10000 {
 		key := fmt.Sprintf("key%d", i)
 		keys = append(keys, key)
-		expected[key] = testVal
+		expected = append(expected, testVal)
+		expectedMap[key] = testVal
 		if err := client.Set(context.Background(), key, val, 0).Err(); err != nil {
 			t.Errorf("failed to setup data in Redis")
 		}
 	}
 
 	rdb := NewTyped[name](client, BatchMultiGets(1000))
-	results, err := rdb.MGetMap(context.Background(), keys...)
+	results, err := rdb.MGet(context.Background(), keys...)
 	assert.NoError(t, err)
-	assert.Equal(t, 10000, len(results))
-	assert.Equal(t, MultiResult[name](expected), results)
+	assert.Equal(t, 10000, results.Len())
+	assert.Equal(t, expected, results.Values())
+	assert.Equal(t, expectedMap, results.Map())
+	assert.Nil(t, results.Missing())
 }
 
 func TestTypedCache_Delete(t *testing.T) {
@@ -398,10 +398,188 @@ func TestTypedCache_Expire(t *testing.T) {
 	err = rdb.Expire(context.Background(), "test-ttl", InfiniteTTL)
 	assert.NoError(t, err)
 	ttl = client.TTL(context.Background(), "test-ttl").Val()
-	assert.Equal(t, time.Duration(-2), ttl)
+	assert.Equal(t, time.Duration(-1), ttl)
 
 	err = rdb.Expire(context.Background(), "random", time.Second*300)
 	assert.ErrorIs(t, err, ErrKeyNotFound)
+}
+
+func TestTypedCache_ExpireSemantics(t *testing.T) {
+	setup()
+	defer tearDown()
+
+	ctx := context.Background()
+	rdb := NewTyped[string](client)
+
+	for _, ttl := range []time.Duration{InfiniteTTL, 0} {
+		t.Run(fmt.Sprintf("ttl=%d removes TTL and keeps the key", ttl), func(t *testing.T) {
+			assert.NoError(t, rdb.Set(ctx, "key", "value", time.Minute))
+			assert.NoError(t, rdb.Expire(ctx, "key", ttl))
+
+			got, err := rdb.TTL(ctx, "key")
+			assert.NoError(t, err)
+			assert.Equal(t, InfiniteTTL, got)
+			val, err := rdb.Get(ctx, "key")
+			assert.NoError(t, err)
+			assert.Equal(t, "value", val)
+
+			// Persisting a key without a TTL is a no-op.
+			assert.NoError(t, rdb.Expire(ctx, "key", ttl))
+
+			assert.ErrorIs(t, rdb.Expire(ctx, "missing", ttl), ErrKeyNotFound)
+		})
+	}
+
+	t.Run("millisecond precision", func(t *testing.T) {
+		assert.NoError(t, rdb.Set(ctx, "key", "value", 0))
+		assert.NoError(t, rdb.Expire(ctx, "key", 1500*time.Millisecond))
+		got, err := rdb.TTL(ctx, "key")
+		assert.NoError(t, err)
+		assert.Equal(t, 1500*time.Millisecond, got)
+	})
+
+	t.Run("negative TTL is invalid", func(t *testing.T) {
+		assert.NoError(t, rdb.Set(ctx, "key", "value", time.Minute))
+		assert.ErrorIs(t, rdb.Expire(ctx, "key", -5*time.Second), ErrInvalidTTL)
+		got, err := rdb.TTL(ctx, "key")
+		assert.NoError(t, err)
+		assert.Equal(t, time.Minute, got)
+	})
+
+	t.Run("missing key", func(t *testing.T) {
+		assert.ErrorIs(t, rdb.Expire(ctx, "missing", time.Minute), ErrKeyNotFound)
+	})
+}
+
+func TestTypedCache_InfiniteTTL(t *testing.T) {
+	setup()
+	defer tearDown()
+
+	ctx := context.Background()
+	rdb := NewTyped[string](client)
+
+	assertNoTTL := func(t *testing.T, key string) {
+		t.Helper()
+		got, err := rdb.TTL(ctx, key)
+		assert.NoError(t, err)
+		assert.Equal(t, InfiniteTTL, got)
+	}
+
+	assert.NoError(t, rdb.Set(ctx, "set", "value", InfiniteTTL))
+	assertNoTTL(t, "set")
+
+	ok, err := rdb.SetIfAbsent(ctx, "absent", "value", InfiniteTTL)
+	assert.NoError(t, err)
+	assert.True(t, ok)
+	assertNoTTL(t, "absent")
+
+	assert.NoError(t, rdb.Set(ctx, "present", "value", time.Minute))
+	ok, err = rdb.SetIfPresent(ctx, "present", "value2", InfiniteTTL)
+	assert.NoError(t, err)
+	assert.True(t, ok)
+	assertNoTTL(t, "present")
+
+	assert.NoError(t, rdb.Set(ctx, "getex", "value", time.Minute))
+	val, err := rdb.GetAndExpire(ctx, "getex", InfiniteTTL)
+	assert.NoError(t, err)
+	assert.Equal(t, "value", val)
+	assertNoTTL(t, "getex")
+}
+
+func TestTypedCache_ErrorWrapping(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("redis errors are prefixed once", func(t *testing.T) {
+		s := miniredis.RunT(t)
+		rdb := redis.NewClient(&redis.Options{Addr: s.Addr()})
+		defer rdb.Close()
+		c := NewTyped[string](rdb)
+		s.SetError("boom")
+
+		for name, err := range map[string]error{
+			"Delete":       c.Delete(ctx, "key"),
+			"FlushDB":      c.FlushDB(ctx),
+			"FlushDBAsync": c.FlushDBAsync(ctx),
+			"Expire":       c.Expire(ctx, "key", time.Minute),
+			"Persist":      c.Expire(ctx, "key", InfiniteTTL),
+		} {
+			if assert.Error(t, err, name) {
+				assert.Equal(t, "redis: boom", err.Error(), name)
+			}
+		}
+	})
+
+	t.Run("multi get decode errors name the key", func(t *testing.T) {
+		setup()
+		defer tearDown()
+		good, err := msgpack.Marshal("value")
+		assert.NoError(t, err)
+		assert.NoError(t, client.Set(ctx, "good", good, 0).Err())
+		assert.NoError(t, client.Set(ctx, "bad", []byte{0xC1, 0x01, SerializerMsgPack, CodecNone, 0xC1}, 0).Err())
+
+		for _, batch := range []int{0, 1} {
+			var opts []Option
+			if batch > 0 {
+				opts = append(opts, BatchMultiGets(batch))
+			}
+			c := NewTyped[string](client, opts...)
+
+			_, err := c.MGet(ctx, "good", "bad")
+			assert.ErrorContains(t, err, `decode key "bad" to type string`)
+		}
+	})
+}
+
+func TestTypedCache_MGetPartialResults(t *testing.T) {
+	setup()
+	defer tearDown()
+
+	ctx := context.Background()
+	writer := NewTyped[string](client)
+	keys := make([]string, 0, 10)
+	for i := range 10 {
+		key := fmt.Sprintf("key%d", i)
+		keys = append(keys, key)
+		assert.NoError(t, writer.Set(ctx, key, key, 0))
+	}
+	// A corrupt value and a value in a format that isn't registered.
+	assert.NoError(t, client.Set(ctx, "key3", []byte{0xC1, 0x01, SerializerMsgPack, CodecNone, 0xC1}, 0).Err())
+	assert.NoError(t, client.Set(ctx, "key7", []byte{0xC1, 0x01, 250, CodecNone, 0x01}, 0).Err())
+	keys = append(keys, "missing")
+
+	for _, batch := range []int{0, 1, 4} {
+		t.Run(fmt.Sprintf("batch=%d", batch), func(t *testing.T) {
+			c := NewTyped[string](client, BatchMultiGets(batch))
+
+			res, err := c.MGet(ctx, keys...)
+			assertMultiKeyError(t, err)
+			assertPartialResult(t, res)
+		})
+	}
+
+	t.Run("pointer type", func(t *testing.T) {
+		c := NewTyped[*string](client)
+		res, err := c.MGet(ctx, "key0", "key3")
+		assert.ErrorContains(t, err, `decode key "key3" to type *string`)
+		assert.Equal(t, []**string{new(new("key0")), nil}, atValues(res))
+	})
+
+	t.Run("redis error", func(t *testing.T) {
+		s := miniredis.RunT(t)
+		rdb := redis.NewClient(&redis.Options{Addr: s.Addr()})
+		defer rdb.Close()
+		s.SetError("boom")
+
+		c := NewTyped[string](rdb)
+		res, err := c.MGet(ctx, "a", "b")
+		assert.EqualError(t, err, "redis: boom")
+		assert.Equal(t, MultiResult[string]{}, res)
+
+		// Without keys no command is sent, so Redis can't fail it.
+		res, err = c.MGet(ctx)
+		assert.NoError(t, err)
+		assert.Equal(t, MultiResult[string]{}, res)
+	})
 }
 
 func TestTypedCache_Scan(t *testing.T) {
@@ -424,6 +602,31 @@ func TestTypedCache_Scan(t *testing.T) {
 	keys, err = rdb.Scan(context.Background(), "system:*", 1000)
 	assert.NoError(t, err)
 	assert.ElementsMatch(t, []string{"system:123", "system:456", "system:789"}, keys)
+
+	// A batch less than or equal to zero uses the default instead of panicking.
+	keys, err = rdb.Scan(context.Background(), "user:*", -1)
+	assert.NoError(t, err)
+	assert.ElementsMatch(t, []string{"user:123", "user:456", "user:789"}, keys)
+}
+
+func TestTypedCache_ScanCluster(t *testing.T) {
+	ctx := context.Background()
+	cluster := redis.NewClusterClient(&redis.ClusterOptions{Addrs: []string{miniredis.RunT(t).Addr()}})
+	var expected []string
+	for i := range 50 {
+		key := fmt.Sprintf("key:%d", i)
+		assert.NoError(t, cluster.Set(ctx, key, "v", 0).Err())
+		expected = append(expected, key)
+	}
+
+	keys, err := NewTyped[string](cluster).Scan(ctx, "key:*", 10)
+	assert.NoError(t, err)
+	assert.ElementsMatch(t, expected, keys)
+
+	assert.NoError(t, cluster.Close())
+	keys, err = NewTyped[string](cluster).Scan(ctx, "key:*", 10)
+	assert.Error(t, err)
+	assert.Nil(t, keys)
 }
 
 func TestTypedCache_Client(t *testing.T) {
@@ -435,4 +638,212 @@ func TestTypedCache_Client(t *testing.T) {
 	cl := rdb.Client()
 	_, ok := cl.(*redis.Client)
 	assert.True(t, ok)
+
+	// Clients that aren't a redis.UniversalClient are returned as well.
+	fc := NewFailoverClient(client, redis.NewClient(&redis.Options{Addr: server.Addr()}))
+	defer fc.Close()
+	assert.NotPanics(t, func() {
+		assert.Same(t, fc, NewTyped[string](fc).Client())
+	})
+}
+
+func TestNewTyped_SerializerWithoutID(t *testing.T) {
+	assert.Panics(t, func() {
+		NewTyped[string](client, Serialization(noIDSerializer{}))
+	})
+	assert.Panics(t, func() {
+		NewTyped[string](client, Compression(noIDCodec{}))
+	})
+	assert.Panics(t, func() {
+		NewTyped[string](client, DecodeSerializers(noIDSerializer{}))
+	})
+	assert.NotPanics(t, func() {
+		NewTyped[string](client, Serialization(SerializerWithID(140, noIDSerializer{})), Compression(CodecWithID(141, noIDCodec{})))
+	})
+}
+
+func TestTypedCache_SwitchFormats(t *testing.T) {
+	setup()
+	defer tearDown()
+
+	ctx := context.Background()
+	expected := legacyPerson{
+		FirstName: "Bob",
+		LastName:  "Dole",
+		Birthdate: time.Date(1960, 10, 28, 0, 0, 0, 0, time.UTC),
+	}
+
+	writer := NewTyped[legacyPerson](client, Serialization(&JsonSerializer{}), Compression(reverseTestCodec{}))
+	for _, key := range []string{"key1", "key2", "key3"} {
+		assert.NoError(t, writer.Set(ctx, key, expected, 0))
+	}
+
+	for _, batch := range []int{0, 2} {
+		t.Run(fmt.Sprintf("batch=%d", batch), func(t *testing.T) {
+			opts := []Option{
+				Serialization(&MessagePackSerializer{}),
+				Compression(xorTestCodec{}),
+				DecodeCompression(reverseTestCodec{}),
+			}
+			if batch > 0 {
+				opts = append(opts, BatchMultiGets(batch))
+			}
+			reader := NewTyped[legacyPerson](client, opts...)
+
+			p, err := reader.Get(ctx, "key1")
+			assert.NoError(t, err)
+			assert.Equal(t, expected, p)
+
+			p, err = reader.GetAndExpire(ctx, "key1", time.Minute)
+			assert.NoError(t, err)
+			assert.Equal(t, expected, p)
+
+			res, err := reader.MGet(ctx, "key1", "key2", "key3", "missing")
+			assert.NoError(t, err)
+			assert.Equal(t, []legacyPerson{expected, expected, expected}, res.Values())
+			assert.Equal(t, map[string]legacyPerson{"key1": expected, "key2": expected, "key3": expected}, res.Map())
+			assert.Equal(t, []string{"missing"}, res.Missing())
+
+			ptrReader := NewTyped[*legacyPerson](client, opts...)
+			ptr, err := ptrReader.Get(ctx, "key2")
+			assert.NoError(t, err)
+			assert.Equal(t, &expected, ptr)
+
+			ptrs, err := ptrReader.MGet(ctx, "key1", "key2")
+			assert.NoError(t, err)
+			assert.Equal(t, []*legacyPerson{&expected, &expected}, ptrs.Values())
+
+			// The new instance writes in its own format, which the old one can't read.
+			assert.NoError(t, reader.Set(ctx, "new", expected, 0))
+			raw, err := client.Get(ctx, "new").Bytes()
+			assert.NoError(t, err)
+			assertHeader(t, raw, SerializerMsgPack, xorTestCodec{}.FormatID())
+			_, err = writer.Get(ctx, "new")
+			assert.ErrorIs(t, err, ErrUnsupportedFormat)
+		})
+	}
+
+	reader := NewTyped[legacyPerson](client, Compression(xorTestCodec{}), DecodeCompression(reverseTestCodec{}))
+	p, err := reader.GetAndDelete(ctx, "key1")
+	assert.NoError(t, err)
+	assert.Equal(t, expected, p)
+	_, err = reader.Get(ctx, "key1")
+	assert.ErrorIs(t, err, ErrKeyNotFound)
+}
+
+func TestTypedCache_UnsupportedFormat(t *testing.T) {
+	setup()
+	defer tearDown()
+
+	ctx := context.Background()
+	writer := NewTyped[string](client, Compression(reverseTestCodec{}))
+	assert.NoError(t, writer.Set(ctx, "key1", "value1", 0))
+	assert.NoError(t, writer.Set(ctx, "key2", "value2", 0))
+
+	for _, batch := range []int{0, 1} {
+		var opts []Option
+		if batch > 0 {
+			opts = append(opts, BatchMultiGets(batch))
+		}
+		reader := NewTyped[string](client, opts...)
+
+		_, err := reader.Get(ctx, "key1")
+		assert.ErrorIs(t, err, ErrUnsupportedFormat)
+		assert.ErrorContains(t, err, "codec id 202")
+
+		res, err := reader.MGet(ctx, "key1", "key2")
+		assert.ErrorIs(t, err, ErrUnsupportedFormat)
+		assert.Empty(t, res.Values())
+		// Keys in a format that isn't registered aren't missing either.
+		assert.Nil(t, res.Missing())
+	}
+}
+
+func TestTypedCache_LegacyValues(t *testing.T) {
+	setup()
+	defer tearDown()
+
+	ctx := context.Background()
+	expected := legacyPerson{
+		FirstName: "Bob",
+		LastName:  "Dole",
+		Birthdate: time.Date(1960, 10, 28, 0, 0, 0, 0, time.UTC),
+	}
+
+	// Values written by previous versions of the library have no header.
+	raw, err := (&JsonSerializer{}).Marshal(expected)
+	assert.NoError(t, err)
+	raw, err = reverseTestCodec{}.Compress(raw)
+	assert.NoError(t, err)
+	for _, key := range []string{"key1", "key2", "key3"} {
+		assert.NoError(t, client.Set(ctx, key, raw, 0).Err())
+	}
+
+	for _, batch := range []int{0, 2} {
+		opts := []Option{Serialization(&JsonSerializer{}), Compression(reverseTestCodec{})}
+		if batch > 0 {
+			opts = append(opts, BatchMultiGets(batch))
+		}
+		c := NewTyped[legacyPerson](client, opts...)
+
+		p, err := c.Get(ctx, "key1")
+		assert.NoError(t, err)
+		assert.Equal(t, expected, p)
+
+		res, err := c.MGet(ctx, "key1", "key2", "key3")
+		assert.NoError(t, err)
+		assert.Equal(t, []legacyPerson{expected, expected, expected}, res.Values())
+		assert.Equal(t, map[string]legacyPerson{"key1": expected, "key2": expected, "key3": expected}, res.Map())
+	}
+}
+
+func TestTypedCache_NegativeTTL(t *testing.T) {
+	setup()
+	defer tearDown()
+
+	ctx := context.Background()
+	c := NewTyped[string](client)
+	assert.NoError(t, c.Set(ctx, "existing", "value", time.Minute))
+
+	// A deadline that has already passed.
+	ttl := -5 * time.Second
+	assert.ErrorIs(t, c.Set(ctx, "key", "value", ttl), ErrInvalidTTL)
+	_, err := c.SetIfAbsent(ctx, "key", "value", ttl)
+	assert.ErrorIs(t, err, ErrInvalidTTL)
+	_, err = c.SetIfPresent(ctx, "existing", "new", ttl)
+	assert.ErrorIs(t, err, ErrInvalidTTL)
+	_, err = c.GetAndExpire(ctx, "existing", ttl)
+	assert.ErrorIs(t, err, ErrInvalidTTL)
+
+	assert.False(t, server.Exists("key"))
+	s, err := c.Get(ctx, "existing")
+	assert.NoError(t, err)
+	assert.Equal(t, "value", s)
+	assert.Equal(t, time.Minute, server.TTL("existing"))
+
+	// KeepTTL is still accepted and keeps the TTL.
+	assert.NoError(t, c.Set(ctx, "existing", "new", KeepTTL))
+	s, err = c.GetAndExpire(ctx, "existing", KeepTTL)
+	assert.NoError(t, err)
+	assert.Equal(t, "new", s)
+	assert.Equal(t, time.Minute, server.TTL("existing"))
+}
+
+func TestTypedCache_MGetNegativeBatch(t *testing.T) {
+	setup()
+	defer tearDown()
+
+	ctx := context.Background()
+	c := NewTyped[string](client)
+	// BatchMultiGets rejects negative sizes, MGet must not panic anyway.
+	c.setMGetBatch(-1)
+	for _, key := range []string{"a", "b", "c"} {
+		assert.NoError(t, c.Set(ctx, key, key, 0))
+	}
+
+	for _, keys := range [][]string{{"a"}, {"a", "b", "c"}} {
+		res, err := c.MGet(ctx, keys...)
+		assert.NoError(t, err)
+		assert.Equal(t, keys, res.Values())
+	}
 }

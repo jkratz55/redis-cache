@@ -52,7 +52,7 @@ func main() {
 		return newValue
 	})
 	retries := 3
-	for i := 0; i < retries; i++ {
+	for range retries {
 		err := rcache.Upsert[Person](context.Background(), c, "BillyBob", p, cb, 0)
 		if rcache.IsRetryable(err) {
 			continue

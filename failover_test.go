@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -143,7 +144,94 @@ func TestFailoverOpts(t *testing.T) {
 		assert.True(t, recoveredCalled)
 		opts.OnCheckFailure("test", nil)
 		assert.True(t, checkFailureCalled)
+
+		var healthChecked bool
+		opts.SetHealthCheck(func(ctx context.Context, client RedisClient) error {
+			healthChecked = true
+			return nil
+		})
+		assert.NoError(t, opts.HealthCheck(context.Background(), nil))
+		assert.True(t, healthChecked)
 	})
+
+	t.Run("default health check", func(t *testing.T) {
+		assert.NotNil(t, FailoverOptions().HealthCheck)
+
+		opts := &FailoverOpts{}
+		opts.init()
+		assert.NotNil(t, opts.HealthCheck)
+	})
+}
+
+func TestFailoverClient_HealthCheck(t *testing.T) {
+	s1 := miniredis.RunT(t)
+	s2 := miniredis.RunT(t)
+
+	// The primary answers PING but rejects writes.
+	c1 := &controlledClient{Client: redis.NewClient(&redis.Options{Addr: s1.Addr()})}
+	c2 := &controlledClient{Client: redis.NewClient(&redis.Options{Addr: s2.Addr()})}
+	readOnly := errors.New("READONLY You can't write against a read only replica")
+
+	var checks sync.Map
+	opts := &FailoverOpts{
+		CheckInterval:    5 * time.Millisecond,
+		CheckTimeout:     2 * time.Millisecond,
+		FailureThreshold: 1,
+		HealthCheck: func(ctx context.Context, client RedisClient) error {
+			checks.Store(client, true)
+			if _, ok := ctx.Deadline(); !ok {
+				return errors.New("health check without deadline")
+			}
+			if client == c1 {
+				return readOnly
+			}
+			return client.Set(ctx, "health:canary", "ok", time.Minute).Err()
+		},
+	}
+
+	fc := newFailoverClient(c1, c2, time.Millisecond, opts)
+	defer fc.Close()
+
+	assert.Eventually(t, fc.IsSecondary, time.Second, 5*time.Millisecond)
+	_, primaryChecked := checks.Load(c1)
+	_, secondaryChecked := checks.Load(c2)
+	assert.True(t, primaryChecked)
+	assert.True(t, secondaryChecked)
+	assert.True(t, s2.Exists("health:canary"))
+}
+
+func TestFailoverClient_HealthCheckPanic(t *testing.T) {
+	s1 := miniredis.RunT(t)
+	s2 := miniredis.RunT(t)
+
+	c1 := &controlledClient{Client: redis.NewClient(&redis.Options{Addr: s1.Addr()})}
+	c2 := &controlledClient{Client: redis.NewClient(&redis.Options{Addr: s2.Addr()})}
+
+	var primaryErr atomic.Value
+	opts := &FailoverOpts{
+		CheckInterval:    5 * time.Millisecond,
+		CheckTimeout:     2 * time.Millisecond,
+		FailureThreshold: 1,
+		HealthCheck: func(ctx context.Context, client RedisClient) error {
+			if client == c1 {
+				panic("boom")
+			}
+			return nil
+		},
+		OnCheckFailure: func(client string, err error) {
+			if client == "primary" {
+				primaryErr.Store(err)
+			}
+		},
+	}
+
+	fc := newFailoverClient(c1, c2, time.Millisecond, opts)
+	defer fc.Close()
+
+	// The panic counts as a failed health check instead of crashing the process.
+	assert.Eventually(t, fc.IsSecondary, time.Second, 5*time.Millisecond)
+	err, _ := primaryErr.Load().(error)
+	assert.ErrorContains(t, err, "health check panic: boom")
 }
 
 func TestFailoverClient_FailoverAndRecovery(t *testing.T) {
@@ -153,27 +241,27 @@ func TestFailoverClient_FailoverAndRecovery(t *testing.T) {
 	c1 := &controlledClient{Client: redis.NewClient(&redis.Options{Addr: s1.Addr()})}
 	c2 := &controlledClient{Client: redis.NewClient(&redis.Options{Addr: s2.Addr()})}
 
-	var failedOver int
-	var recovered int
-	var primaryCheckFailures int
-	var secondaryCheckFailures int
+	var failedOver atomic.Int64
+	var recovered atomic.Int64
+	var primaryCheckFailures atomic.Int64
+	var secondaryCheckFailures atomic.Int64
 
 	opts := FailoverOptions().
 		SetCheckInterval(10 * time.Millisecond).
 		SetCheckTimeout(5 * time.Millisecond).
 		SetFailureThreshold(2).
 		SetSuccessThreshold(2).
-		SetOnFailover(func() { failedOver++ }).
-		SetOnRecovered(func() { recovered++ }).
+		SetOnFailover(func() { failedOver.Add(1) }).
+		SetOnRecovered(func() { recovered.Add(1) }).
 		SetOnCheckFailure(func(client string, err error) {
 			if client == "primary" {
-				primaryCheckFailures++
+				primaryCheckFailures.Add(1)
 			} else if client == "secondary" {
-				secondaryCheckFailures++
+				secondaryCheckFailures.Add(1)
 			}
 		})
 
-	fc := NewFailoverClient(c1, c2, opts)
+	fc := newFailoverClient(c1, c2, time.Millisecond, opts)
 	defer fc.Close()
 
 	assert.True(t, fc.IsPrimary())
@@ -186,9 +274,9 @@ func TestFailoverClient_FailoverAndRecovery(t *testing.T) {
 		return fc.IsSecondary()
 	}, 1*time.Second, 20*time.Millisecond)
 
-	assert.Equal(t, 1, failedOver)
+	assert.Equal(t, int64(1), failedOver.Load())
 	assert.Equal(t, c2, fc.Active())
-	assert.GreaterOrEqual(t, primaryCheckFailures, 2)
+	assert.GreaterOrEqual(t, primaryCheckFailures.Load(), int64(2))
 
 	// Recover primary
 	c1.setPingErr(nil)
@@ -198,13 +286,13 @@ func TestFailoverClient_FailoverAndRecovery(t *testing.T) {
 		return fc.IsPrimary()
 	}, 1*time.Second, 20*time.Millisecond)
 
-	assert.Equal(t, 1, recovered)
+	assert.Equal(t, int64(1), recovered.Load())
 	assert.Equal(t, c1, fc.Active())
 
 	// Test secondary failure
 	c2.setPingErr(errors.New("secondary down"))
 	assert.Eventually(t, func() bool {
-		return secondaryCheckFailures > 0
+		return secondaryCheckFailures.Load() > 0
 	}, 1*time.Second, 20*time.Millisecond)
 
 	// Test primary timeout
@@ -340,6 +428,290 @@ func TestFailoverClient_PipelineAndWatch(t *testing.T) {
 	})
 }
 
+func TestNewFailoverClient_InvalidOptions(t *testing.T) {
+	s1 := miniredis.RunT(t)
+	s2 := miniredis.RunT(t)
+
+	c1 := redis.NewClient(&redis.Options{Addr: s1.Addr()})
+	c2 := redis.NewClient(&redis.Options{Addr: s2.Addr()})
+	defer c1.Close()
+	defer c2.Close()
+
+	tests := []struct {
+		name string
+		opts *FailoverOpts
+	}{
+		{name: "negative CheckInterval", opts: &FailoverOpts{CheckInterval: -time.Second}},
+		{name: "negative CheckTimeout", opts: &FailoverOpts{CheckTimeout: -time.Second}},
+		{name: "negative FailureThreshold", opts: &FailoverOpts{FailureThreshold: -1}},
+		{name: "negative SuccessThreshold", opts: &FailoverOpts{SuccessThreshold: -1}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Panics(t, func() {
+				NewFailoverClient(c1, c2, tt.opts)
+			})
+		})
+	}
+}
+
+func TestNewFailoverClient_NormalizesMergedOptions(t *testing.T) {
+	s1 := miniredis.RunT(t)
+	s2 := miniredis.RunT(t)
+
+	c1 := redis.NewClient(&redis.Options{Addr: s1.Addr()})
+	c2 := redis.NewClient(&redis.Options{Addr: s2.Addr()})
+
+	t.Run("sub-second interval is rounded up", func(t *testing.T) {
+		fc := NewFailoverClient(c1, c2, &FailoverOpts{CheckInterval: 100 * time.Millisecond})
+		assert.Equal(t, time.Second, fc.config.CheckInterval)
+		assert.Equal(t, 500*time.Millisecond, fc.config.CheckTimeout)
+		close(fc.closeChan)
+		<-fc.done
+	})
+
+	t.Run("timeout greater than or equal to interval is adjusted", func(t *testing.T) {
+		fc := NewFailoverClient(c1, c2, &FailoverOpts{
+			CheckInterval: 2 * time.Second,
+			CheckTimeout:  3 * time.Second,
+		})
+		assert.Equal(t, 2*time.Second, fc.config.CheckInterval)
+		assert.Equal(t, time.Second, fc.config.CheckTimeout)
+		close(fc.closeChan)
+		<-fc.done
+	})
+
+	t.Run("zero values keep defaults", func(t *testing.T) {
+		fc := NewFailoverClient(c1, c2, &FailoverOpts{FailureThreshold: 7}, nil)
+		assert.Equal(t, 5*time.Second, fc.config.CheckInterval)
+		assert.Equal(t, time.Second, fc.config.CheckTimeout)
+		assert.Equal(t, 7, fc.config.FailureThreshold)
+		assert.Equal(t, 2, fc.config.SuccessThreshold)
+		fc.Close()
+	})
+}
+
+func TestFailoverClient_NoFailoverToUnhealthySecondary(t *testing.T) {
+	s1 := miniredis.RunT(t)
+	s2 := miniredis.RunT(t)
+
+	c1 := &controlledClient{Client: redis.NewClient(&redis.Options{Addr: s1.Addr()})}
+	c2 := &controlledClient{Client: redis.NewClient(&redis.Options{Addr: s2.Addr()})}
+
+	var failovers, secondaryFailures atomic.Int64
+	opts := FailoverOptions().
+		SetCheckInterval(5 * time.Millisecond).
+		SetCheckTimeout(2 * time.Millisecond).
+		SetFailureThreshold(1).
+		SetOnFailover(func() { failovers.Add(1) }).
+		SetOnCheckFailure(func(client string, err error) {
+			if client == "secondary" {
+				secondaryFailures.Add(1)
+			}
+		})
+
+	c1.setPingErr(errors.New("primary down"))
+	c2.setPingErr(errors.New("secondary down"))
+
+	fc := newFailoverClient(c1, c2, time.Millisecond, opts)
+	defer fc.Close()
+
+	assert.Eventually(t, func() bool {
+		return secondaryFailures.Load() >= 5
+	}, time.Second, 5*time.Millisecond)
+	assert.True(t, fc.IsPrimary())
+	assert.Equal(t, int64(0), failovers.Load())
+
+	// Once the secondary is healthy again failover happens.
+	c2.setPingErr(nil)
+	assert.Eventually(t, func() bool {
+		return fc.IsSecondary()
+	}, time.Second, 5*time.Millisecond)
+	assert.Equal(t, int64(1), failovers.Load())
+}
+
+func TestFailoverClient_PanickingCallbacks(t *testing.T) {
+	s1 := miniredis.RunT(t)
+	s2 := miniredis.RunT(t)
+
+	c1 := &controlledClient{Client: redis.NewClient(&redis.Options{Addr: s1.Addr()})}
+	c2 := &controlledClient{Client: redis.NewClient(&redis.Options{Addr: s2.Addr()})}
+
+	opts := FailoverOptions().
+		SetCheckInterval(5 * time.Millisecond).
+		SetCheckTimeout(2 * time.Millisecond).
+		SetFailureThreshold(1).
+		SetSuccessThreshold(1).
+		SetOnFailover(func() { panic("failover") }).
+		SetOnRecovered(func() { panic("recovered") }).
+		SetOnCheckFailure(func(client string, err error) { panic("check failure") })
+
+	fc := newFailoverClient(c1, c2, time.Millisecond, opts)
+	defer fc.Close()
+
+	c1.setPingErr(errors.New("primary down"))
+	assert.Eventually(t, fc.IsSecondary, time.Second, 5*time.Millisecond)
+
+	c1.setPingErr(nil)
+	assert.Eventually(t, fc.IsPrimary, time.Second, 5*time.Millisecond)
+}
+
+func TestFailoverClient_ConcurrentUseDuringSwitch(t *testing.T) {
+	s1 := miniredis.RunT(t)
+	s2 := miniredis.RunT(t)
+
+	c1 := &controlledClient{Client: redis.NewClient(&redis.Options{Addr: s1.Addr()})}
+	c2 := &controlledClient{Client: redis.NewClient(&redis.Options{Addr: s2.Addr()})}
+
+	var switches atomic.Int64
+	opts := FailoverOptions().
+		SetCheckInterval(time.Millisecond).
+		SetCheckTimeout(500 * time.Microsecond).
+		SetFailureThreshold(1).
+		SetSuccessThreshold(1).
+		SetOnFailover(func() { switches.Add(1) }).
+		SetOnRecovered(func() { switches.Add(1) })
+
+	fc := newFailoverClient(c1, c2, time.Microsecond, opts)
+	defer fc.Close()
+
+	ctx := context.Background()
+	stop := make(chan struct{})
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Go(func() {
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+				_ = fc.Get(ctx, "key").Err()
+				_ = fc.IsPrimary()
+				_ = fc.Active()
+			}
+		})
+	}
+
+	// Toggle the primary health so the active client flips repeatedly.
+	deadline := time.Now().Add(2 * time.Second)
+	for switches.Load() < 4 && time.Now().Before(deadline) {
+		if fc.IsPrimary() {
+			c1.setPingErr(errors.New("primary down"))
+		} else {
+			c1.setPingErr(nil)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	close(stop)
+	wg.Wait()
+
+	assert.GreaterOrEqual(t, switches.Load(), int64(4))
+}
+
+func TestFailoverClient_CloseWaitsForMonitor(t *testing.T) {
+	s1 := miniredis.RunT(t)
+	s2 := miniredis.RunT(t)
+
+	// Health checks are in flight most of the time, and no callback runs.
+	c1 := &controlledClient{Client: redis.NewClient(&redis.Options{Addr: s1.Addr()})}
+	c2 := &controlledClient{Client: redis.NewClient(&redis.Options{Addr: s2.Addr()})}
+	c1.setPingDelay(10 * time.Millisecond)
+
+	opts := FailoverOptions().
+		SetCheckInterval(time.Millisecond).
+		SetCheckTimeout(100 * time.Millisecond)
+
+	fc := newFailoverClient(c1, c2, time.Microsecond, opts)
+	time.Sleep(5 * time.Millisecond)
+
+	assert.NoError(t, fc.Close())
+
+	select {
+	case <-fc.done:
+	default:
+		t.Fatal("monitor goroutine still running after Close returned")
+	}
+}
+
+func TestFailoverClient_NoCallbacksAfterClose(t *testing.T) {
+	s1 := miniredis.RunT(t)
+	s2 := miniredis.RunT(t)
+
+	c1 := &controlledClient{Client: redis.NewClient(&redis.Options{Addr: s1.Addr()})}
+	c2 := &controlledClient{Client: redis.NewClient(&redis.Options{Addr: s2.Addr()})}
+	c1.setPingErr(errors.New("primary down"))
+
+	var checkFailures atomic.Int64
+	opts := FailoverOptions().
+		SetCheckInterval(time.Millisecond).
+		SetCheckTimeout(500 * time.Microsecond).
+		SetOnCheckFailure(func(client string, err error) { checkFailures.Add(1) })
+
+	fc := newFailoverClient(c1, c2, time.Microsecond, opts)
+	assert.Eventually(t, func() bool {
+		return checkFailures.Load() > 0
+	}, time.Second, time.Millisecond)
+
+	assert.NoError(t, fc.Close())
+
+	// Close doesn't wait for a callback that is running when it is called.
+	select {
+	case <-fc.done:
+	case <-time.After(time.Second):
+		t.Fatal("monitor goroutine didn't stop after Close")
+	}
+
+	afterClose := checkFailures.Load()
+	time.Sleep(20 * time.Millisecond)
+	assert.Equal(t, afterClose, checkFailures.Load())
+}
+
+func TestFailoverClient_CloseFromCallback(t *testing.T) {
+	s1 := miniredis.RunT(t)
+	s2 := miniredis.RunT(t)
+
+	c1 := &controlledClient{Client: redis.NewClient(&redis.Options{Addr: s1.Addr()})}
+	c2 := &controlledClient{Client: redis.NewClient(&redis.Options{Addr: s2.Addr()})}
+	c1.setPingErr(errors.New("primary down"))
+
+	var fc *FailoverClient
+	created := make(chan struct{})
+	closed := make(chan error, 1)
+	opts := FailoverOptions().
+		SetCheckInterval(time.Millisecond).
+		SetCheckTimeout(500 * time.Microsecond).
+		SetFailureThreshold(1).
+		SetOnFailover(func() {
+			<-created
+			closed <- fc.Close()
+		})
+
+	fc = newFailoverClient(c1, c2, time.Microsecond, opts)
+	close(created)
+
+	select {
+	case err := <-closed:
+		assert.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("Close called from a callback deadlocked")
+	}
+
+	// The monitor goroutine stops once the callback returns, and calling Close
+	// again doesn't block.
+	select {
+	case <-fc.done:
+	case <-time.After(time.Second):
+		t.Fatal("monitor goroutine didn't stop after Close")
+	}
+	assert.NoError(t, fc.Close())
+
+	ctx := context.Background()
+	assert.Error(t, c1.Client.Ping(ctx).Err())
+	assert.Error(t, c2.Client.Ping(ctx).Err())
+}
+
 func TestFailoverClient_Close(t *testing.T) {
 	s1 := miniredis.RunT(t)
 	s2 := miniredis.RunT(t)
@@ -361,4 +733,87 @@ func TestFailoverClient_Close(t *testing.T) {
 	ctx := context.Background()
 	assert.Error(t, c1.Ping(ctx).Err())
 	assert.Error(t, c2.Ping(ctx).Err())
+}
+
+func TestFailoverClient_HungHealthCheck(t *testing.T) {
+	s1 := miniredis.RunT(t)
+	s2 := miniredis.RunT(t)
+
+	c1 := &controlledClient{Client: redis.NewClient(&redis.Options{Addr: s1.Addr()})}
+	c2 := &controlledClient{Client: redis.NewClient(&redis.Options{Addr: s2.Addr()})}
+
+	// The primary's check ignores its context and hangs until released.
+	release := make(chan struct{})
+	var primaryChecks atomic.Int64
+	var timedOut, stillRunning atomic.Bool
+	opts := &FailoverOpts{
+		CheckInterval:    5 * time.Millisecond,
+		CheckTimeout:     2 * time.Millisecond,
+		FailureThreshold: 2,
+		SuccessThreshold: 1,
+		HealthCheck: func(ctx context.Context, client RedisClient) error {
+			if client == c1 {
+				primaryChecks.Add(1)
+				<-release
+			}
+			return nil
+		},
+		OnCheckFailure: func(client string, err error) {
+			if client != "primary" {
+				return
+			}
+			if errors.Is(err, context.DeadlineExceeded) {
+				timedOut.Store(true)
+			}
+			if errors.Is(err, errHealthCheckRunning) {
+				stillRunning.Store(true)
+			}
+		},
+	}
+	fc := newFailoverClient(c1, c2, time.Millisecond, opts)
+
+	// The hung check counts as failed instead of stopping the monitor, and isn't
+	// started again while it hangs.
+	assert.Eventually(t, fc.IsSecondary, 2*time.Second, 5*time.Millisecond)
+	assert.True(t, timedOut.Load())
+	assert.True(t, stillRunning.Load())
+	assert.Equal(t, int64(1), primaryChecks.Load())
+
+	// Once the check returns, the primary is checked again and recovers.
+	close(release)
+	assert.Eventually(t, fc.IsPrimary, 2*time.Second, 5*time.Millisecond)
+	assert.Greater(t, primaryChecks.Load(), int64(1))
+	assert.NoError(t, fc.Close())
+}
+
+func TestFailoverClient_CloseDoesntWaitForHungHealthCheck(t *testing.T) {
+	s1 := miniredis.RunT(t)
+	s2 := miniredis.RunT(t)
+
+	c1 := &controlledClient{Client: redis.NewClient(&redis.Options{Addr: s1.Addr()})}
+	c2 := &controlledClient{Client: redis.NewClient(&redis.Options{Addr: s2.Addr()})}
+
+	release := make(chan struct{})
+	defer close(release)
+	started := make(chan struct{}, 2)
+	opts := &FailoverOpts{
+		CheckInterval: 5 * time.Millisecond,
+		CheckTimeout:  2 * time.Millisecond,
+		HealthCheck: func(ctx context.Context, client RedisClient) error {
+			started <- struct{}{}
+			<-release
+			return nil
+		},
+	}
+	fc := newFailoverClient(c1, c2, time.Millisecond, opts)
+	<-started
+
+	closed := make(chan error, 1)
+	go func() { closed <- fc.Close() }()
+	select {
+	case err := <-closed:
+		assert.NoError(t, err)
+	case <-time.After(time.Second):
+		t.Fatal("Close waited for a health check that hangs")
+	}
 }

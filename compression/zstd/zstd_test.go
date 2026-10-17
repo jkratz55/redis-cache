@@ -1,12 +1,17 @@
 package zstd
 
 import (
+	"bytes"
 	"crypto/rand"
+	"fmt"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/klauspost/compress/zstd"
 	"github.com/stretchr/testify/assert"
+
+	cache "github.com/jkratz55/redis-cache/v2"
 )
 
 func TestCodec(t *testing.T) {
@@ -108,4 +113,112 @@ func TestCodec(t *testing.T) {
 			assert.Equal(t, testStr, string(decompressed))
 		}
 	})
+}
+
+func TestCodec_MaxDecodedSize(t *testing.T) {
+	payload := make([]byte, 1<<20)
+
+	unlimited, err := NewCodec(zstd.SpeedDefault)
+	assert.NoError(t, err)
+	defer unlimited.Close()
+	compressed, err := unlimited.Compress(payload)
+	assert.NoError(t, err)
+
+	limited, err := NewCodec(zstd.SpeedDefault, WithMaxDecodedSize(1<<10))
+	assert.NoError(t, err)
+	defer limited.Close()
+	_, err = limited.Decompress(compressed)
+	assert.ErrorIs(t, err, cache.ErrMaxDecodedSizeExceeded)
+
+	// Values within the limit are still decoded.
+	small, err := limited.Compress([]byte("hello"))
+	assert.NoError(t, err)
+	out, err := limited.Decompress(small)
+	assert.NoError(t, err)
+	assert.Equal(t, []byte("hello"), out)
+
+	// Without a limit large values are decoded.
+	out, err = unlimited.Decompress(compressed)
+	assert.NoError(t, err)
+	assert.Equal(t, payload, out)
+}
+
+func TestCodec_MaxDecodedSizeSmallLimits(t *testing.T) {
+	for _, limit := range []uint64{1, 512, 1023, 1024, 1025, 2048} {
+		t.Run(fmt.Sprint(limit), func(t *testing.T) {
+			codec, err := NewCodec(zstd.SpeedDefault, WithMaxDecodedSize(limit))
+			assert.NoError(t, err)
+			defer codec.Close()
+
+			atLimit := bytes.Repeat([]byte("a"), int(limit))
+			compressed, err := codec.Compress(atLimit)
+			assert.NoError(t, err)
+			out, err := codec.Decompress(compressed)
+			assert.NoError(t, err)
+			assert.Equal(t, atLimit, out)
+
+			compressed, err = codec.Compress(append(atLimit, 'a'))
+			assert.NoError(t, err)
+			_, err = codec.Decompress(compressed)
+			assert.ErrorIs(t, err, cache.ErrMaxDecodedSizeExceeded)
+		})
+	}
+}
+
+func TestCodec_CloseWhileInUse(t *testing.T) {
+	codec, err := NewCodec(zstd.SpeedDefault)
+	assert.NoError(t, err)
+	compressed, err := codec.Compress(bytes.Repeat([]byte("hello"), 1000))
+	assert.NoError(t, err)
+
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Go(func() {
+			for range 1000 {
+				if _, err := codec.Decompress(compressed); err != nil {
+					assert.ErrorIs(t, err, ErrClosed)
+					return
+				}
+			}
+		})
+	}
+	time.Sleep(time.Millisecond)
+	assert.NoError(t, codec.Close())
+	wg.Wait()
+
+	_, err = codec.Compress([]byte("hello"))
+	assert.ErrorIs(t, err, ErrClosed)
+	_, err = codec.Decompress(compressed)
+	assert.ErrorIs(t, err, ErrClosed)
+}
+
+func TestCodec_CloseIdempotent(t *testing.T) {
+	codec, err := NewCodec(zstd.SpeedDefault, nil)
+	assert.NoError(t, err)
+	assert.NoError(t, codec.Close())
+	assert.NotPanics(t, func() { _ = codec.Close() })
+}
+
+func TestCodec_AppendCompress(t *testing.T) {
+	codec, err := NewCodec(zstd.SpeedDefault)
+	assert.NoError(t, err)
+	defer codec.Close()
+	data := bytes.Repeat([]byte("This is a test string. "), 100)
+
+	compressed, err := codec.Compress(data)
+	assert.NoError(t, err)
+
+	prefix := []byte("prefix")
+	out, err := codec.AppendCompress(prefix, data)
+	assert.NoError(t, err)
+	assert.Equal(t, "prefix", string(out[:len(prefix)]))
+	assert.Equal(t, compressed, out[len(prefix):])
+
+	decompressed, err := codec.Decompress(out[len(prefix):])
+	assert.NoError(t, err)
+	assert.Equal(t, data, decompressed)
+
+	assert.NoError(t, codec.Close())
+	_, err = codec.AppendCompress(prefix, data)
+	assert.ErrorIs(t, err, ErrClosed)
 }

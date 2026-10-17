@@ -10,9 +10,11 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	redisotelnative "github.com/redis/go-redis/extra/redisotel-native/v9"
 	"github.com/redis/go-redis/extra/redisotel/v9"
 	"github.com/redis/go-redis/v9"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
 	"go.opentelemetry.io/otel/exporters/prometheus"
 	"go.opentelemetry.io/otel/propagation"
@@ -64,8 +66,25 @@ func main() {
 		panic(err)
 	}
 
-	provider := metric.NewMeterProvider(metric.WithReader(exporter))
+	// redisotel-native has no option to leave out attributes, so the view drops the ones
+	// that add series without adding information. db.operation.batch.size is the number
+	// of commands in a pipeline, which varies with the number of keys when MGet is batched
+	// with BatchMultiGets. The library version is constant, and the peer address and port
+	// repeat server.address but change with the IP the address resolves to.
+	provider := metric.NewMeterProvider(
+		metric.WithReader(exporter))
 	otel.SetMeterProvider(provider)
+
+	// redisotel.InstrumentMetrics only records connection pool metrics, without the
+	// command. redisotel-native records the duration of every command in
+	// db.client.operation.duration with the command in db.operation.name, along with
+	// connection metrics. It applies to every Redis client and must be initialized
+	// before they are created.
+	redisMetrics := redisotelnative.GetObservabilityInstance()
+	if err := redisMetrics.Init(redisotelnative.NewConfig().WithEnabled(true)); err != nil {
+		panic(err)
+	}
+	defer redisMetrics.Shutdown()
 
 	client := redis.NewClient(&redis.Options{
 		Addr: "localhost:6379",
@@ -73,9 +92,6 @@ func main() {
 	defer client.Close()
 
 	if err := redisotel.InstrumentTracing(client); err != nil {
-		panic(err)
-	}
-	if err := redisotel.InstrumentMetrics(client); err != nil {
 		panic(err)
 	}
 
@@ -89,16 +105,22 @@ func main() {
 		}
 	}()
 
-	serializer := cacheotel.NewInstrumentedSerializer(cache.MessagePackSerializer{})
+	// The attribute identifies the cache in every metric recorded by cacheotel.
+	cacheName := cacheotel.WithAttributes(attribute.String("cache.name", "example"))
+	serializer := cacheotel.NewInstrumentedSerializer(&cache.MessagePackSerializer{}, cacheName)
 
-	// Create instance of the instrumented cache instead of cache.Cache. This will automatically
-	// capture execution time of not only the client, but compression and serialization.
-	rdb := cacheotel.InstrumentCache(cache.New(client, cache.Serialization(serializer)))
+	// The Redis client is instrumented by redisotel and redisotel-native and the serializer
+	// by cacheotel, so the cache captures the execution time of both the Redis commands and
+	// serialization. The hooks record cache hits and misses, the size of values, and decode
+	// errors.
+	rdb := cache.New(client,
+		cache.Serialization(serializer),
+		cache.Instrumentation(cacheotel.NewHooks(cacheName)))
 
 	ctx := context.Background()
 
 	// Perform some Redis operations to capture instrumentation
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		err := rdb.Set(ctx, fmt.Sprintf("key%d", i), fmt.Sprintf("value%d", i), 0)
 		if err != nil {
 			panic(err)
@@ -114,11 +136,11 @@ func main() {
 	}
 
 	keys := []string{"key0", "key1", "key2", "key3", "key4", "key5", "key6", "key7", "key8", "key9"}
-	vals, err := cacheotel.MGet[string](ctx, rdb, keys...)
+	vals, err := cache.MGet[string](ctx, rdb, keys...)
 	if err != nil {
 		panic(err)
 	}
-	fmt.Println(vals)
+	fmt.Println(vals.Values())
 
 	// Setup Prometheus metrics endpoint and other handlers for testing/demo
 	http.Handle("/metrics", promhttp.Handler())

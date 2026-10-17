@@ -1,0 +1,1098 @@
+goos: darwin
+goarch: arm64
+pkg: github.com/jkratz55/redis-cache/v2/internal/benchmarks
+cpu: Apple M5 Max
+BenchmarkSerializer/format=msgpack/payload=small/op=marshal-18         	 1000000	       504.7 ns/op	 679.58 MB/s	       343.0 encoded-B	    1008 B/op	       5 allocs/op
+BenchmarkSerializer/format=msgpack/payload=small/op=marshal-18         	 1204483	       498.0 ns/op	 688.78 MB/s	       343.0 encoded-B	    1008 B/op	       5 allocs/op
+BenchmarkSerializer/format=msgpack/payload=small/op=marshal-18         	 1206614	       497.9 ns/op	 688.88 MB/s	       343.0 encoded-B	    1008 B/op	       5 allocs/op
+BenchmarkSerializer/format=msgpack/payload=small/op=marshal-18         	 1202308	       498.9 ns/op	 687.50 MB/s	       343.0 encoded-B	    1008 B/op	       5 allocs/op
+BenchmarkSerializer/format=msgpack/payload=small/op=marshal-18         	 1204774	       497.9 ns/op	 688.89 MB/s	       343.0 encoded-B	    1008 B/op	       5 allocs/op
+BenchmarkSerializer/format=msgpack/payload=small/op=marshal-18         	 1206178	       497.4 ns/op	 689.64 MB/s	       343.0 encoded-B	    1008 B/op	       5 allocs/op
+BenchmarkSerializer/format=msgpack/payload=small/op=unmarshal-18       	  645525	       909.4 ns/op	 377.18 MB/s	       343.0 encoded-B	     960 B/op	      25 allocs/op
+BenchmarkSerializer/format=msgpack/payload=small/op=unmarshal-18       	  666860	       905.8 ns/op	 378.65 MB/s	       343.0 encoded-B	     960 B/op	      25 allocs/op
+BenchmarkSerializer/format=msgpack/payload=small/op=unmarshal-18       	  675770	       909.4 ns/op	 377.18 MB/s	       343.0 encoded-B	     960 B/op	      25 allocs/op
+BenchmarkSerializer/format=msgpack/payload=small/op=unmarshal-18       	  666194	       909.3 ns/op	 377.22 MB/s	       343.0 encoded-B	     960 B/op	      25 allocs/op
+BenchmarkSerializer/format=msgpack/payload=small/op=unmarshal-18       	  667562	       907.7 ns/op	 377.86 MB/s	       343.0 encoded-B	     960 B/op	      25 allocs/op
+BenchmarkSerializer/format=msgpack/payload=small/op=unmarshal-18       	  667132	       909.6 ns/op	 377.08 MB/s	       343.0 encoded-B	     960 B/op	      25 allocs/op
+BenchmarkSerializer/format=msgpack/payload=medium/op=marshal-18        	  230335	      2639 ns/op	 776.94 MB/s	      2050 encoded-B	    8182 B/op	       8 allocs/op
+BenchmarkSerializer/format=msgpack/payload=medium/op=marshal-18        	  230546	      2657 ns/op	 771.69 MB/s	      2050 encoded-B	    8182 B/op	       8 allocs/op
+BenchmarkSerializer/format=msgpack/payload=medium/op=marshal-18        	  230400	      2661 ns/op	 770.30 MB/s	      2050 encoded-B	    8182 B/op	       8 allocs/op
+BenchmarkSerializer/format=msgpack/payload=medium/op=marshal-18        	  229324	      2616 ns/op	 783.52 MB/s	      2050 encoded-B	    8182 B/op	       8 allocs/op
+BenchmarkSerializer/format=msgpack/payload=medium/op=marshal-18        	  227964	      2638 ns/op	 777.01 MB/s	      2050 encoded-B	    8182 B/op	       8 allocs/op
+BenchmarkSerializer/format=msgpack/payload=medium/op=marshal-18        	  230080	      2636 ns/op	 777.61 MB/s	      2050 encoded-B	    8182 B/op	       8 allocs/op
+BenchmarkSerializer/format=msgpack/payload=medium/op=unmarshal-18      	  141824	      4225 ns/op	 485.26 MB/s	      2050 encoded-B	    3939 B/op	      70 allocs/op
+BenchmarkSerializer/format=msgpack/payload=medium/op=unmarshal-18      	  139956	      4226 ns/op	 485.07 MB/s	      2050 encoded-B	    3939 B/op	      70 allocs/op
+BenchmarkSerializer/format=msgpack/payload=medium/op=unmarshal-18      	  143475	      4204 ns/op	 487.64 MB/s	      2050 encoded-B	    3939 B/op	      70 allocs/op
+BenchmarkSerializer/format=msgpack/payload=medium/op=unmarshal-18      	  142587	      4206 ns/op	 487.38 MB/s	      2050 encoded-B	    3939 B/op	      70 allocs/op
+BenchmarkSerializer/format=msgpack/payload=medium/op=unmarshal-18      	  142689	      4213 ns/op	 486.60 MB/s	      2050 encoded-B	    3939 B/op	      70 allocs/op
+BenchmarkSerializer/format=msgpack/payload=medium/op=unmarshal-18      	  143852	      4246 ns/op	 482.81 MB/s	      2050 encoded-B	    3939 B/op	      70 allocs/op
+BenchmarkSerializer/format=msgpack/payload=large/op=marshal-18         	    8656	     70124 ns/op	 928.73 MB/s	     65126 encoded-B	  131167 B/op	      12 allocs/op
+BenchmarkSerializer/format=msgpack/payload=large/op=marshal-18         	    8767	     68577 ns/op	 949.67 MB/s	     65126 encoded-B	  131167 B/op	      12 allocs/op
+BenchmarkSerializer/format=msgpack/payload=large/op=marshal-18         	    8929	     67425 ns/op	 965.90 MB/s	     65126 encoded-B	  131167 B/op	      12 allocs/op
+BenchmarkSerializer/format=msgpack/payload=large/op=marshal-18         	    8931	     67598 ns/op	 963.43 MB/s	     65126 encoded-B	  131167 B/op	      12 allocs/op
+BenchmarkSerializer/format=msgpack/payload=large/op=marshal-18         	    8946	     67579 ns/op	 963.71 MB/s	     65126 encoded-B	  131167 B/op	      12 allocs/op
+BenchmarkSerializer/format=msgpack/payload=large/op=marshal-18         	    8847	     67589 ns/op	 963.56 MB/s	     65126 encoded-B	  131167 B/op	      12 allocs/op
+BenchmarkSerializer/format=msgpack/payload=large/op=unmarshal-18       	    4818	    125104 ns/op	 520.58 MB/s	     65126 encoded-B	  119036 B/op	    1628 allocs/op
+BenchmarkSerializer/format=msgpack/payload=large/op=unmarshal-18       	    4867	    125028 ns/op	 520.89 MB/s	     65126 encoded-B	  119036 B/op	    1628 allocs/op
+BenchmarkSerializer/format=msgpack/payload=large/op=unmarshal-18       	    4862	    125350 ns/op	 519.55 MB/s	     65126 encoded-B	  119036 B/op	    1628 allocs/op
+BenchmarkSerializer/format=msgpack/payload=large/op=unmarshal-18       	    4515	    125957 ns/op	 517.05 MB/s	     65126 encoded-B	  119037 B/op	    1628 allocs/op
+BenchmarkSerializer/format=msgpack/payload=large/op=unmarshal-18       	    4863	    124240 ns/op	 524.19 MB/s	     65126 encoded-B	  119037 B/op	    1628 allocs/op
+BenchmarkSerializer/format=msgpack/payload=large/op=unmarshal-18       	    4903	    124585 ns/op	 522.74 MB/s	     65126 encoded-B	  119036 B/op	    1628 allocs/op
+BenchmarkSerializer/format=json/payload=small/op=marshal-18            	  885096	       668.0 ns/op	 631.71 MB/s	       422.0 encoded-B	     688 B/op	       4 allocs/op
+BenchmarkSerializer/format=json/payload=small/op=marshal-18            	  893648	       667.4 ns/op	 632.29 MB/s	       422.0 encoded-B	     688 B/op	       4 allocs/op
+BenchmarkSerializer/format=json/payload=small/op=marshal-18            	  872938	       673.4 ns/op	 626.67 MB/s	       422.0 encoded-B	     688 B/op	       4 allocs/op
+BenchmarkSerializer/format=json/payload=small/op=marshal-18            	  894248	       670.1 ns/op	 629.73 MB/s	       422.0 encoded-B	     688 B/op	       4 allocs/op
+BenchmarkSerializer/format=json/payload=small/op=marshal-18            	  912379	       669.8 ns/op	 630.04 MB/s	       422.0 encoded-B	     688 B/op	       4 allocs/op
+BenchmarkSerializer/format=json/payload=small/op=marshal-18            	  871760	       675.2 ns/op	 625.02 MB/s	       422.0 encoded-B	     688 B/op	       4 allocs/op
+BenchmarkSerializer/format=json/payload=small/op=unmarshal-18          	  525768	      1106 ns/op	 381.58 MB/s	       422.0 encoded-B	     704 B/op	      10 allocs/op
+BenchmarkSerializer/format=json/payload=small/op=unmarshal-18          	  550717	      1102 ns/op	 382.99 MB/s	       422.0 encoded-B	     704 B/op	      10 allocs/op
+BenchmarkSerializer/format=json/payload=small/op=unmarshal-18          	  541399	      1108 ns/op	 380.79 MB/s	       422.0 encoded-B	     704 B/op	      10 allocs/op
+BenchmarkSerializer/format=json/payload=small/op=unmarshal-18          	  548462	      1104 ns/op	 382.26 MB/s	       422.0 encoded-B	     704 B/op	      10 allocs/op
+BenchmarkSerializer/format=json/payload=small/op=unmarshal-18          	  535317	      1106 ns/op	 381.59 MB/s	       422.0 encoded-B	     704 B/op	      10 allocs/op
+BenchmarkSerializer/format=json/payload=small/op=unmarshal-18          	  542505	      1106 ns/op	 381.62 MB/s	       422.0 encoded-B	     704 B/op	      10 allocs/op
+BenchmarkSerializer/format=json/payload=medium/op=marshal-18           	  200756	      2964 ns/op	 775.66 MB/s	      2299 encoded-B	    2546 B/op	       4 allocs/op
+BenchmarkSerializer/format=json/payload=medium/op=marshal-18           	  202556	      2969 ns/op	 774.39 MB/s	      2299 encoded-B	    2546 B/op	       4 allocs/op
+BenchmarkSerializer/format=json/payload=medium/op=marshal-18           	  202552	      2943 ns/op	 781.23 MB/s	      2299 encoded-B	    2546 B/op	       4 allocs/op
+BenchmarkSerializer/format=json/payload=medium/op=marshal-18           	  201345	      2961 ns/op	 776.53 MB/s	      2299 encoded-B	    2546 B/op	       4 allocs/op
+BenchmarkSerializer/format=json/payload=medium/op=marshal-18           	  202527	      2952 ns/op	 778.77 MB/s	      2299 encoded-B	    2546 B/op	       4 allocs/op
+BenchmarkSerializer/format=json/payload=medium/op=marshal-18           	  204022	      2962 ns/op	 776.19 MB/s	      2299 encoded-B	    2546 B/op	       4 allocs/op
+BenchmarkSerializer/format=json/payload=medium/op=unmarshal-18         	  109098	      5645 ns/op	 407.25 MB/s	      2299 encoded-B	    4452 B/op	      34 allocs/op
+BenchmarkSerializer/format=json/payload=medium/op=unmarshal-18         	  107280	      5552 ns/op	 414.06 MB/s	      2299 encoded-B	    4452 B/op	      34 allocs/op
+BenchmarkSerializer/format=json/payload=medium/op=unmarshal-18         	  107180	      5551 ns/op	 414.14 MB/s	      2299 encoded-B	    4452 B/op	      34 allocs/op
+BenchmarkSerializer/format=json/payload=medium/op=unmarshal-18         	  108645	      5541 ns/op	 414.94 MB/s	      2299 encoded-B	    4452 B/op	      34 allocs/op
+BenchmarkSerializer/format=json/payload=medium/op=unmarshal-18         	  109845	      5587 ns/op	 411.47 MB/s	      2299 encoded-B	    4453 B/op	      34 allocs/op
+BenchmarkSerializer/format=json/payload=medium/op=unmarshal-18         	  107886	      5562 ns/op	 413.34 MB/s	      2299 encoded-B	    4452 B/op	      34 allocs/op
+BenchmarkSerializer/format=json/payload=large/op=marshal-18            	    6528	     90925 ns/op	 781.60 MB/s	     71067 encoded-B	   74073 B/op	       4 allocs/op
+BenchmarkSerializer/format=json/payload=large/op=marshal-18            	    6655	     93499 ns/op	 760.08 MB/s	     71067 encoded-B	   74029 B/op	       4 allocs/op
+BenchmarkSerializer/format=json/payload=large/op=marshal-18            	    6712	     90861 ns/op	 782.15 MB/s	     71067 encoded-B	   74072 B/op	       4 allocs/op
+BenchmarkSerializer/format=json/payload=large/op=marshal-18            	    6422	     90011 ns/op	 789.53 MB/s	     71067 encoded-B	   74074 B/op	       4 allocs/op
+BenchmarkSerializer/format=json/payload=large/op=marshal-18            	    6672	     89785 ns/op	 791.52 MB/s	     71067 encoded-B	   74072 B/op	       4 allocs/op
+BenchmarkSerializer/format=json/payload=large/op=marshal-18            	    6698	     89557 ns/op	 793.54 MB/s	     71067 encoded-B	   74072 B/op	       4 allocs/op
+BenchmarkSerializer/format=json/payload=large/op=unmarshal-18          	    3554	    169080 ns/op	 420.32 MB/s	     71067 encoded-B	  154962 B/op	    1476 allocs/op
+BenchmarkSerializer/format=json/payload=large/op=unmarshal-18          	    3614	    168792 ns/op	 421.03 MB/s	     71067 encoded-B	  154960 B/op	    1476 allocs/op
+BenchmarkSerializer/format=json/payload=large/op=unmarshal-18          	    3576	    168558 ns/op	 421.62 MB/s	     71067 encoded-B	  154962 B/op	    1476 allocs/op
+BenchmarkSerializer/format=json/payload=large/op=unmarshal-18          	    3616	    169500 ns/op	 419.27 MB/s	     71067 encoded-B	  154962 B/op	    1476 allocs/op
+BenchmarkSerializer/format=json/payload=large/op=unmarshal-18          	    3414	    169487 ns/op	 419.31 MB/s	     71067 encoded-B	  154961 B/op	    1476 allocs/op
+BenchmarkSerializer/format=json/payload=large/op=unmarshal-18          	    3603	    168153 ns/op	 422.63 MB/s	     71067 encoded-B	  154960 B/op	    1476 allocs/op
+BenchmarkSerializer/format=protobuf/payload=small/op=marshal-18        	 1311890	       457.3 ns/op	 459.21 MB/s	       210.0 encoded-B	     352 B/op	       9 allocs/op
+BenchmarkSerializer/format=protobuf/payload=small/op=marshal-18        	 1321296	       455.4 ns/op	 461.15 MB/s	       210.0 encoded-B	     352 B/op	       9 allocs/op
+BenchmarkSerializer/format=protobuf/payload=small/op=marshal-18        	 1314999	       459.0 ns/op	 457.53 MB/s	       210.0 encoded-B	     352 B/op	       9 allocs/op
+BenchmarkSerializer/format=protobuf/payload=small/op=marshal-18        	 1277316	       473.8 ns/op	 443.19 MB/s	       210.0 encoded-B	     352 B/op	       9 allocs/op
+BenchmarkSerializer/format=protobuf/payload=small/op=marshal-18        	 1227632	       483.3 ns/op	 434.49 MB/s	       210.0 encoded-B	     352 B/op	       9 allocs/op
+BenchmarkSerializer/format=protobuf/payload=small/op=marshal-18        	 1309960	       457.4 ns/op	 459.15 MB/s	       210.0 encoded-B	     352 B/op	       9 allocs/op
+BenchmarkSerializer/format=protobuf/payload=small/op=unmarshal-18      	 1000000	       569.7 ns/op	 368.59 MB/s	       210.0 encoded-B	    1088 B/op	      31 allocs/op
+BenchmarkSerializer/format=protobuf/payload=small/op=unmarshal-18      	 1000000	       569.1 ns/op	 368.99 MB/s	       210.0 encoded-B	    1088 B/op	      31 allocs/op
+BenchmarkSerializer/format=protobuf/payload=small/op=unmarshal-18      	 1000000	       569.6 ns/op	 368.71 MB/s	       210.0 encoded-B	    1088 B/op	      31 allocs/op
+BenchmarkSerializer/format=protobuf/payload=small/op=unmarshal-18      	 1000000	       569.6 ns/op	 368.68 MB/s	       210.0 encoded-B	    1088 B/op	      31 allocs/op
+BenchmarkSerializer/format=protobuf/payload=small/op=unmarshal-18      	 1000000	       570.0 ns/op	 368.42 MB/s	       210.0 encoded-B	    1088 B/op	      31 allocs/op
+BenchmarkSerializer/format=protobuf/payload=small/op=unmarshal-18      	 1000000	       572.4 ns/op	 366.90 MB/s	       210.0 encoded-B	    1088 B/op	      31 allocs/op
+BenchmarkSerializer/format=protobuf/payload=medium/op=marshal-18       	  438866	      1410 ns/op	 966.29 MB/s	      1362 encoded-B	    1600 B/op	      13 allocs/op
+BenchmarkSerializer/format=protobuf/payload=medium/op=marshal-18       	  417505	      1378 ns/op	 988.21 MB/s	      1362 encoded-B	    1600 B/op	      13 allocs/op
+BenchmarkSerializer/format=protobuf/payload=medium/op=marshal-18       	  445156	      1348 ns/op	1010.62 MB/s	      1362 encoded-B	    1600 B/op	      13 allocs/op
+BenchmarkSerializer/format=protobuf/payload=medium/op=marshal-18       	  440002	      1344 ns/op	1013.28 MB/s	      1362 encoded-B	    1600 B/op	      13 allocs/op
+BenchmarkSerializer/format=protobuf/payload=medium/op=marshal-18       	  445778	      1346 ns/op	1011.80 MB/s	      1362 encoded-B	    1600 B/op	      13 allocs/op
+BenchmarkSerializer/format=protobuf/payload=medium/op=marshal-18       	  452768	      1347 ns/op	1010.83 MB/s	      1362 encoded-B	    1600 B/op	      13 allocs/op
+BenchmarkSerializer/format=protobuf/payload=medium/op=unmarshal-18     	  267657	      2237 ns/op	 608.74 MB/s	      1362 encoded-B	    4624 B/op	     106 allocs/op
+BenchmarkSerializer/format=protobuf/payload=medium/op=unmarshal-18     	  269788	      2231 ns/op	 610.36 MB/s	      1362 encoded-B	    4624 B/op	     106 allocs/op
+BenchmarkSerializer/format=protobuf/payload=medium/op=unmarshal-18     	  269265	      2278 ns/op	 597.84 MB/s	      1362 encoded-B	    4624 B/op	     106 allocs/op
+BenchmarkSerializer/format=protobuf/payload=medium/op=unmarshal-18     	  265256	      2218 ns/op	 614.08 MB/s	      1362 encoded-B	    4624 B/op	     106 allocs/op
+BenchmarkSerializer/format=protobuf/payload=medium/op=unmarshal-18     	  272648	      2218 ns/op	 613.98 MB/s	      1362 encoded-B	    4624 B/op	     106 allocs/op
+BenchmarkSerializer/format=protobuf/payload=medium/op=unmarshal-18     	  262827	      2221 ns/op	 613.24 MB/s	      1362 encoded-B	    4624 B/op	     106 allocs/op
+BenchmarkSerializer/format=protobuf/payload=large/op=marshal-18        	   18715	     32044 ns/op	1330.13 MB/s	     42622 encoded-B	   49344 B/op	      13 allocs/op
+BenchmarkSerializer/format=protobuf/payload=large/op=marshal-18        	   18816	     31868 ns/op	1337.47 MB/s	     42622 encoded-B	   49344 B/op	      13 allocs/op
+BenchmarkSerializer/format=protobuf/payload=large/op=marshal-18        	   18883	     31812 ns/op	1339.80 MB/s	     42622 encoded-B	   49344 B/op	      13 allocs/op
+BenchmarkSerializer/format=protobuf/payload=large/op=marshal-18        	   18812	     31897 ns/op	1336.25 MB/s	     42622 encoded-B	   49344 B/op	      13 allocs/op
+BenchmarkSerializer/format=protobuf/payload=large/op=marshal-18        	   18814	     31847 ns/op	1338.33 MB/s	     42622 encoded-B	   49344 B/op	      13 allocs/op
+BenchmarkSerializer/format=protobuf/payload=large/op=marshal-18        	   18795	     31968 ns/op	1333.28 MB/s	     42622 encoded-B	   49344 B/op	      13 allocs/op
+BenchmarkSerializer/format=protobuf/payload=large/op=unmarshal-18      	    9686	     57353 ns/op	 743.16 MB/s	     42622 encoded-B	  131560 B/op	    2448 allocs/op
+BenchmarkSerializer/format=protobuf/payload=large/op=unmarshal-18      	   10000	     57010 ns/op	 747.63 MB/s	     42622 encoded-B	  131560 B/op	    2448 allocs/op
+BenchmarkSerializer/format=protobuf/payload=large/op=unmarshal-18      	   10000	     57290 ns/op	 743.97 MB/s	     42622 encoded-B	  131560 B/op	    2448 allocs/op
+BenchmarkSerializer/format=protobuf/payload=large/op=unmarshal-18      	   10000	     57207 ns/op	 745.05 MB/s	     42622 encoded-B	  131560 B/op	    2448 allocs/op
+BenchmarkSerializer/format=protobuf/payload=large/op=unmarshal-18      	   10000	     60184 ns/op	 708.20 MB/s	     42622 encoded-B	  131560 B/op	    2448 allocs/op
+BenchmarkSerializer/format=protobuf/payload=large/op=unmarshal-18      	   10000	     60206 ns/op	 707.93 MB/s	     42622 encoded-B	  131560 B/op	    2448 allocs/op
+BenchmarkCodec/codec=flate-speed/payload=small/op=compress-18          	 2708575	       218.3 ns/op	1571.58 MB/s	         0.9800 ratio	     519 B/op	       3 allocs/op
+BenchmarkCodec/codec=flate-speed/payload=small/op=compress-18          	 2753204	       218.4 ns/op	1570.60 MB/s	         0.9800 ratio	     524 B/op	       3 allocs/op
+BenchmarkCodec/codec=flate-speed/payload=small/op=compress-18          	 2755480	       217.5 ns/op	1577.22 MB/s	         0.9800 ratio	     523 B/op	       3 allocs/op
+BenchmarkCodec/codec=flate-speed/payload=small/op=compress-18          	 2765278	       217.6 ns/op	1576.41 MB/s	         0.9800 ratio	     520 B/op	       3 allocs/op
+BenchmarkCodec/codec=flate-speed/payload=small/op=compress-18          	 2769088	       216.9 ns/op	1581.62 MB/s	         0.9800 ratio	     514 B/op	       3 allocs/op
+BenchmarkCodec/codec=flate-speed/payload=small/op=compress-18          	 2748026	       219.3 ns/op	1564.14 MB/s	         0.9800 ratio	     515 B/op	       3 allocs/op
+BenchmarkCodec/codec=flate-speed/payload=small/op=decompress-18        	 2915137	       205.6 ns/op	1668.63 MB/s	         0.9800 ratio	     562 B/op	       2 allocs/op
+BenchmarkCodec/codec=flate-speed/payload=small/op=decompress-18        	 2889352	       206.1 ns/op	1664.52 MB/s	         0.9800 ratio	     562 B/op	       2 allocs/op
+BenchmarkCodec/codec=flate-speed/payload=small/op=decompress-18        	 2812923	       208.9 ns/op	1642.00 MB/s	         0.9800 ratio	     562 B/op	       2 allocs/op
+BenchmarkCodec/codec=flate-speed/payload=small/op=decompress-18        	 2903043	       207.9 ns/op	1650.02 MB/s	         0.9800 ratio	     562 B/op	       2 allocs/op
+BenchmarkCodec/codec=flate-speed/payload=small/op=decompress-18        	 2933342	       205.1 ns/op	1672.45 MB/s	         0.9800 ratio	     562 B/op	       2 allocs/op
+BenchmarkCodec/codec=flate-speed/payload=small/op=decompress-18        	 2926243	       205.8 ns/op	1666.46 MB/s	         0.9800 ratio	     562 B/op	       2 allocs/op
+BenchmarkCodec/codec=flate-speed/payload=medium/op=compress-18         	   52372	     11379 ns/op	 180.16 MB/s	         2.016 ratio	    1935 B/op	       4 allocs/op
+BenchmarkCodec/codec=flate-speed/payload=medium/op=compress-18         	   52810	     11359 ns/op	 180.47 MB/s	         2.016 ratio	    1888 B/op	       4 allocs/op
+BenchmarkCodec/codec=flate-speed/payload=medium/op=compress-18         	   53085	     11342 ns/op	 180.74 MB/s	         2.016 ratio	    1918 B/op	       4 allocs/op
+BenchmarkCodec/codec=flate-speed/payload=medium/op=compress-18         	   53181	     11331 ns/op	 180.92 MB/s	         2.016 ratio	    1918 B/op	       4 allocs/op
+BenchmarkCodec/codec=flate-speed/payload=medium/op=compress-18         	   53029	     11349 ns/op	 180.64 MB/s	         2.016 ratio	    1872 B/op	       4 allocs/op
+BenchmarkCodec/codec=flate-speed/payload=medium/op=compress-18         	   52966	     11339 ns/op	 180.79 MB/s	         2.016 ratio	    1903 B/op	       4 allocs/op
+BenchmarkCodec/codec=flate-speed/payload=medium/op=decompress-18       	   71673	      8402 ns/op	 243.99 MB/s	         2.016 ratio	    6056 B/op	      27 allocs/op
+BenchmarkCodec/codec=flate-speed/payload=medium/op=decompress-18       	   71968	      8335 ns/op	 245.95 MB/s	         2.016 ratio	    6056 B/op	      27 allocs/op
+BenchmarkCodec/codec=flate-speed/payload=medium/op=decompress-18       	   72062	      8377 ns/op	 244.71 MB/s	         2.016 ratio	    6056 B/op	      27 allocs/op
+BenchmarkCodec/codec=flate-speed/payload=medium/op=decompress-18       	   71613	      8351 ns/op	 245.49 MB/s	         2.016 ratio	    6059 B/op	      27 allocs/op
+BenchmarkCodec/codec=flate-speed/payload=medium/op=decompress-18       	   71986	      8363 ns/op	 245.14 MB/s	         2.016 ratio	    6056 B/op	      27 allocs/op
+BenchmarkCodec/codec=flate-speed/payload=medium/op=decompress-18       	   71472	      8363 ns/op	 245.13 MB/s	         2.016 ratio	    6058 B/op	      27 allocs/op
+BenchmarkCodec/codec=flate-speed/payload=large/op=compress-18          	    7436	     79464 ns/op	 819.57 MB/s	         4.488 ratio	   32924 B/op	       8 allocs/op
+BenchmarkCodec/codec=flate-speed/payload=large/op=compress-18          	    7656	     79148 ns/op	 822.84 MB/s	         4.488 ratio	   33021 B/op	       8 allocs/op
+BenchmarkCodec/codec=flate-speed/payload=large/op=compress-18          	    7316	     79037 ns/op	 823.99 MB/s	         4.488 ratio	   32929 B/op	       8 allocs/op
+BenchmarkCodec/codec=flate-speed/payload=large/op=compress-18          	    7705	     79024 ns/op	 824.13 MB/s	         4.488 ratio	   33018 B/op	       8 allocs/op
+BenchmarkCodec/codec=flate-speed/payload=large/op=compress-18          	    7623	     79023 ns/op	 824.14 MB/s	         4.488 ratio	   32916 B/op	       8 allocs/op
+BenchmarkCodec/codec=flate-speed/payload=large/op=compress-18          	    7677	     79192 ns/op	 822.38 MB/s	         4.488 ratio	   32913 B/op	       8 allocs/op
+BenchmarkCodec/codec=flate-speed/payload=large/op=decompress-18        	    5089	    112822 ns/op	 577.24 MB/s	         4.488 ratio	  210901 B/op	      52 allocs/op
+BenchmarkCodec/codec=flate-speed/payload=large/op=decompress-18        	    5389	    112373 ns/op	 579.55 MB/s	         4.488 ratio	  210940 B/op	      52 allocs/op
+BenchmarkCodec/codec=flate-speed/payload=large/op=decompress-18        	    5431	    112044 ns/op	 581.26 MB/s	         4.488 ratio	  210962 B/op	      52 allocs/op
+BenchmarkCodec/codec=flate-speed/payload=large/op=decompress-18        	    5364	    112404 ns/op	 579.39 MB/s	         4.488 ratio	  211002 B/op	      52 allocs/op
+BenchmarkCodec/codec=flate-speed/payload=large/op=decompress-18        	    5397	    112136 ns/op	 580.78 MB/s	         4.488 ratio	  210895 B/op	      52 allocs/op
+BenchmarkCodec/codec=flate-speed/payload=large/op=decompress-18        	    5341	    112108 ns/op	 580.92 MB/s	         4.488 ratio	  210950 B/op	      52 allocs/op
+BenchmarkCodec/codec=flate-speed/payload=random/op=compress-18         	  713269	       901.8 ns/op	4542.02 MB/s	         0.9983 ratio	    5402 B/op	       3 allocs/op
+BenchmarkCodec/codec=flate-speed/payload=random/op=compress-18         	  645753	       915.5 ns/op	4474.16 MB/s	         0.9983 ratio	    5439 B/op	       3 allocs/op
+BenchmarkCodec/codec=flate-speed/payload=random/op=compress-18         	  665634	       912.0 ns/op	4491.23 MB/s	         0.9983 ratio	    5377 B/op	       3 allocs/op
+BenchmarkCodec/codec=flate-speed/payload=random/op=compress-18         	  662949	       907.2 ns/op	4514.75 MB/s	         0.9983 ratio	    5379 B/op	       3 allocs/op
+BenchmarkCodec/codec=flate-speed/payload=random/op=compress-18         	  660102	       895.9 ns/op	4571.79 MB/s	         0.9983 ratio	    5412 B/op	       3 allocs/op
+BenchmarkCodec/codec=flate-speed/payload=random/op=compress-18         	  661940	       911.8 ns/op	4492.29 MB/s	         0.9983 ratio	    5414 B/op	       3 allocs/op
+BenchmarkCodec/codec=flate-speed/payload=random/op=decompress-18       	  369958	      1615 ns/op	2536.55 MB/s	         0.9983 ratio	   13541 B/op	       5 allocs/op
+BenchmarkCodec/codec=flate-speed/payload=random/op=decompress-18       	  372636	      1618 ns/op	2532.30 MB/s	         0.9983 ratio	   13541 B/op	       5 allocs/op
+BenchmarkCodec/codec=flate-speed/payload=random/op=decompress-18       	  366080	      1617 ns/op	2533.57 MB/s	         0.9983 ratio	   13541 B/op	       5 allocs/op
+BenchmarkCodec/codec=flate-speed/payload=random/op=decompress-18       	  375962	      1617 ns/op	2532.75 MB/s	         0.9983 ratio	   13542 B/op	       5 allocs/op
+BenchmarkCodec/codec=flate-speed/payload=random/op=decompress-18       	  373384	      1618 ns/op	2530.99 MB/s	         0.9983 ratio	   13540 B/op	       5 allocs/op
+BenchmarkCodec/codec=flate-speed/payload=random/op=decompress-18       	  372753	      1617 ns/op	2533.75 MB/s	         0.9983 ratio	   13543 B/op	       5 allocs/op
+BenchmarkCodec/codec=flate-default/payload=small/op=compress-18        	   94149	      6273 ns/op	  54.68 MB/s	         1.049 ratio	     839 B/op	       3 allocs/op
+BenchmarkCodec/codec=flate-default/payload=small/op=compress-18        	   96026	      6253 ns/op	  54.85 MB/s	         1.049 ratio	     828 B/op	       3 allocs/op
+BenchmarkCodec/codec=flate-default/payload=small/op=compress-18        	   96370	      6260 ns/op	  54.79 MB/s	         1.049 ratio	     850 B/op	       3 allocs/op
+BenchmarkCodec/codec=flate-default/payload=small/op=compress-18        	   96219	      6264 ns/op	  54.76 MB/s	         1.049 ratio	     828 B/op	       3 allocs/op
+BenchmarkCodec/codec=flate-default/payload=small/op=compress-18        	   95275	      6266 ns/op	  54.74 MB/s	         1.049 ratio	     850 B/op	       3 allocs/op
+BenchmarkCodec/codec=flate-default/payload=small/op=compress-18        	   95721	      6270 ns/op	  54.70 MB/s	         1.049 ratio	     839 B/op	       3 allocs/op
+BenchmarkCodec/codec=flate-default/payload=small/op=decompress-18      	  176380	      3378 ns/op	 101.53 MB/s	         1.049 ratio	     561 B/op	       2 allocs/op
+BenchmarkCodec/codec=flate-default/payload=small/op=decompress-18      	  179581	      3370 ns/op	 101.77 MB/s	         1.049 ratio	     561 B/op	       2 allocs/op
+BenchmarkCodec/codec=flate-default/payload=small/op=decompress-18      	  177373	      3368 ns/op	 101.83 MB/s	         1.049 ratio	     561 B/op	       2 allocs/op
+BenchmarkCodec/codec=flate-default/payload=small/op=decompress-18      	  178285	      3364 ns/op	 101.97 MB/s	         1.049 ratio	     561 B/op	       2 allocs/op
+BenchmarkCodec/codec=flate-default/payload=small/op=decompress-18      	  178755	      3366 ns/op	 101.89 MB/s	         1.049 ratio	     561 B/op	       2 allocs/op
+BenchmarkCodec/codec=flate-default/payload=small/op=decompress-18      	  178904	      3360 ns/op	 102.07 MB/s	         1.049 ratio	     561 B/op	       2 allocs/op
+BenchmarkCodec/codec=flate-default/payload=medium/op=compress-18       	   43130	     13809 ns/op	 148.46 MB/s	         2.200 ratio	    1917 B/op	       4 allocs/op
+BenchmarkCodec/codec=flate-default/payload=medium/op=compress-18       	   43579	     13783 ns/op	 148.73 MB/s	         2.200 ratio	    1941 B/op	       4 allocs/op
+BenchmarkCodec/codec=flate-default/payload=medium/op=compress-18       	   43448	     13764 ns/op	 148.94 MB/s	         2.200 ratio	    1891 B/op	       4 allocs/op
+BenchmarkCodec/codec=flate-default/payload=medium/op=compress-18       	   43622	     13761 ns/op	 148.97 MB/s	         2.200 ratio	    1916 B/op	       4 allocs/op
+BenchmarkCodec/codec=flate-default/payload=medium/op=compress-18       	   43875	     13700 ns/op	 149.64 MB/s	         2.200 ratio	    1866 B/op	       4 allocs/op
+BenchmarkCodec/codec=flate-default/payload=medium/op=compress-18       	   43875	     13712 ns/op	 149.51 MB/s	         2.200 ratio	    1915 B/op	       4 allocs/op
+BenchmarkCodec/codec=flate-default/payload=medium/op=decompress-18     	   77582	      7657 ns/op	 267.71 MB/s	         2.200 ratio	    6137 B/op	      29 allocs/op
+BenchmarkCodec/codec=flate-default/payload=medium/op=decompress-18     	   78786	      7618 ns/op	 269.09 MB/s	         2.200 ratio	    6136 B/op	      29 allocs/op
+BenchmarkCodec/codec=flate-default/payload=medium/op=decompress-18     	   78498	      7653 ns/op	 267.88 MB/s	         2.200 ratio	    6140 B/op	      29 allocs/op
+BenchmarkCodec/codec=flate-default/payload=medium/op=decompress-18     	   78638	      7634 ns/op	 268.52 MB/s	         2.200 ratio	    6137 B/op	      29 allocs/op
+BenchmarkCodec/codec=flate-default/payload=medium/op=decompress-18     	   78236	      7689 ns/op	 266.61 MB/s	         2.200 ratio	    6139 B/op	      29 allocs/op
+BenchmarkCodec/codec=flate-default/payload=medium/op=decompress-18     	   78619	      7648 ns/op	 268.03 MB/s	         2.200 ratio	    6139 B/op	      29 allocs/op
+BenchmarkCodec/codec=flate-default/payload=large/op=compress-18        	    3907	    145434 ns/op	 447.80 MB/s	         5.062 ratio	   33977 B/op	       8 allocs/op
+BenchmarkCodec/codec=flate-default/payload=large/op=compress-18        	    4168	    143672 ns/op	 453.30 MB/s	         5.062 ratio	   33375 B/op	       8 allocs/op
+BenchmarkCodec/codec=flate-default/payload=large/op=compress-18        	    4207	    143813 ns/op	 452.85 MB/s	         5.062 ratio	   34135 B/op	       8 allocs/op
+BenchmarkCodec/codec=flate-default/payload=large/op=compress-18        	    4173	    143327 ns/op	 454.39 MB/s	         5.062 ratio	   33116 B/op	       8 allocs/op
+BenchmarkCodec/codec=flate-default/payload=large/op=compress-18        	    4204	    143648 ns/op	 453.37 MB/s	         5.062 ratio	   33112 B/op	       8 allocs/op
+BenchmarkCodec/codec=flate-default/payload=large/op=compress-18        	    4177	    143826 ns/op	 452.81 MB/s	         5.062 ratio	   33374 B/op	       8 allocs/op
+BenchmarkCodec/codec=flate-default/payload=large/op=decompress-18      	    5773	    100696 ns/op	 646.76 MB/s	         5.062 ratio	  208667 B/op	      59 allocs/op
+BenchmarkCodec/codec=flate-default/payload=large/op=decompress-18      	    5968	    100361 ns/op	 648.92 MB/s	         5.062 ratio	  208641 B/op	      59 allocs/op
+BenchmarkCodec/codec=flate-default/payload=large/op=decompress-18      	    6030	    104202 ns/op	 625.00 MB/s	         5.062 ratio	  208701 B/op	      59 allocs/op
+BenchmarkCodec/codec=flate-default/payload=large/op=decompress-18      	    5497	    107826 ns/op	 603.99 MB/s	         5.062 ratio	  208761 B/op	      59 allocs/op
+BenchmarkCodec/codec=flate-default/payload=large/op=decompress-18      	    5722	    102353 ns/op	 636.29 MB/s	         5.062 ratio	  208697 B/op	      59 allocs/op
+BenchmarkCodec/codec=flate-default/payload=large/op=decompress-18      	    6016	    100651 ns/op	 647.05 MB/s	         5.062 ratio	  208695 B/op	      59 allocs/op
+BenchmarkCodec/codec=flate-default/payload=random/op=compress-18       	  356000	      1649 ns/op	2484.12 MB/s	         0.9983 ratio	    5351 B/op	       3 allocs/op
+BenchmarkCodec/codec=flate-default/payload=random/op=compress-18       	  364710	      1646 ns/op	2489.16 MB/s	         0.9983 ratio	    5286 B/op	       3 allocs/op
+BenchmarkCodec/codec=flate-default/payload=random/op=compress-18       	  346564	      1652 ns/op	2479.25 MB/s	         0.9983 ratio	    5351 B/op	       3 allocs/op
+BenchmarkCodec/codec=flate-default/payload=random/op=compress-18       	  365304	      1653 ns/op	2478.39 MB/s	         0.9983 ratio	    5341 B/op	       3 allocs/op
+BenchmarkCodec/codec=flate-default/payload=random/op=compress-18       	  361128	      1653 ns/op	2477.60 MB/s	         0.9983 ratio	    5331 B/op	       3 allocs/op
+BenchmarkCodec/codec=flate-default/payload=random/op=compress-18       	  366676	      1651 ns/op	2480.86 MB/s	         0.9983 ratio	    5290 B/op	       3 allocs/op
+BenchmarkCodec/codec=flate-default/payload=random/op=decompress-18     	  393646	      1609 ns/op	2546.06 MB/s	         0.9983 ratio	   13541 B/op	       5 allocs/op
+BenchmarkCodec/codec=flate-default/payload=random/op=decompress-18     	  364299	      1622 ns/op	2525.09 MB/s	         0.9983 ratio	   13546 B/op	       5 allocs/op
+BenchmarkCodec/codec=flate-default/payload=random/op=decompress-18     	  371845	      1596 ns/op	2566.02 MB/s	         0.9983 ratio	   13543 B/op	       5 allocs/op
+BenchmarkCodec/codec=flate-default/payload=random/op=decompress-18     	  374767	      1627 ns/op	2517.43 MB/s	         0.9983 ratio	   13545 B/op	       5 allocs/op
+BenchmarkCodec/codec=flate-default/payload=random/op=decompress-18     	  374647	      1620 ns/op	2528.18 MB/s	         0.9983 ratio	   13546 B/op	       5 allocs/op
+BenchmarkCodec/codec=flate-default/payload=random/op=decompress-18     	  373778	      1621 ns/op	2527.20 MB/s	         0.9983 ratio	   13547 B/op	       5 allocs/op
+BenchmarkCodec/codec=flate-best/payload=small/op=compress-18           	   30656	     19540 ns/op	  17.55 MB/s	         1.046 ratio	     854 B/op	       3 allocs/op
+BenchmarkCodec/codec=flate-best/payload=small/op=compress-18           	   30723	     19468 ns/op	  17.62 MB/s	         1.046 ratio	     854 B/op	       3 allocs/op
+BenchmarkCodec/codec=flate-best/payload=small/op=compress-18           	   30892	     19406 ns/op	  17.68 MB/s	         1.046 ratio	     891 B/op	       3 allocs/op
+BenchmarkCodec/codec=flate-best/payload=small/op=compress-18           	   30723	     19477 ns/op	  17.61 MB/s	         1.046 ratio	     854 B/op	       3 allocs/op
+BenchmarkCodec/codec=flate-best/payload=small/op=compress-18           	   30862	     19436 ns/op	  17.65 MB/s	         1.046 ratio	     817 B/op	       3 allocs/op
+BenchmarkCodec/codec=flate-best/payload=small/op=compress-18           	   30876	     19457 ns/op	  17.63 MB/s	         1.046 ratio	     854 B/op	       3 allocs/op
+BenchmarkCodec/codec=flate-best/payload=small/op=decompress-18         	  170283	      3522 ns/op	  97.40 MB/s	         1.046 ratio	     560 B/op	       2 allocs/op
+BenchmarkCodec/codec=flate-best/payload=small/op=decompress-18         	  171187	      3514 ns/op	  97.62 MB/s	         1.046 ratio	     561 B/op	       2 allocs/op
+BenchmarkCodec/codec=flate-best/payload=small/op=decompress-18         	  169831	      3503 ns/op	  97.91 MB/s	         1.046 ratio	     560 B/op	       2 allocs/op
+BenchmarkCodec/codec=flate-best/payload=small/op=decompress-18         	  171837	      3500 ns/op	  98.01 MB/s	         1.046 ratio	     561 B/op	       2 allocs/op
+BenchmarkCodec/codec=flate-best/payload=small/op=decompress-18         	  172047	      3516 ns/op	  97.55 MB/s	         1.046 ratio	     561 B/op	       2 allocs/op
+BenchmarkCodec/codec=flate-best/payload=small/op=decompress-18         	  171753	      3498 ns/op	  98.05 MB/s	         1.046 ratio	     561 B/op	       2 allocs/op
+BenchmarkCodec/codec=flate-best/payload=medium/op=compress-18          	   17228	     34820 ns/op	  58.87 MB/s	         2.207 ratio	    2041 B/op	       4 allocs/op
+BenchmarkCodec/codec=flate-best/payload=medium/op=compress-18          	   17246	     34733 ns/op	  59.02 MB/s	         2.207 ratio	    1908 B/op	       4 allocs/op
+BenchmarkCodec/codec=flate-best/payload=medium/op=compress-18          	   17280	     34692 ns/op	  59.09 MB/s	         2.207 ratio	    1974 B/op	       4 allocs/op
+BenchmarkCodec/codec=flate-best/payload=medium/op=compress-18          	   17325	     34613 ns/op	  59.23 MB/s	         2.207 ratio	    1908 B/op	       4 allocs/op
+BenchmarkCodec/codec=flate-best/payload=medium/op=compress-18          	   17298	     34629 ns/op	  59.20 MB/s	         2.207 ratio	    2040 B/op	       4 allocs/op
+BenchmarkCodec/codec=flate-best/payload=medium/op=compress-18          	   17392	     34527 ns/op	  59.37 MB/s	         2.207 ratio	    1908 B/op	       4 allocs/op
+BenchmarkCodec/codec=flate-best/payload=medium/op=decompress-18        	   77103	      7731 ns/op	 265.18 MB/s	         2.207 ratio	    6137 B/op	      29 allocs/op
+BenchmarkCodec/codec=flate-best/payload=medium/op=decompress-18        	   77587	      7729 ns/op	 265.23 MB/s	         2.207 ratio	    6141 B/op	      29 allocs/op
+BenchmarkCodec/codec=flate-best/payload=medium/op=decompress-18        	   77412	      7758 ns/op	 264.24 MB/s	         2.207 ratio	    6136 B/op	      29 allocs/op
+BenchmarkCodec/codec=flate-best/payload=medium/op=decompress-18        	   76978	      7740 ns/op	 264.85 MB/s	         2.207 ratio	    6140 B/op	      29 allocs/op
+BenchmarkCodec/codec=flate-best/payload=medium/op=decompress-18        	   76411	      7762 ns/op	 264.11 MB/s	         2.207 ratio	    6138 B/op	      29 allocs/op
+BenchmarkCodec/codec=flate-best/payload=medium/op=decompress-18        	   77268	      7725 ns/op	 265.38 MB/s	         2.207 ratio	    6136 B/op	      29 allocs/op
+BenchmarkCodec/codec=flate-best/payload=large/op=compress-18           	     519	   1112677 ns/op	  58.53 MB/s	         5.670 ratio	   37010 B/op	       8 allocs/op
+BenchmarkCodec/codec=flate-best/payload=large/op=compress-18           	     547	   1095280 ns/op	  59.46 MB/s	         5.670 ratio	   34693 B/op	       8 allocs/op
+BenchmarkCodec/codec=flate-best/payload=large/op=compress-18           	     546	   1094037 ns/op	  59.53 MB/s	         5.670 ratio	   32604 B/op	       8 allocs/op
+BenchmarkCodec/codec=flate-best/payload=large/op=compress-18           	     547	   1093336 ns/op	  59.57 MB/s	         5.670 ratio	   34693 B/op	       8 allocs/op
+BenchmarkCodec/codec=flate-best/payload=large/op=compress-18           	     546	   1093286 ns/op	  59.57 MB/s	         5.670 ratio	   34697 B/op	       8 allocs/op
+BenchmarkCodec/codec=flate-best/payload=large/op=compress-18           	     546	   1095949 ns/op	  59.42 MB/s	         5.670 ratio	   32605 B/op	       8 allocs/op
+BenchmarkCodec/codec=flate-best/payload=large/op=decompress-18         	    6464	     88156 ns/op	 738.76 MB/s	         5.670 ratio	  208452 B/op	      56 allocs/op
+BenchmarkCodec/codec=flate-best/payload=large/op=decompress-18         	    6896	     87892 ns/op	 740.98 MB/s	         5.670 ratio	  208431 B/op	      56 allocs/op
+BenchmarkCodec/codec=flate-best/payload=large/op=decompress-18         	    6963	     87694 ns/op	 742.65 MB/s	         5.670 ratio	  208325 B/op	      56 allocs/op
+BenchmarkCodec/codec=flate-best/payload=large/op=decompress-18         	    6969	     87423 ns/op	 744.95 MB/s	         5.670 ratio	  208428 B/op	      56 allocs/op
+BenchmarkCodec/codec=flate-best/payload=large/op=decompress-18         	    6955	     87533 ns/op	 744.01 MB/s	         5.670 ratio	  208359 B/op	      56 allocs/op
+BenchmarkCodec/codec=flate-best/payload=large/op=decompress-18         	    6733	     87833 ns/op	 741.48 MB/s	         5.670 ratio	  208442 B/op	      56 allocs/op
+BenchmarkCodec/codec=flate-best/payload=random/op=compress-18          	   10000	     50723 ns/op	  80.75 MB/s	         0.9983 ratio	    5096 B/op	       3 allocs/op
+BenchmarkCodec/codec=flate-best/payload=random/op=compress-18          	   10000	     50658 ns/op	  80.86 MB/s	         0.9983 ratio	    5096 B/op	       3 allocs/op
+BenchmarkCodec/codec=flate-best/payload=random/op=compress-18          	   10000	     50639 ns/op	  80.89 MB/s	         0.9983 ratio	    5096 B/op	       3 allocs/op
+BenchmarkCodec/codec=flate-best/payload=random/op=compress-18          	   10000	     50648 ns/op	  80.87 MB/s	         0.9983 ratio	    5211 B/op	       3 allocs/op
+BenchmarkCodec/codec=flate-best/payload=random/op=compress-18          	   10000	     50496 ns/op	  81.12 MB/s	         0.9983 ratio	    5211 B/op	       3 allocs/op
+BenchmarkCodec/codec=flate-best/payload=random/op=compress-18          	   10000	     50486 ns/op	  81.13 MB/s	         0.9983 ratio	    5096 B/op	       3 allocs/op
+BenchmarkCodec/codec=flate-best/payload=random/op=decompress-18        	  365919	      1623 ns/op	2523.64 MB/s	         0.9983 ratio	   13547 B/op	       5 allocs/op
+BenchmarkCodec/codec=flate-best/payload=random/op=decompress-18        	  366427	      1628 ns/op	2515.72 MB/s	         0.9983 ratio	   13547 B/op	       5 allocs/op
+BenchmarkCodec/codec=flate-best/payload=random/op=decompress-18        	  371949	      1634 ns/op	2506.09 MB/s	         0.9983 ratio	   13546 B/op	       5 allocs/op
+BenchmarkCodec/codec=flate-best/payload=random/op=decompress-18        	  365914	      1701 ns/op	2407.62 MB/s	         0.9983 ratio	   13540 B/op	       5 allocs/op
+BenchmarkCodec/codec=flate-best/payload=random/op=decompress-18        	  363528	      1608 ns/op	2547.98 MB/s	         0.9983 ratio	   13541 B/op	       5 allocs/op
+BenchmarkCodec/codec=flate-best/payload=random/op=decompress-18        	  374796	      1623 ns/op	2522.98 MB/s	         0.9983 ratio	   13548 B/op	       5 allocs/op
+BenchmarkCodec/codec=gzip-speed/payload=small/op=compress-18           	 2259423	       264.4 ns/op	1297.44 MB/s	         0.9321 ratio	     547 B/op	       3 allocs/op
+BenchmarkCodec/codec=gzip-speed/payload=small/op=compress-18           	 2269088	       263.9 ns/op	1299.63 MB/s	         0.9321 ratio	     552 B/op	       3 allocs/op
+BenchmarkCodec/codec=gzip-speed/payload=small/op=compress-18           	 2280363	       262.4 ns/op	1307.02 MB/s	         0.9321 ratio	     544 B/op	       3 allocs/op
+BenchmarkCodec/codec=gzip-speed/payload=small/op=compress-18           	 2279439	       265.9 ns/op	1290.09 MB/s	         0.9321 ratio	     554 B/op	       3 allocs/op
+BenchmarkCodec/codec=gzip-speed/payload=small/op=compress-18           	 2148721	       277.0 ns/op	1238.47 MB/s	         0.9321 ratio	     550 B/op	       3 allocs/op
+BenchmarkCodec/codec=gzip-speed/payload=small/op=compress-18           	 2280192	       265.1 ns/op	1293.97 MB/s	         0.9321 ratio	     550 B/op	       3 allocs/op
+BenchmarkCodec/codec=gzip-speed/payload=small/op=decompress-18         	 2288875	       263.5 ns/op	1301.77 MB/s	         0.9321 ratio	     563 B/op	       2 allocs/op
+BenchmarkCodec/codec=gzip-speed/payload=small/op=decompress-18         	 2281484	       262.3 ns/op	1307.81 MB/s	         0.9321 ratio	     562 B/op	       2 allocs/op
+BenchmarkCodec/codec=gzip-speed/payload=small/op=decompress-18         	 2281370	       263.1 ns/op	1303.84 MB/s	         0.9321 ratio	     563 B/op	       2 allocs/op
+BenchmarkCodec/codec=gzip-speed/payload=small/op=decompress-18         	 2284984	       263.4 ns/op	1302.28 MB/s	         0.9321 ratio	     562 B/op	       2 allocs/op
+BenchmarkCodec/codec=gzip-speed/payload=small/op=decompress-18         	 2292410	       262.3 ns/op	1307.52 MB/s	         0.9321 ratio	     563 B/op	       2 allocs/op
+BenchmarkCodec/codec=gzip-speed/payload=small/op=decompress-18         	 2273824	       263.4 ns/op	1302.34 MB/s	         0.9321 ratio	     563 B/op	       2 allocs/op
+BenchmarkCodec/codec=gzip-speed/payload=medium/op=compress-18          	   50409	     11845 ns/op	 173.08 MB/s	         1.981 ratio	    4021 B/op	       6 allocs/op
+BenchmarkCodec/codec=gzip-speed/payload=medium/op=compress-18          	   50803	     11821 ns/op	 173.42 MB/s	         1.981 ratio	    4052 B/op	       6 allocs/op
+BenchmarkCodec/codec=gzip-speed/payload=medium/op=compress-18          	   50325	     11872 ns/op	 172.67 MB/s	         1.981 ratio	    4053 B/op	       6 allocs/op
+BenchmarkCodec/codec=gzip-speed/payload=medium/op=compress-18          	   50505	     11830 ns/op	 173.29 MB/s	         1.981 ratio	    4004 B/op	       6 allocs/op
+BenchmarkCodec/codec=gzip-speed/payload=medium/op=compress-18          	   50923	     11799 ns/op	 173.75 MB/s	         1.981 ratio	    4068 B/op	       6 allocs/op
+BenchmarkCodec/codec=gzip-speed/payload=medium/op=compress-18          	   50767	     11845 ns/op	 173.07 MB/s	         1.981 ratio	    4036 B/op	       6 allocs/op
+BenchmarkCodec/codec=gzip-speed/payload=medium/op=decompress-18        	   70378	      8546 ns/op	 239.87 MB/s	         1.981 ratio	    3110 B/op	      25 allocs/op
+BenchmarkCodec/codec=gzip-speed/payload=medium/op=decompress-18        	   70608	      8539 ns/op	 240.08 MB/s	         1.981 ratio	    3109 B/op	      25 allocs/op
+BenchmarkCodec/codec=gzip-speed/payload=medium/op=decompress-18        	   70423	      8925 ns/op	 229.68 MB/s	         1.981 ratio	    3110 B/op	      25 allocs/op
+BenchmarkCodec/codec=gzip-speed/payload=medium/op=decompress-18        	   67332	      8882 ns/op	 230.81 MB/s	         1.981 ratio	    3113 B/op	      25 allocs/op
+BenchmarkCodec/codec=gzip-speed/payload=medium/op=decompress-18        	   70023	      8553 ns/op	 239.69 MB/s	         1.981 ratio	    3108 B/op	      25 allocs/op
+BenchmarkCodec/codec=gzip-speed/payload=medium/op=decompress-18        	   70066	      8563 ns/op	 239.40 MB/s	         1.981 ratio	    3108 B/op	      25 allocs/op
+BenchmarkCodec/codec=gzip-speed/payload=large/op=compress-18           	    6979	     85407 ns/op	 762.54 MB/s	         4.482 ratio	   33360 B/op	       9 allocs/op
+BenchmarkCodec/codec=gzip-speed/payload=large/op=compress-18           	    7106	     85108 ns/op	 765.21 MB/s	         4.482 ratio	   33233 B/op	       9 allocs/op
+BenchmarkCodec/codec=gzip-speed/payload=large/op=compress-18           	    6758	     84987 ns/op	 766.30 MB/s	         4.482 ratio	   33504 B/op	       9 allocs/op
+BenchmarkCodec/codec=gzip-speed/payload=large/op=compress-18           	    7130	     84806 ns/op	 767.94 MB/s	         4.482 ratio	   33231 B/op	       9 allocs/op
+BenchmarkCodec/codec=gzip-speed/payload=large/op=compress-18           	    7069	     85344 ns/op	 763.10 MB/s	         4.482 ratio	   33006 B/op	       9 allocs/op
+BenchmarkCodec/codec=gzip-speed/payload=large/op=compress-18           	    7089	     84939 ns/op	 766.74 MB/s	         4.482 ratio	   32889 B/op	       9 allocs/op
+BenchmarkCodec/codec=gzip-speed/payload=large/op=decompress-18         	    5242	    111473 ns/op	 584.23 MB/s	         4.482 ratio	   72309 B/op	      46 allocs/op
+BenchmarkCodec/codec=gzip-speed/payload=large/op=decompress-18         	    5445	    111055 ns/op	 586.43 MB/s	         4.482 ratio	   72309 B/op	      46 allocs/op
+BenchmarkCodec/codec=gzip-speed/payload=large/op=decompress-18         	    5397	    111438 ns/op	 584.41 MB/s	         4.482 ratio	   72309 B/op	      46 allocs/op
+BenchmarkCodec/codec=gzip-speed/payload=large/op=decompress-18         	    5304	    112350 ns/op	 579.67 MB/s	         4.482 ratio	   72301 B/op	      46 allocs/op
+BenchmarkCodec/codec=gzip-speed/payload=large/op=decompress-18         	    5067	    113534 ns/op	 573.62 MB/s	         4.482 ratio	   72318 B/op	      46 allocs/op
+BenchmarkCodec/codec=gzip-speed/payload=large/op=decompress-18         	    5342	    112119 ns/op	 580.86 MB/s	         4.482 ratio	   72301 B/op	      46 allocs/op
+BenchmarkCodec/codec=gzip-speed/payload=random/op=compress-18          	  492879	      1268 ns/op	3231.51 MB/s	         0.9939 ratio	    5243 B/op	       3 allocs/op
+BenchmarkCodec/codec=gzip-speed/payload=random/op=compress-18          	  456061	      1221 ns/op	3353.60 MB/s	         0.9939 ratio	    5267 B/op	       3 allocs/op
+BenchmarkCodec/codec=gzip-speed/payload=random/op=compress-18          	  496053	      1198 ns/op	3418.13 MB/s	         0.9939 ratio	    5254 B/op	       3 allocs/op
+BenchmarkCodec/codec=gzip-speed/payload=random/op=compress-18          	  500281	      1277 ns/op	3206.27 MB/s	         0.9939 ratio	    5252 B/op	       3 allocs/op
+BenchmarkCodec/codec=gzip-speed/payload=random/op=compress-18          	  500926	      1216 ns/op	3367.69 MB/s	         0.9939 ratio	    5229 B/op	       3 allocs/op
+BenchmarkCodec/codec=gzip-speed/payload=random/op=compress-18          	  497865	      1203 ns/op	3404.79 MB/s	         0.9939 ratio	    5216 B/op	       3 allocs/op
+BenchmarkCodec/codec=gzip-speed/payload=random/op=decompress-18        	  670780	       906.4 ns/op	4518.91 MB/s	         0.9939 ratio	    4928 B/op	       2 allocs/op
+BenchmarkCodec/codec=gzip-speed/payload=random/op=decompress-18        	  658484	       949.1 ns/op	4315.64 MB/s	         0.9939 ratio	    4928 B/op	       2 allocs/op
+BenchmarkCodec/codec=gzip-speed/payload=random/op=decompress-18        	  592017	       969.8 ns/op	4223.63 MB/s	         0.9939 ratio	    4928 B/op	       2 allocs/op
+BenchmarkCodec/codec=gzip-speed/payload=random/op=decompress-18        	  670459	       937.2 ns/op	4370.29 MB/s	         0.9939 ratio	    4929 B/op	       2 allocs/op
+BenchmarkCodec/codec=gzip-speed/payload=random/op=decompress-18        	  609718	       965.9 ns/op	4240.54 MB/s	         0.9939 ratio	    4928 B/op	       2 allocs/op
+BenchmarkCodec/codec=gzip-speed/payload=random/op=decompress-18        	  669778	       955.3 ns/op	4287.48 MB/s	         0.9939 ratio	    4928 B/op	       2 allocs/op
+BenchmarkCodec/codec=gzip-default/payload=small/op=compress-18         	   91771	      6465 ns/op	  53.06 MB/s	         0.9942 ratio	     939 B/op	       4 allocs/op
+BenchmarkCodec/codec=gzip-default/payload=small/op=compress-18         	   93686	      6436 ns/op	  53.29 MB/s	         0.9942 ratio	     927 B/op	       4 allocs/op
+BenchmarkCodec/codec=gzip-default/payload=small/op=compress-18         	   93368	      6405 ns/op	  53.55 MB/s	         0.9942 ratio	     915 B/op	       4 allocs/op
+BenchmarkCodec/codec=gzip-default/payload=small/op=compress-18         	   93813	      6391 ns/op	  53.67 MB/s	         0.9942 ratio	     904 B/op	       4 allocs/op
+BenchmarkCodec/codec=gzip-default/payload=small/op=compress-18         	   93360	      6404 ns/op	  53.56 MB/s	         0.9942 ratio	     904 B/op	       4 allocs/op
+BenchmarkCodec/codec=gzip-default/payload=small/op=compress-18         	   94153	      6397 ns/op	  53.62 MB/s	         0.9942 ratio	     938 B/op	       4 allocs/op
+BenchmarkCodec/codec=gzip-default/payload=small/op=decompress-18       	  172232	      3446 ns/op	  99.52 MB/s	         0.9942 ratio	     560 B/op	       2 allocs/op
+BenchmarkCodec/codec=gzip-default/payload=small/op=decompress-18       	  175149	      3450 ns/op	  99.43 MB/s	         0.9942 ratio	     561 B/op	       2 allocs/op
+BenchmarkCodec/codec=gzip-default/payload=small/op=decompress-18       	  175255	      3441 ns/op	  99.69 MB/s	         0.9942 ratio	     561 B/op	       2 allocs/op
+BenchmarkCodec/codec=gzip-default/payload=small/op=decompress-18       	  174498	      3447 ns/op	  99.51 MB/s	         0.9942 ratio	     560 B/op	       2 allocs/op
+BenchmarkCodec/codec=gzip-default/payload=small/op=decompress-18       	  175035	      3438 ns/op	  99.78 MB/s	         0.9942 ratio	     560 B/op	       2 allocs/op
+BenchmarkCodec/codec=gzip-default/payload=small/op=decompress-18       	  173934	      3465 ns/op	  99.00 MB/s	         0.9942 ratio	     561 B/op	       2 allocs/op
+BenchmarkCodec/codec=gzip-default/payload=medium/op=compress-18        	   42708	     14155 ns/op	 144.83 MB/s	         2.158 ratio	    1931 B/op	       5 allocs/op
+BenchmarkCodec/codec=gzip-default/payload=medium/op=compress-18        	   42205	     14128 ns/op	 145.10 MB/s	         2.158 ratio	    1931 B/op	       5 allocs/op
+BenchmarkCodec/codec=gzip-default/payload=medium/op=compress-18        	   42111	     14157 ns/op	 144.81 MB/s	         2.158 ratio	    2034 B/op	       5 allocs/op
+BenchmarkCodec/codec=gzip-default/payload=medium/op=compress-18        	   42201	     14231 ns/op	 144.05 MB/s	         2.158 ratio	    1982 B/op	       5 allocs/op
+BenchmarkCodec/codec=gzip-default/payload=medium/op=compress-18        	   42228	     14136 ns/op	 145.02 MB/s	         2.158 ratio	    1957 B/op	       5 allocs/op
+BenchmarkCodec/codec=gzip-default/payload=medium/op=compress-18        	   42564	     14182 ns/op	 144.55 MB/s	         2.158 ratio	    1931 B/op	       5 allocs/op
+BenchmarkCodec/codec=gzip-default/payload=medium/op=decompress-18      	   76969	      7914 ns/op	 259.03 MB/s	         2.158 ratio	    3191 B/op	      27 allocs/op
+BenchmarkCodec/codec=gzip-default/payload=medium/op=decompress-18      	   74168	      8019 ns/op	 255.64 MB/s	         2.158 ratio	    3191 B/op	      27 allocs/op
+BenchmarkCodec/codec=gzip-default/payload=medium/op=decompress-18      	   75822	      8106 ns/op	 252.91 MB/s	         2.158 ratio	    3191 B/op	      27 allocs/op
+BenchmarkCodec/codec=gzip-default/payload=medium/op=decompress-18      	   77080	      7922 ns/op	 258.76 MB/s	         2.158 ratio	    3189 B/op	      27 allocs/op
+BenchmarkCodec/codec=gzip-default/payload=medium/op=decompress-18      	   74670	      8017 ns/op	 255.71 MB/s	         2.158 ratio	    3188 B/op	      27 allocs/op
+BenchmarkCodec/codec=gzip-default/payload=medium/op=decompress-18      	   74028	      7956 ns/op	 257.67 MB/s	         2.158 ratio	    3190 B/op	      27 allocs/op
+BenchmarkCodec/codec=gzip-default/payload=large/op=compress-18         	    3582	    154548 ns/op	 421.40 MB/s	         5.055 ratio	   33867 B/op	       9 allocs/op
+BenchmarkCodec/codec=gzip-default/payload=large/op=compress-18         	    3940	    153066 ns/op	 425.48 MB/s	         5.055 ratio	   33484 B/op	       9 allocs/op
+BenchmarkCodec/codec=gzip-default/payload=large/op=compress-18         	    3964	    152330 ns/op	 427.53 MB/s	         5.055 ratio	   34295 B/op	       9 allocs/op
+BenchmarkCodec/codec=gzip-default/payload=large/op=compress-18         	    3927	    152392 ns/op	 427.36 MB/s	         5.055 ratio	   34034 B/op	       9 allocs/op
+BenchmarkCodec/codec=gzip-default/payload=large/op=compress-18         	    3956	    150323 ns/op	 433.24 MB/s	         5.055 ratio	   32937 B/op	       9 allocs/op
+BenchmarkCodec/codec=gzip-default/payload=large/op=compress-18         	    4011	    152111 ns/op	 428.15 MB/s	         5.055 ratio	   33738 B/op	       9 allocs/op
+BenchmarkCodec/codec=gzip-default/payload=large/op=decompress-18       	    5956	    100455 ns/op	 648.31 MB/s	         5.055 ratio	   70034 B/op	      53 allocs/op
+BenchmarkCodec/codec=gzip-default/payload=large/op=decompress-18       	    5802	    101940 ns/op	 638.87 MB/s	         5.055 ratio	   70035 B/op	      53 allocs/op
+BenchmarkCodec/codec=gzip-default/payload=large/op=decompress-18       	    5887	     99588 ns/op	 653.96 MB/s	         5.055 ratio	   70035 B/op	      53 allocs/op
+BenchmarkCodec/codec=gzip-default/payload=large/op=decompress-18       	    6052	     98285 ns/op	 662.62 MB/s	         5.055 ratio	   70035 B/op	      53 allocs/op
+BenchmarkCodec/codec=gzip-default/payload=large/op=decompress-18       	    6199	     99460 ns/op	 654.79 MB/s	         5.055 ratio	   70035 B/op	      53 allocs/op
+BenchmarkCodec/codec=gzip-default/payload=large/op=decompress-18       	    6093	     98328 ns/op	 662.34 MB/s	         5.055 ratio	   70028 B/op	      53 allocs/op
+BenchmarkCodec/codec=gzip-default/payload=random/op=compress-18        	  294896	      2005 ns/op	2042.88 MB/s	         0.9939 ratio	    5237 B/op	       3 allocs/op
+BenchmarkCodec/codec=gzip-default/payload=random/op=compress-18        	  300756	      2003 ns/op	2045.04 MB/s	         0.9939 ratio	    5258 B/op	       3 allocs/op
+BenchmarkCodec/codec=gzip-default/payload=random/op=compress-18        	  301197	      1991 ns/op	2057.26 MB/s	         0.9939 ratio	    5193 B/op	       3 allocs/op
+BenchmarkCodec/codec=gzip-default/payload=random/op=compress-18        	  301622	      2052 ns/op	1995.89 MB/s	         0.9939 ratio	    5257 B/op	       3 allocs/op
+BenchmarkCodec/codec=gzip-default/payload=random/op=compress-18        	  287844	      2097 ns/op	1953.72 MB/s	         0.9939 ratio	    5319 B/op	       3 allocs/op
+BenchmarkCodec/codec=gzip-default/payload=random/op=compress-18        	  290143	      2138 ns/op	1915.42 MB/s	         0.9939 ratio	    5231 B/op	       3 allocs/op
+BenchmarkCodec/codec=gzip-default/payload=random/op=decompress-18      	  664249	       982.1 ns/op	4170.55 MB/s	         0.9939 ratio	    4930 B/op	       2 allocs/op
+BenchmarkCodec/codec=gzip-default/payload=random/op=decompress-18      	  584821	       953.6 ns/op	4295.45 MB/s	         0.9939 ratio	    4929 B/op	       2 allocs/op
+BenchmarkCodec/codec=gzip-default/payload=random/op=decompress-18      	  599004	       922.7 ns/op	4439.26 MB/s	         0.9939 ratio	    4928 B/op	       2 allocs/op
+BenchmarkCodec/codec=gzip-default/payload=random/op=decompress-18      	  665319	       948.6 ns/op	4318.07 MB/s	         0.9939 ratio	    4929 B/op	       2 allocs/op
+BenchmarkCodec/codec=gzip-default/payload=random/op=decompress-18      	  661742	       972.0 ns/op	4213.94 MB/s	         0.9939 ratio	    4930 B/op	       2 allocs/op
+BenchmarkCodec/codec=gzip-default/payload=random/op=decompress-18      	  671516	       909.8 ns/op	4502.11 MB/s	         0.9939 ratio	    4929 B/op	       2 allocs/op
+BenchmarkCodec/codec=gzip-best/payload=small/op=compress-18            	   30614	     19754 ns/op	  17.36 MB/s	         0.9913 ratio	     955 B/op	       4 allocs/op
+BenchmarkCodec/codec=gzip-best/payload=small/op=compress-18            	   30620	     19555 ns/op	  17.54 MB/s	         0.9913 ratio	     918 B/op	       4 allocs/op
+BenchmarkCodec/codec=gzip-best/payload=small/op=compress-18            	   30561	     19718 ns/op	  17.40 MB/s	         0.9913 ratio	     956 B/op	       4 allocs/op
+BenchmarkCodec/codec=gzip-best/payload=small/op=compress-18            	   30487	     19710 ns/op	  17.40 MB/s	         0.9913 ratio	     993 B/op	       4 allocs/op
+BenchmarkCodec/codec=gzip-best/payload=small/op=compress-18            	   30668	     19752 ns/op	  17.36 MB/s	         0.9913 ratio	     955 B/op	       4 allocs/op
+BenchmarkCodec/codec=gzip-best/payload=small/op=compress-18            	   30201	     19680 ns/op	  17.43 MB/s	         0.9913 ratio	     957 B/op	       4 allocs/op
+BenchmarkCodec/codec=gzip-best/payload=small/op=decompress-18          	  165058	      3648 ns/op	  94.04 MB/s	         0.9913 ratio	     561 B/op	       2 allocs/op
+BenchmarkCodec/codec=gzip-best/payload=small/op=decompress-18          	  161642	      3657 ns/op	  93.79 MB/s	         0.9913 ratio	     561 B/op	       2 allocs/op
+BenchmarkCodec/codec=gzip-best/payload=small/op=decompress-18          	  162078	      3621 ns/op	  94.73 MB/s	         0.9913 ratio	     560 B/op	       2 allocs/op
+BenchmarkCodec/codec=gzip-best/payload=small/op=decompress-18          	  167704	      3655 ns/op	  93.85 MB/s	         0.9913 ratio	     561 B/op	       2 allocs/op
+BenchmarkCodec/codec=gzip-best/payload=small/op=decompress-18          	  157773	      3705 ns/op	  92.59 MB/s	         0.9913 ratio	     561 B/op	       2 allocs/op
+BenchmarkCodec/codec=gzip-best/payload=small/op=decompress-18          	  167160	      3603 ns/op	  95.20 MB/s	         0.9913 ratio	     560 B/op	       2 allocs/op
+BenchmarkCodec/codec=gzip-best/payload=medium/op=compress-18           	   16723	     35614 ns/op	  57.56 MB/s	         2.165 ratio	    2111 B/op	       5 allocs/op
+BenchmarkCodec/codec=gzip-best/payload=medium/op=compress-18           	   17076	     35088 ns/op	  58.42 MB/s	         2.165 ratio	    2040 B/op	       5 allocs/op
+BenchmarkCodec/codec=gzip-best/payload=medium/op=compress-18           	   17037	     35177 ns/op	  58.28 MB/s	         2.165 ratio	    2040 B/op	       5 allocs/op
+BenchmarkCodec/codec=gzip-best/payload=medium/op=compress-18           	   17049	     35769 ns/op	  57.31 MB/s	         2.165 ratio	    2040 B/op	       5 allocs/op
+BenchmarkCodec/codec=gzip-best/payload=medium/op=compress-18           	   16761	     35689 ns/op	  57.44 MB/s	         2.165 ratio	    2111 B/op	       5 allocs/op
+BenchmarkCodec/codec=gzip-best/payload=medium/op=compress-18           	   16960	     35232 ns/op	  58.19 MB/s	         2.165 ratio	    2108 B/op	       5 allocs/op
+BenchmarkCodec/codec=gzip-best/payload=medium/op=decompress-18         	   76074	      8372 ns/op	 244.88 MB/s	         2.165 ratio	    3191 B/op	      27 allocs/op
+BenchmarkCodec/codec=gzip-best/payload=medium/op=decompress-18         	   75406	      7918 ns/op	 258.90 MB/s	         2.165 ratio	    3188 B/op	      27 allocs/op
+BenchmarkCodec/codec=gzip-best/payload=medium/op=decompress-18         	   75987	      7860 ns/op	 260.81 MB/s	         2.165 ratio	    3187 B/op	      27 allocs/op
+BenchmarkCodec/codec=gzip-best/payload=medium/op=decompress-18         	   76480	      7843 ns/op	 261.37 MB/s	         2.165 ratio	    3189 B/op	      27 allocs/op
+BenchmarkCodec/codec=gzip-best/payload=medium/op=decompress-18         	   76347	      7867 ns/op	 260.58 MB/s	         2.165 ratio	    3190 B/op	      27 allocs/op
+BenchmarkCodec/codec=gzip-best/payload=medium/op=decompress-18         	   76057	      7875 ns/op	 260.30 MB/s	         2.165 ratio	    3188 B/op	      27 allocs/op
+BenchmarkCodec/codec=gzip-best/payload=large/op=compress-18            	     512	   1130352 ns/op	  57.62 MB/s	         5.661 ratio	   34903 B/op	       9 allocs/op
+BenchmarkCodec/codec=gzip-best/payload=large/op=compress-18            	     537	   1108710 ns/op	  58.74 MB/s	         5.661 ratio	   34797 B/op	       9 allocs/op
+BenchmarkCodec/codec=gzip-best/payload=large/op=compress-18            	     541	   1106942 ns/op	  58.83 MB/s	         5.661 ratio	   36893 B/op	       9 allocs/op
+BenchmarkCodec/codec=gzip-best/payload=large/op=compress-18            	     541	   1106537 ns/op	  58.86 MB/s	         5.661 ratio	   34781 B/op	       9 allocs/op
+BenchmarkCodec/codec=gzip-best/payload=large/op=compress-18            	     541	   1106168 ns/op	  58.88 MB/s	         5.661 ratio	   34781 B/op	       9 allocs/op
+BenchmarkCodec/codec=gzip-best/payload=large/op=compress-18            	     538	   1106156 ns/op	  58.88 MB/s	         5.661 ratio	   34793 B/op	       9 allocs/op
+BenchmarkCodec/codec=gzip-best/payload=large/op=decompress-18          	    6638	     86333 ns/op	 754.35 MB/s	         5.661 ratio	   69721 B/op	      50 allocs/op
+BenchmarkCodec/codec=gzip-best/payload=large/op=decompress-18          	    7046	     85952 ns/op	 757.70 MB/s	         5.661 ratio	   69720 B/op	      50 allocs/op
+BenchmarkCodec/codec=gzip-best/payload=large/op=decompress-18          	    7131	     85616 ns/op	 760.68 MB/s	         5.661 ratio	   69720 B/op	      50 allocs/op
+BenchmarkCodec/codec=gzip-best/payload=large/op=decompress-18          	    7028	     85199 ns/op	 764.40 MB/s	         5.661 ratio	   69721 B/op	      50 allocs/op
+BenchmarkCodec/codec=gzip-best/payload=large/op=decompress-18          	    7003	     84814 ns/op	 767.87 MB/s	         5.661 ratio	   69721 B/op	      50 allocs/op
+BenchmarkCodec/codec=gzip-best/payload=large/op=decompress-18          	    7039	     84735 ns/op	 768.58 MB/s	         5.661 ratio	   69715 B/op	      50 allocs/op
+BenchmarkCodec/codec=gzip-best/payload=random/op=compress-18           	   10000	     51525 ns/op	  79.50 MB/s	         0.9939 ratio	    5211 B/op	       3 allocs/op
+BenchmarkCodec/codec=gzip-best/payload=random/op=compress-18           	   10000	     51427 ns/op	  79.65 MB/s	         0.9939 ratio	    5211 B/op	       3 allocs/op
+BenchmarkCodec/codec=gzip-best/payload=random/op=compress-18           	   10000	     51484 ns/op	  79.56 MB/s	         0.9939 ratio	    5096 B/op	       3 allocs/op
+BenchmarkCodec/codec=gzip-best/payload=random/op=compress-18           	   10000	     51483 ns/op	  79.56 MB/s	         0.9939 ratio	    5096 B/op	       3 allocs/op
+BenchmarkCodec/codec=gzip-best/payload=random/op=compress-18           	   10000	     51526 ns/op	  79.49 MB/s	         0.9939 ratio	    5211 B/op	       3 allocs/op
+BenchmarkCodec/codec=gzip-best/payload=random/op=compress-18           	   10000	     51563 ns/op	  79.44 MB/s	         0.9939 ratio	    5325 B/op	       3 allocs/op
+BenchmarkCodec/codec=gzip-best/payload=random/op=decompress-18         	  618216	       944.0 ns/op	4338.78 MB/s	         0.9939 ratio	    4929 B/op	       2 allocs/op
+BenchmarkCodec/codec=gzip-best/payload=random/op=decompress-18         	  673208	       935.9 ns/op	4376.68 MB/s	         0.9939 ratio	    4927 B/op	       2 allocs/op
+BenchmarkCodec/codec=gzip-best/payload=random/op=decompress-18         	  673038	       911.0 ns/op	4495.92 MB/s	         0.9939 ratio	    4927 B/op	       2 allocs/op
+BenchmarkCodec/codec=gzip-best/payload=random/op=decompress-18         	  669288	       954.1 ns/op	4293.24 MB/s	         0.9939 ratio	    4928 B/op	       2 allocs/op
+BenchmarkCodec/codec=gzip-best/payload=random/op=decompress-18         	  668737	       908.3 ns/op	4509.32 MB/s	         0.9939 ratio	    4925 B/op	       2 allocs/op
+BenchmarkCodec/codec=gzip-best/payload=random/op=decompress-18         	  673526	       912.4 ns/op	4489.26 MB/s	         0.9939 ratio	    4927 B/op	       2 allocs/op
+BenchmarkCodec/codec=lz4/payload=small/op=compress-18         	 1240602	       480.1 ns/op	 714.49 MB/s	         0.9501 ratio	     519 B/op	       3 allocs/op
+BenchmarkCodec/codec=lz4/payload=small/op=compress-18         	 1275879	       471.0 ns/op	 728.17 MB/s	         0.9501 ratio	     518 B/op	       3 allocs/op
+BenchmarkCodec/codec=lz4/payload=small/op=compress-18         	 1271877	       471.7 ns/op	 727.19 MB/s	         0.9501 ratio	     521 B/op	       3 allocs/op
+BenchmarkCodec/codec=lz4/payload=small/op=compress-18         	 1272876	       471.9 ns/op	 726.89 MB/s	         0.9501 ratio	     518 B/op	       3 allocs/op
+BenchmarkCodec/codec=lz4/payload=small/op=compress-18         	 1253067	       476.9 ns/op	 719.22 MB/s	         0.9501 ratio	     517 B/op	       3 allocs/op
+BenchmarkCodec/codec=lz4/payload=small/op=compress-18         	 1269901	       472.3 ns/op	 726.18 MB/s	         0.9501 ratio	     517 B/op	       3 allocs/op
+BenchmarkCodec/codec=lz4/payload=small/op=decompress-18       	 3046892	       196.1 ns/op	1749.25 MB/s	         0.9501 ratio	     456 B/op	       3 allocs/op
+BenchmarkCodec/codec=lz4/payload=small/op=decompress-18       	 3044625	       195.6 ns/op	1753.17 MB/s	         0.9501 ratio	     456 B/op	       3 allocs/op
+BenchmarkCodec/codec=lz4/payload=small/op=decompress-18       	 3040687	       195.8 ns/op	1752.07 MB/s	         0.9501 ratio	     456 B/op	       3 allocs/op
+BenchmarkCodec/codec=lz4/payload=small/op=decompress-18       	 3096993	       193.6 ns/op	1771.73 MB/s	         0.9501 ratio	     456 B/op	       3 allocs/op
+BenchmarkCodec/codec=lz4/payload=small/op=decompress-18       	 3077510	       194.6 ns/op	1762.44 MB/s	         0.9501 ratio	     456 B/op	       3 allocs/op
+BenchmarkCodec/codec=lz4/payload=small/op=decompress-18       	 3090141	       194.3 ns/op	1765.01 MB/s	         0.9501 ratio	     456 B/op	       3 allocs/op
+BenchmarkCodec/codec=lz4/payload=medium/op=compress-18        	  311599	      1939 ns/op	1057.34 MB/s	         1.770 ratio	    3706 B/op	       4 allocs/op
+BenchmarkCodec/codec=lz4/payload=medium/op=compress-18        	  315480	      1945 ns/op	1053.83 MB/s	         1.770 ratio	    3723 B/op	       4 allocs/op
+BenchmarkCodec/codec=lz4/payload=medium/op=compress-18        	  308500	      1942 ns/op	1055.55 MB/s	         1.770 ratio	    3709 B/op	       4 allocs/op
+BenchmarkCodec/codec=lz4/payload=medium/op=compress-18        	  310917	      1935 ns/op	1059.65 MB/s	         1.770 ratio	    3704 B/op	       4 allocs/op
+BenchmarkCodec/codec=lz4/payload=medium/op=compress-18        	  312794	      1946 ns/op	1053.25 MB/s	         1.770 ratio	    3700 B/op	       4 allocs/op
+BenchmarkCodec/codec=lz4/payload=medium/op=compress-18        	  304531	      1952 ns/op	1050.00 MB/s	         1.770 ratio	    3724 B/op	       4 allocs/op
+BenchmarkCodec/codec=lz4/payload=medium/op=decompress-18      	  932913	       643.8 ns/op	3184.05 MB/s	         1.770 ratio	    2422 B/op	       3 allocs/op
+BenchmarkCodec/codec=lz4/payload=medium/op=decompress-18      	  936310	       644.1 ns/op	3182.88 MB/s	         1.770 ratio	    2421 B/op	       3 allocs/op
+BenchmarkCodec/codec=lz4/payload=medium/op=decompress-18      	  965095	       640.4 ns/op	3201.03 MB/s	         1.770 ratio	    2423 B/op	       3 allocs/op
+BenchmarkCodec/codec=lz4/payload=medium/op=decompress-18      	  955914	       638.0 ns/op	3213.12 MB/s	         1.770 ratio	    2421 B/op	       3 allocs/op
+BenchmarkCodec/codec=lz4/payload=medium/op=decompress-18      	  953629	       642.7 ns/op	3189.61 MB/s	         1.770 ratio	    2422 B/op	       3 allocs/op
+BenchmarkCodec/codec=lz4/payload=medium/op=decompress-18      	  976165	       643.0 ns/op	3188.38 MB/s	         1.770 ratio	    2424 B/op	       3 allocs/op
+BenchmarkCodec/codec=lz4/payload=large/op=compress-18         	   13446	     44447 ns/op	1465.25 MB/s	         3.514 ratio	   19595 B/op	       3 allocs/op
+BenchmarkCodec/codec=lz4/payload=large/op=compress-18         	   13628	     44130 ns/op	1475.76 MB/s	         3.514 ratio	   19514 B/op	       3 allocs/op
+BenchmarkCodec/codec=lz4/payload=large/op=compress-18         	   13569	     44146 ns/op	1475.25 MB/s	         3.514 ratio	   19561 B/op	       3 allocs/op
+BenchmarkCodec/codec=lz4/payload=large/op=compress-18         	   13578	     44180 ns/op	1474.09 MB/s	         3.514 ratio	   19463 B/op	       3 allocs/op
+BenchmarkCodec/codec=lz4/payload=large/op=compress-18         	   13602	     44150 ns/op	1475.10 MB/s	         3.514 ratio	   19504 B/op	       3 allocs/op
+BenchmarkCodec/codec=lz4/payload=large/op=compress-18         	   13579	     44286 ns/op	1470.59 MB/s	         3.514 ratio	   19520 B/op	       3 allocs/op
+BenchmarkCodec/codec=lz4/payload=large/op=decompress-18       	   38347	     15608 ns/op	4172.63 MB/s	         3.514 ratio	   65849 B/op	       3 allocs/op
+BenchmarkCodec/codec=lz4/payload=large/op=decompress-18       	   38530	     15760 ns/op	4132.46 MB/s	         3.514 ratio	   65842 B/op	       3 allocs/op
+BenchmarkCodec/codec=lz4/payload=large/op=decompress-18       	   38155	     15653 ns/op	4160.73 MB/s	         3.514 ratio	   65868 B/op	       3 allocs/op
+BenchmarkCodec/codec=lz4/payload=large/op=decompress-18       	   38300	     15617 ns/op	4170.07 MB/s	         3.514 ratio	   65821 B/op	       3 allocs/op
+BenchmarkCodec/codec=lz4/payload=large/op=decompress-18       	   38493	     15648 ns/op	4161.95 MB/s	         3.514 ratio	   65845 B/op	       3 allocs/op
+BenchmarkCodec/codec=lz4/payload=large/op=decompress-18       	   38355	     15620 ns/op	4169.30 MB/s	         3.514 ratio	   65875 B/op	       3 allocs/op
+BenchmarkCodec/codec=lz4/payload=random/op=compress-18        	  358012	      1692 ns/op	2420.81 MB/s	         0.9954 ratio	    5199 B/op	       3 allocs/op
+BenchmarkCodec/codec=lz4/payload=random/op=compress-18        	  351385	      1693 ns/op	2419.12 MB/s	         0.9954 ratio	    5192 B/op	       3 allocs/op
+BenchmarkCodec/codec=lz4/payload=random/op=compress-18        	  357782	      1699 ns/op	2410.77 MB/s	         0.9954 ratio	    5199 B/op	       3 allocs/op
+BenchmarkCodec/codec=lz4/payload=random/op=compress-18        	  365106	      1688 ns/op	2426.19 MB/s	         0.9954 ratio	    5195 B/op	       3 allocs/op
+BenchmarkCodec/codec=lz4/payload=random/op=compress-18        	  349417	      1699 ns/op	2410.85 MB/s	         0.9954 ratio	    5223 B/op	       3 allocs/op
+BenchmarkCodec/codec=lz4/payload=random/op=compress-18        	  359414	      1692 ns/op	2421.11 MB/s	         0.9954 ratio	    5188 B/op	       3 allocs/op
+BenchmarkCodec/codec=lz4/payload=random/op=decompress-18      	  746322	       812.6 ns/op	5040.55 MB/s	         0.9954 ratio	    4232 B/op	       3 allocs/op
+BenchmarkCodec/codec=lz4/payload=random/op=decompress-18      	  759157	       811.6 ns/op	5047.05 MB/s	         0.9954 ratio	    4233 B/op	       3 allocs/op
+BenchmarkCodec/codec=lz4/payload=random/op=decompress-18      	  752886	       810.6 ns/op	5053.18 MB/s	         0.9954 ratio	    4229 B/op	       3 allocs/op
+BenchmarkCodec/codec=lz4/payload=random/op=decompress-18      	  688069	       806.2 ns/op	5080.80 MB/s	         0.9954 ratio	    4229 B/op	       3 allocs/op
+BenchmarkCodec/codec=lz4/payload=random/op=decompress-18      	  746991	       810.3 ns/op	5054.73 MB/s	         0.9954 ratio	    4232 B/op	       3 allocs/op
+BenchmarkCodec/codec=lz4/payload=random/op=decompress-18      	  751016	       814.0 ns/op	5031.90 MB/s	         0.9954 ratio	    4231 B/op	       3 allocs/op
+BenchmarkCodec/codec=s2/payload=small/op=compress-18                   	 5328771	       112.9 ns/op	3037.59 MB/s	         0.9856 ratio	     352 B/op	       1 allocs/op
+BenchmarkCodec/codec=s2/payload=small/op=compress-18                   	 5335527	       112.4 ns/op	3052.01 MB/s	         0.9856 ratio	     352 B/op	       1 allocs/op
+BenchmarkCodec/codec=s2/payload=small/op=compress-18                   	 5243508	       112.8 ns/op	3041.66 MB/s	         0.9856 ratio	     352 B/op	       1 allocs/op
+BenchmarkCodec/codec=s2/payload=small/op=compress-18                   	 5364584	       112.2 ns/op	3056.39 MB/s	         0.9856 ratio	     352 B/op	       1 allocs/op
+BenchmarkCodec/codec=s2/payload=small/op=compress-18                   	 5329932	       113.0 ns/op	3035.29 MB/s	         0.9856 ratio	     352 B/op	       1 allocs/op
+BenchmarkCodec/codec=s2/payload=small/op=compress-18                   	 5341455	       112.1 ns/op	3059.56 MB/s	         0.9856 ratio	     352 B/op	       1 allocs/op
+BenchmarkCodec/codec=s2/payload=small/op=decompress-18                 	12520888	        47.86 ns/op	7166.32 MB/s	         0.9856 ratio	     352 B/op	       1 allocs/op
+BenchmarkCodec/codec=s2/payload=small/op=decompress-18                 	12646776	        48.35 ns/op	7094.40 MB/s	         0.9856 ratio	     352 B/op	       1 allocs/op
+BenchmarkCodec/codec=s2/payload=small/op=decompress-18                 	12048847	        49.93 ns/op	6869.80 MB/s	         0.9856 ratio	     352 B/op	       1 allocs/op
+BenchmarkCodec/codec=s2/payload=small/op=decompress-18                 	11980959	        49.64 ns/op	6909.64 MB/s	         0.9856 ratio	     352 B/op	       1 allocs/op
+BenchmarkCodec/codec=s2/payload=small/op=decompress-18                 	11985736	        49.60 ns/op	6915.35 MB/s	         0.9856 ratio	     352 B/op	       1 allocs/op
+BenchmarkCodec/codec=s2/payload=small/op=decompress-18                 	12013525	        49.77 ns/op	6891.38 MB/s	         0.9856 ratio	     352 B/op	       1 allocs/op
+BenchmarkCodec/codec=s2/payload=medium/op=compress-18                  	  484597	      1192 ns/op	1719.87 MB/s	         1.748 ratio	    2306 B/op	       1 allocs/op
+BenchmarkCodec/codec=s2/payload=medium/op=compress-18                  	  505058	      1190 ns/op	1723.26 MB/s	         1.748 ratio	    2306 B/op	       1 allocs/op
+BenchmarkCodec/codec=s2/payload=medium/op=compress-18                  	  504727	      1189 ns/op	1724.53 MB/s	         1.748 ratio	    2306 B/op	       1 allocs/op
+BenchmarkCodec/codec=s2/payload=medium/op=compress-18                  	  501138	      1188 ns/op	1726.30 MB/s	         1.748 ratio	    2306 B/op	       1 allocs/op
+BenchmarkCodec/codec=s2/payload=medium/op=compress-18                  	  507469	      1187 ns/op	1727.35 MB/s	         1.748 ratio	    2306 B/op	       1 allocs/op
+BenchmarkCodec/codec=s2/payload=medium/op=compress-18                  	  504243	      1190 ns/op	1722.70 MB/s	         1.748 ratio	    2306 B/op	       1 allocs/op
+BenchmarkCodec/codec=s2/payload=medium/op=decompress-18                	 1425703	       420.9 ns/op	4870.36 MB/s	         1.748 ratio	    2304 B/op	       1 allocs/op
+BenchmarkCodec/codec=s2/payload=medium/op=decompress-18                	 1438080	       423.3 ns/op	4842.74 MB/s	         1.748 ratio	    2304 B/op	       1 allocs/op
+BenchmarkCodec/codec=s2/payload=medium/op=decompress-18                	 1423455	       421.1 ns/op	4868.10 MB/s	         1.748 ratio	    2304 B/op	       1 allocs/op
+BenchmarkCodec/codec=s2/payload=medium/op=decompress-18                	 1424502	       420.8 ns/op	4872.23 MB/s	         1.748 ratio	    2304 B/op	       1 allocs/op
+BenchmarkCodec/codec=s2/payload=medium/op=decompress-18                	 1390398	       426.3 ns/op	4809.19 MB/s	         1.748 ratio	    2304 B/op	       1 allocs/op
+BenchmarkCodec/codec=s2/payload=medium/op=decompress-18                	 1423462	       418.3 ns/op	4901.28 MB/s	         1.748 ratio	    2304 B/op	       1 allocs/op
+BenchmarkCodec/codec=s2/payload=large/op=compress-18                   	   16980	     35330 ns/op	1843.38 MB/s	         3.339 ratio	   65699 B/op	       1 allocs/op
+BenchmarkCodec/codec=s2/payload=large/op=compress-18                   	   16918	     35463 ns/op	1836.44 MB/s	         3.339 ratio	   65715 B/op	       1 allocs/op
+BenchmarkCodec/codec=s2/payload=large/op=compress-18                   	   17049	     35241 ns/op	1848.02 MB/s	         3.339 ratio	   65687 B/op	       1 allocs/op
+BenchmarkCodec/codec=s2/payload=large/op=compress-18                   	   16951	     35337 ns/op	1842.99 MB/s	         3.339 ratio	   65672 B/op	       1 allocs/op
+BenchmarkCodec/codec=s2/payload=large/op=compress-18                   	   16914	     35457 ns/op	1836.75 MB/s	         3.339 ratio	   65676 B/op	       1 allocs/op
+BenchmarkCodec/codec=s2/payload=large/op=compress-18                   	   16978	     35434 ns/op	1837.97 MB/s	         3.339 ratio	   65645 B/op	       1 allocs/op
+BenchmarkCodec/codec=s2/payload=large/op=decompress-18                 	   48801	     12999 ns/op	5010.26 MB/s	         3.339 ratio	   65536 B/op	       1 allocs/op
+BenchmarkCodec/codec=s2/payload=large/op=decompress-18                 	   45728	     13157 ns/op	4949.75 MB/s	         3.339 ratio	   65536 B/op	       1 allocs/op
+BenchmarkCodec/codec=s2/payload=large/op=decompress-18                 	   45544	     13181 ns/op	4940.81 MB/s	         3.339 ratio	   65536 B/op	       1 allocs/op
+BenchmarkCodec/codec=s2/payload=large/op=decompress-18                 	   50212	     12115 ns/op	5375.61 MB/s	         3.339 ratio	   65536 B/op	       1 allocs/op
+BenchmarkCodec/codec=s2/payload=large/op=decompress-18                 	   45705	     13164 ns/op	4947.24 MB/s	         3.339 ratio	   65536 B/op	       1 allocs/op
+BenchmarkCodec/codec=s2/payload=large/op=decompress-18                 	   45498	     13146 ns/op	4954.18 MB/s	         3.339 ratio	   65536 B/op	       1 allocs/op
+BenchmarkCodec/codec=s2/payload=random/op=compress-18                  	  801348	       733.0 ns/op	5587.95 MB/s	         0.9988 ratio	    4888 B/op	       1 allocs/op
+BenchmarkCodec/codec=s2/payload=random/op=compress-18                  	  813484	       691.4 ns/op	5924.29 MB/s	         0.9988 ratio	    4888 B/op	       1 allocs/op
+BenchmarkCodec/codec=s2/payload=random/op=compress-18                  	  878139	       696.1 ns/op	5883.98 MB/s	         0.9988 ratio	    4887 B/op	       1 allocs/op
+BenchmarkCodec/codec=s2/payload=random/op=compress-18                  	  877395	       693.4 ns/op	5907.40 MB/s	         0.9988 ratio	    4888 B/op	       1 allocs/op
+BenchmarkCodec/codec=s2/payload=random/op=compress-18                  	  811179	       733.1 ns/op	5587.39 MB/s	         0.9988 ratio	    4889 B/op	       1 allocs/op
+BenchmarkCodec/codec=s2/payload=random/op=compress-18                  	  800004	       731.7 ns/op	5598.20 MB/s	         0.9988 ratio	    4889 B/op	       1 allocs/op
+BenchmarkCodec/codec=s2/payload=random/op=decompress-18                	 1282744	       468.4 ns/op	8745.22 MB/s	         0.9988 ratio	    4096 B/op	       1 allocs/op
+BenchmarkCodec/codec=s2/payload=random/op=decompress-18                	 1248932	       481.5 ns/op	8507.14 MB/s	         0.9988 ratio	    4096 B/op	       1 allocs/op
+BenchmarkCodec/codec=s2/payload=random/op=decompress-18                	 1290537	       471.5 ns/op	8686.71 MB/s	         0.9988 ratio	    4096 B/op	       1 allocs/op
+BenchmarkCodec/codec=s2/payload=random/op=decompress-18                	 1269768	       468.8 ns/op	8736.86 MB/s	         0.9988 ratio	    4096 B/op	       1 allocs/op
+BenchmarkCodec/codec=s2/payload=random/op=decompress-18                	 1266284	       474.8 ns/op	8626.34 MB/s	         0.9988 ratio	    4096 B/op	       1 allocs/op
+BenchmarkCodec/codec=s2/payload=random/op=decompress-18                	 1232700	       483.1 ns/op	8478.39 MB/s	         0.9988 ratio	    4096 B/op	       1 allocs/op
+BenchmarkCodec/codec=snappy/payload=small/op=compress-18               	 3525524	       170.1 ns/op	2015.94 MB/s	         0.9856 ratio	     352 B/op	       1 allocs/op
+BenchmarkCodec/codec=snappy/payload=small/op=compress-18               	 3526408	       170.2 ns/op	2014.89 MB/s	         0.9856 ratio	     352 B/op	       1 allocs/op
+BenchmarkCodec/codec=snappy/payload=small/op=compress-18               	 3529178	       170.1 ns/op	2016.25 MB/s	         0.9856 ratio	     352 B/op	       1 allocs/op
+BenchmarkCodec/codec=snappy/payload=small/op=compress-18               	 3526449	       170.4 ns/op	2013.46 MB/s	         0.9856 ratio	     352 B/op	       1 allocs/op
+BenchmarkCodec/codec=snappy/payload=small/op=compress-18               	 3519270	       170.3 ns/op	2014.52 MB/s	         0.9856 ratio	     352 B/op	       1 allocs/op
+BenchmarkCodec/codec=snappy/payload=small/op=compress-18               	 3541915	       169.8 ns/op	2019.71 MB/s	         0.9856 ratio	     352 B/op	       1 allocs/op
+BenchmarkCodec/codec=snappy/payload=small/op=decompress-18             	12592640	        48.14 ns/op	7124.80 MB/s	         0.9856 ratio	     352 B/op	       1 allocs/op
+BenchmarkCodec/codec=snappy/payload=small/op=decompress-18             	12075876	        49.19 ns/op	6972.33 MB/s	         0.9856 ratio	     352 B/op	       1 allocs/op
+BenchmarkCodec/codec=snappy/payload=small/op=decompress-18             	12285891	        48.91 ns/op	7012.47 MB/s	         0.9856 ratio	     352 B/op	       1 allocs/op
+BenchmarkCodec/codec=snappy/payload=small/op=decompress-18             	12771957	        49.00 ns/op	7000.00 MB/s	         0.9856 ratio	     352 B/op	       1 allocs/op
+BenchmarkCodec/codec=snappy/payload=small/op=decompress-18             	12338622	        50.07 ns/op	6849.94 MB/s	         0.9856 ratio	     352 B/op	       1 allocs/op
+BenchmarkCodec/codec=snappy/payload=small/op=decompress-18             	12617986	        48.28 ns/op	7104.03 MB/s	         0.9856 ratio	     352 B/op	       1 allocs/op
+BenchmarkCodec/codec=snappy/payload=medium/op=compress-18              	  287323	      1944 ns/op	1054.34 MB/s	         1.813 ratio	    2308 B/op	       1 allocs/op
+BenchmarkCodec/codec=snappy/payload=medium/op=compress-18              	  314181	      1927 ns/op	1063.86 MB/s	         1.813 ratio	    2308 B/op	       1 allocs/op
+BenchmarkCodec/codec=snappy/payload=medium/op=compress-18              	  311926	      1926 ns/op	1064.43 MB/s	         1.813 ratio	    2308 B/op	       1 allocs/op
+BenchmarkCodec/codec=snappy/payload=medium/op=compress-18              	  313748	      1924 ns/op	1065.24 MB/s	         1.813 ratio	    2309 B/op	       1 allocs/op
+BenchmarkCodec/codec=snappy/payload=medium/op=compress-18              	  314395	      1924 ns/op	1065.26 MB/s	         1.813 ratio	    2308 B/op	       1 allocs/op
+BenchmarkCodec/codec=snappy/payload=medium/op=compress-18              	  313176	      1925 ns/op	1064.90 MB/s	         1.813 ratio	    2308 B/op	       1 allocs/op
+BenchmarkCodec/codec=snappy/payload=medium/op=decompress-18            	 1429242	       414.8 ns/op	4941.95 MB/s	         1.813 ratio	    2304 B/op	       1 allocs/op
+BenchmarkCodec/codec=snappy/payload=medium/op=decompress-18            	 1446088	       411.2 ns/op	4984.86 MB/s	         1.813 ratio	    2304 B/op	       1 allocs/op
+BenchmarkCodec/codec=snappy/payload=medium/op=decompress-18            	 1475408	       407.0 ns/op	5037.43 MB/s	         1.813 ratio	    2304 B/op	       1 allocs/op
+BenchmarkCodec/codec=snappy/payload=medium/op=decompress-18            	 1491418	       407.5 ns/op	5030.63 MB/s	         1.813 ratio	    2304 B/op	       1 allocs/op
+BenchmarkCodec/codec=snappy/payload=medium/op=decompress-18            	 1434154	       418.9 ns/op	4893.19 MB/s	         1.813 ratio	    2304 B/op	       1 allocs/op
+BenchmarkCodec/codec=snappy/payload=medium/op=decompress-18            	 1496136	       404.2 ns/op	5071.86 MB/s	         1.813 ratio	    2304 B/op	       1 allocs/op
+BenchmarkCodec/codec=snappy/payload=large/op=compress-18               	   10000	     50599 ns/op	1287.11 MB/s	         3.540 ratio	   65924 B/op	       1 allocs/op
+BenchmarkCodec/codec=snappy/payload=large/op=compress-18               	   10000	     50490 ns/op	1289.88 MB/s	         3.540 ratio	   65984 B/op	       1 allocs/op
+BenchmarkCodec/codec=snappy/payload=large/op=compress-18               	   10000	     50405 ns/op	1292.04 MB/s	         3.540 ratio	   65984 B/op	       1 allocs/op
+BenchmarkCodec/codec=snappy/payload=large/op=compress-18               	   10000	     50126 ns/op	1299.24 MB/s	         3.540 ratio	   65954 B/op	       1 allocs/op
+BenchmarkCodec/codec=snappy/payload=large/op=compress-18               	   10000	     50379 ns/op	1292.72 MB/s	         3.540 ratio	   65925 B/op	       1 allocs/op
+BenchmarkCodec/codec=snappy/payload=large/op=compress-18               	   10000	     50286 ns/op	1295.12 MB/s	         3.540 ratio	   66013 B/op	       1 allocs/op
+BenchmarkCodec/codec=snappy/payload=large/op=decompress-18             	   48447	     12829 ns/op	5076.59 MB/s	         3.540 ratio	   65536 B/op	       1 allocs/op
+BenchmarkCodec/codec=snappy/payload=large/op=decompress-18             	   50174	     12615 ns/op	5162.47 MB/s	         3.540 ratio	   65536 B/op	       1 allocs/op
+BenchmarkCodec/codec=snappy/payload=large/op=decompress-18             	   47089	     12983 ns/op	5016.20 MB/s	         3.540 ratio	   65536 B/op	       1 allocs/op
+BenchmarkCodec/codec=snappy/payload=large/op=decompress-18             	   46374	     13022 ns/op	5001.10 MB/s	         3.540 ratio	   65536 B/op	       1 allocs/op
+BenchmarkCodec/codec=snappy/payload=large/op=decompress-18             	   45892	     13080 ns/op	4979.06 MB/s	         3.540 ratio	   65536 B/op	       1 allocs/op
+BenchmarkCodec/codec=snappy/payload=large/op=decompress-18             	   45555	     12640 ns/op	5152.55 MB/s	         3.540 ratio	   65536 B/op	       1 allocs/op
+BenchmarkCodec/codec=snappy/payload=random/op=compress-18              	  407552	      1419 ns/op	2885.56 MB/s	         0.9988 ratio	    4938 B/op	       1 allocs/op
+BenchmarkCodec/codec=snappy/payload=random/op=compress-18              	  421978	      1419 ns/op	2886.71 MB/s	         0.9988 ratio	    4936 B/op	       1 allocs/op
+BenchmarkCodec/codec=snappy/payload=random/op=compress-18              	  429270	      1457 ns/op	2812.18 MB/s	         0.9988 ratio	    4931 B/op	       1 allocs/op
+BenchmarkCodec/codec=snappy/payload=random/op=compress-18              	  419300	      1558 ns/op	2628.83 MB/s	         0.9988 ratio	    4934 B/op	       1 allocs/op
+BenchmarkCodec/codec=snappy/payload=random/op=compress-18              	  403916	      1435 ns/op	2854.81 MB/s	         0.9988 ratio	    4936 B/op	       1 allocs/op
+BenchmarkCodec/codec=snappy/payload=random/op=compress-18              	  419904	      1416 ns/op	2892.94 MB/s	         0.9988 ratio	    4932 B/op	       1 allocs/op
+BenchmarkCodec/codec=snappy/payload=random/op=decompress-18            	 1260051	       473.0 ns/op	8660.20 MB/s	         0.9988 ratio	    4096 B/op	       1 allocs/op
+BenchmarkCodec/codec=snappy/payload=random/op=decompress-18            	 1244284	       482.6 ns/op	8487.50 MB/s	         0.9988 ratio	    4096 B/op	       1 allocs/op
+BenchmarkCodec/codec=snappy/payload=random/op=decompress-18            	 1257232	       473.7 ns/op	8646.15 MB/s	         0.9988 ratio	    4096 B/op	       1 allocs/op
+BenchmarkCodec/codec=snappy/payload=random/op=decompress-18            	 1247197	       483.2 ns/op	8476.97 MB/s	         0.9988 ratio	    4096 B/op	       1 allocs/op
+BenchmarkCodec/codec=snappy/payload=random/op=decompress-18            	 1235554	       483.9 ns/op	8465.17 MB/s	         0.9988 ratio	    4096 B/op	       1 allocs/op
+BenchmarkCodec/codec=snappy/payload=random/op=decompress-18            	 1260261	       480.3 ns/op	8527.39 MB/s	         0.9988 ratio	    4096 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-fastest/payload=small/op=compress-18         	 1880388	       317.2 ns/op	1081.25 MB/s	         0.9581 ratio	     994 B/op	       2 allocs/op
+BenchmarkCodec/codec=zstd-fastest/payload=small/op=compress-18         	 1755919	       332.1 ns/op	1032.82 MB/s	         0.9581 ratio	     992 B/op	       2 allocs/op
+BenchmarkCodec/codec=zstd-fastest/payload=small/op=compress-18         	 1867279	       318.4 ns/op	1077.14 MB/s	         0.9581 ratio	     992 B/op	       2 allocs/op
+BenchmarkCodec/codec=zstd-fastest/payload=small/op=compress-18         	 1886074	       316.0 ns/op	1085.57 MB/s	         0.9581 ratio	     992 B/op	       2 allocs/op
+BenchmarkCodec/codec=zstd-fastest/payload=small/op=compress-18         	 1889100	       317.4 ns/op	1080.55 MB/s	         0.9581 ratio	     992 B/op	       2 allocs/op
+BenchmarkCodec/codec=zstd-fastest/payload=small/op=compress-18         	 1908040	       317.5 ns/op	1080.35 MB/s	         0.9581 ratio	     992 B/op	       2 allocs/op
+BenchmarkCodec/codec=zstd-fastest/payload=small/op=decompress-18       	 5752401	       104.9 ns/op	3268.62 MB/s	         0.9581 ratio	     384 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-fastest/payload=small/op=decompress-18       	 5698372	       105.0 ns/op	3267.93 MB/s	         0.9581 ratio	     384 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-fastest/payload=small/op=decompress-18       	 5718285	       104.9 ns/op	3270.92 MB/s	         0.9581 ratio	     384 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-fastest/payload=small/op=decompress-18       	 5711336	       105.2 ns/op	3259.13 MB/s	         0.9581 ratio	     384 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-fastest/payload=small/op=decompress-18       	 5685216	       105.3 ns/op	3256.07 MB/s	         0.9581 ratio	     384 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-fastest/payload=small/op=decompress-18       	 5713219	       107.3 ns/op	3196.13 MB/s	         0.9581 ratio	     384 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-fastest/payload=medium/op=compress-18        	   80425	      7352 ns/op	 278.85 MB/s	         2.064 ratio	    2308 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-fastest/payload=medium/op=compress-18        	   83407	      7198 ns/op	 284.79 MB/s	         2.064 ratio	    2304 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-fastest/payload=medium/op=compress-18        	   83259	      7183 ns/op	 285.42 MB/s	         2.064 ratio	    2304 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-fastest/payload=medium/op=compress-18        	   83197	      7184 ns/op	 285.35 MB/s	         2.064 ratio	    2304 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-fastest/payload=medium/op=compress-18        	   83360	      7167 ns/op	 286.05 MB/s	         2.064 ratio	    2304 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-fastest/payload=medium/op=compress-18        	   83438	      7167 ns/op	 286.04 MB/s	         2.064 ratio	    2304 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-fastest/payload=medium/op=decompress-18      	  164168	      3576 ns/op	 573.29 MB/s	         2.064 ratio	    2307 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-fastest/payload=medium/op=decompress-18      	  164406	      3579 ns/op	 572.77 MB/s	         2.064 ratio	    2307 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-fastest/payload=medium/op=decompress-18      	  164791	      3584 ns/op	 571.97 MB/s	         2.064 ratio	    2307 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-fastest/payload=medium/op=decompress-18      	  165338	      3583 ns/op	 572.17 MB/s	         2.064 ratio	    2306 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-fastest/payload=medium/op=decompress-18      	  166543	      3573 ns/op	 573.72 MB/s	         2.064 ratio	    2307 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-fastest/payload=medium/op=decompress-18      	  166683	      3576 ns/op	 573.33 MB/s	         2.064 ratio	    2307 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-fastest/payload=large/op=compress-18         	    5763	     88893 ns/op	 732.63 MB/s	         4.826 ratio	   66214 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-fastest/payload=large/op=compress-18         	    6876	     88609 ns/op	 734.99 MB/s	         4.826 ratio	   65536 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-fastest/payload=large/op=compress-18         	    6798	     88197 ns/op	 738.42 MB/s	         4.826 ratio	   65536 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-fastest/payload=large/op=compress-18         	    6811	     88203 ns/op	 738.36 MB/s	         4.826 ratio	   65536 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-fastest/payload=large/op=compress-18         	    6799	     88167 ns/op	 738.67 MB/s	         4.826 ratio	   65536 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-fastest/payload=large/op=compress-18         	    6891	     88220 ns/op	 738.22 MB/s	         4.826 ratio	   65536 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-fastest/payload=large/op=decompress-18       	   19358	     30955 ns/op	2103.93 MB/s	         4.826 ratio	   65597 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-fastest/payload=large/op=decompress-18       	   19316	     31046 ns/op	2097.74 MB/s	         4.826 ratio	   65573 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-fastest/payload=large/op=decompress-18       	   19282	     31016 ns/op	2099.79 MB/s	         4.826 ratio	   65581 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-fastest/payload=large/op=decompress-18       	   19378	     31020 ns/op	2099.46 MB/s	         4.826 ratio	   65575 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-fastest/payload=large/op=decompress-18       	   19308	     31121 ns/op	2092.64 MB/s	         4.826 ratio	   65578 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-fastest/payload=large/op=decompress-18       	   19242	     31104 ns/op	2093.83 MB/s	         4.826 ratio	   65573 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-fastest/payload=random/op=compress-18        	  624168	       937.6 ns/op	4368.65 MB/s	         0.9966 ratio	    9472 B/op	       2 allocs/op
+BenchmarkCodec/codec=zstd-fastest/payload=random/op=compress-18        	  643098	       935.8 ns/op	4376.82 MB/s	         0.9966 ratio	    9472 B/op	       2 allocs/op
+BenchmarkCodec/codec=zstd-fastest/payload=random/op=compress-18        	  626696	       935.9 ns/op	4376.63 MB/s	         0.9966 ratio	    9472 B/op	       2 allocs/op
+BenchmarkCodec/codec=zstd-fastest/payload=random/op=compress-18        	  633476	       938.7 ns/op	4363.50 MB/s	         0.9966 ratio	    9472 B/op	       2 allocs/op
+BenchmarkCodec/codec=zstd-fastest/payload=random/op=compress-18        	  632838	       936.7 ns/op	4372.88 MB/s	         0.9966 ratio	    9472 B/op	       2 allocs/op
+BenchmarkCodec/codec=zstd-fastest/payload=random/op=compress-18        	  639198	       936.3 ns/op	4374.76 MB/s	         0.9966 ratio	    9472 B/op	       2 allocs/op
+BenchmarkCodec/codec=zstd-fastest/payload=random/op=decompress-18      	 1510798	       396.4 ns/op	10332.11 MB/s	         0.9966 ratio	    4864 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-fastest/payload=random/op=decompress-18      	 1521439	       394.2 ns/op	10391.29 MB/s	         0.9966 ratio	    4864 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-fastest/payload=random/op=decompress-18      	 1513254	       396.4 ns/op	10332.89 MB/s	         0.9966 ratio	    4864 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-fastest/payload=random/op=decompress-18      	 1517317	       395.2 ns/op	10363.68 MB/s	         0.9966 ratio	    4864 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-fastest/payload=random/op=decompress-18      	 1513334	       396.4 ns/op	10334.21 MB/s	         0.9966 ratio	    4864 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-fastest/payload=random/op=decompress-18      	 1516466	       395.7 ns/op	10351.94 MB/s	         0.9966 ratio	    4864 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-default/payload=small/op=compress-18         	  636188	       866.0 ns/op	 396.08 MB/s	         0.9581 ratio	    1000 B/op	       2 allocs/op
+BenchmarkCodec/codec=zstd-default/payload=small/op=compress-18         	  759205	       856.0 ns/op	 400.70 MB/s	         0.9581 ratio	     992 B/op	       2 allocs/op
+BenchmarkCodec/codec=zstd-default/payload=small/op=compress-18         	  718906	       856.2 ns/op	 400.60 MB/s	         0.9581 ratio	     992 B/op	       2 allocs/op
+BenchmarkCodec/codec=zstd-default/payload=small/op=compress-18         	  708912	       854.6 ns/op	 401.35 MB/s	         0.9581 ratio	     992 B/op	       2 allocs/op
+BenchmarkCodec/codec=zstd-default/payload=small/op=compress-18         	  657540	       856.8 ns/op	 400.31 MB/s	         0.9581 ratio	     992 B/op	       2 allocs/op
+BenchmarkCodec/codec=zstd-default/payload=small/op=compress-18         	  714848	       857.7 ns/op	 399.89 MB/s	         0.9581 ratio	     992 B/op	       2 allocs/op
+BenchmarkCodec/codec=zstd-default/payload=small/op=decompress-18       	 5826771	       102.8 ns/op	3337.65 MB/s	         0.9581 ratio	     384 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-default/payload=small/op=decompress-18       	 5805205	       103.0 ns/op	3330.89 MB/s	         0.9581 ratio	     384 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-default/payload=small/op=decompress-18       	 5844460	       103.0 ns/op	3330.33 MB/s	         0.9581 ratio	     384 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-default/payload=small/op=decompress-18       	 5730111	       103.2 ns/op	3322.08 MB/s	         0.9581 ratio	     384 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-default/payload=small/op=decompress-18       	 5823480	       103.1 ns/op	3327.19 MB/s	         0.9581 ratio	     384 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-default/payload=small/op=decompress-18       	 5748780	       103.2 ns/op	3324.41 MB/s	         0.9581 ratio	     384 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-default/payload=medium/op=compress-18        	   73226	      8211 ns/op	 249.67 MB/s	         2.142 ratio	    2308 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-default/payload=medium/op=compress-18        	   72925	      8237 ns/op	 248.86 MB/s	         2.142 ratio	    2304 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-default/payload=medium/op=compress-18        	   72898	      8224 ns/op	 249.27 MB/s	         2.142 ratio	    2304 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-default/payload=medium/op=compress-18        	   72901	      8226 ns/op	 249.20 MB/s	         2.142 ratio	    2304 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-default/payload=medium/op=compress-18        	   72912	      8218 ns/op	 249.46 MB/s	         2.142 ratio	    2304 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-default/payload=medium/op=compress-18        	   72694	      8222 ns/op	 249.34 MB/s	         2.142 ratio	    2304 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-default/payload=medium/op=decompress-18      	  168994	      3491 ns/op	 587.23 MB/s	         2.142 ratio	    2305 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-default/payload=medium/op=decompress-18      	  171124	      3488 ns/op	 587.76 MB/s	         2.142 ratio	    2304 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-default/payload=medium/op=decompress-18      	  172917	      3481 ns/op	 588.99 MB/s	         2.142 ratio	    2304 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-default/payload=medium/op=decompress-18      	  172504	      3480 ns/op	 589.07 MB/s	         2.142 ratio	    2304 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-default/payload=medium/op=decompress-18      	  172809	      3481 ns/op	 588.86 MB/s	         2.142 ratio	    2304 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-default/payload=medium/op=decompress-18      	  173391	      3486 ns/op	 588.04 MB/s	         2.142 ratio	    2304 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-default/payload=large/op=compress-18         	    5014	    100397 ns/op	 648.69 MB/s	         4.859 ratio	   66007 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-default/payload=large/op=compress-18         	    5715	     99549 ns/op	 654.21 MB/s	         4.859 ratio	   65536 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-default/payload=large/op=compress-18         	    5725	    101865 ns/op	 639.33 MB/s	         4.859 ratio	   65536 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-default/payload=large/op=compress-18         	    5608	    100294 ns/op	 649.35 MB/s	         4.859 ratio	   65536 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-default/payload=large/op=compress-18         	    5563	     99806 ns/op	 652.53 MB/s	         4.859 ratio	   65536 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-default/payload=large/op=compress-18         	    5748	    100015 ns/op	 651.16 MB/s	         4.859 ratio	   65536 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-default/payload=large/op=decompress-18       	   20163	     29675 ns/op	2194.62 MB/s	         4.859 ratio	   65566 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-default/payload=large/op=decompress-18       	   20194	     29632 ns/op	2197.79 MB/s	         4.859 ratio	   65551 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-default/payload=large/op=decompress-18       	   20258	     29707 ns/op	2192.31 MB/s	         4.859 ratio	   65551 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-default/payload=large/op=decompress-18       	   20080	     29832 ns/op	2183.09 MB/s	         4.859 ratio	   65550 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-default/payload=large/op=decompress-18       	   20200	     29846 ns/op	2182.08 MB/s	         4.859 ratio	   65554 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-default/payload=large/op=decompress-18       	   20230	     29657 ns/op	2195.96 MB/s	         4.859 ratio	   65554 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-default/payload=random/op=compress-18        	  312154	      1828 ns/op	2241.14 MB/s	         0.9966 ratio	    9472 B/op	       2 allocs/op
+BenchmarkCodec/codec=zstd-default/payload=random/op=compress-18        	  325110	      1827 ns/op	2241.33 MB/s	         0.9966 ratio	    9472 B/op	       2 allocs/op
+BenchmarkCodec/codec=zstd-default/payload=random/op=compress-18        	  321367	      1835 ns/op	2232.08 MB/s	         0.9966 ratio	    9472 B/op	       2 allocs/op
+BenchmarkCodec/codec=zstd-default/payload=random/op=compress-18        	  328696	      1828 ns/op	2241.18 MB/s	         0.9966 ratio	    9472 B/op	       2 allocs/op
+BenchmarkCodec/codec=zstd-default/payload=random/op=compress-18        	  331213	      1829 ns/op	2239.19 MB/s	         0.9966 ratio	    9472 B/op	       2 allocs/op
+BenchmarkCodec/codec=zstd-default/payload=random/op=compress-18        	  328249	      1876 ns/op	2183.67 MB/s	         0.9966 ratio	    9472 B/op	       2 allocs/op
+BenchmarkCodec/codec=zstd-default/payload=random/op=decompress-18      	 1654280	       362.6 ns/op	11294.82 MB/s	         0.9966 ratio	    4864 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-default/payload=random/op=decompress-18      	 1648404	       363.7 ns/op	11263.03 MB/s	         0.9966 ratio	    4864 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-default/payload=random/op=decompress-18      	 1643268	       364.3 ns/op	11242.04 MB/s	         0.9966 ratio	    4864 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-default/payload=random/op=decompress-18      	 1643084	       364.1 ns/op	11248.93 MB/s	         0.9966 ratio	    4864 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-default/payload=random/op=decompress-18      	 1649136	       363.6 ns/op	11265.23 MB/s	         0.9966 ratio	    4864 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-default/payload=random/op=decompress-18      	 1650218	       363.6 ns/op	11264.07 MB/s	         0.9966 ratio	    4864 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-better/payload=small/op=compress-18          	  117723	      4486 ns/op	  76.47 MB/s	         1.015 ratio	    2820 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-better/payload=small/op=compress-18          	  133816	      4413 ns/op	  77.73 MB/s	         1.015 ratio	     352 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-better/payload=small/op=compress-18          	  136802	      4385 ns/op	  78.21 MB/s	         1.015 ratio	     352 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-better/payload=small/op=compress-18          	  138039	      4382 ns/op	  78.27 MB/s	         1.015 ratio	     352 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-better/payload=small/op=compress-18          	  136933	      4397 ns/op	  78.01 MB/s	         1.015 ratio	     352 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-better/payload=small/op=compress-18          	  137332	      4380 ns/op	  78.32 MB/s	         1.015 ratio	     352 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-better/payload=small/op=decompress-18        	  308104	      1971 ns/op	 174.06 MB/s	         1.015 ratio	     384 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-better/payload=small/op=decompress-18        	  308905	      1950 ns/op	 175.85 MB/s	         1.015 ratio	     384 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-better/payload=small/op=decompress-18        	  309175	      1950 ns/op	 175.93 MB/s	         1.015 ratio	     384 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-better/payload=small/op=decompress-18        	  308331	      1948 ns/op	 176.11 MB/s	         1.015 ratio	     384 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-better/payload=small/op=decompress-18        	  308107	      1946 ns/op	 176.26 MB/s	         1.015 ratio	     384 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-better/payload=small/op=decompress-18        	  309058	      1947 ns/op	 176.13 MB/s	         1.015 ratio	     384 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-better/payload=medium/op=compress-18         	   64183	      9244 ns/op	 221.76 MB/s	         2.162 ratio	    2306 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-better/payload=medium/op=compress-18         	   64593	      9247 ns/op	 221.69 MB/s	         2.162 ratio	    2304 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-better/payload=medium/op=compress-18         	   65055	      9238 ns/op	 221.91 MB/s	         2.162 ratio	    2304 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-better/payload=medium/op=compress-18         	   65209	      9243 ns/op	 221.80 MB/s	         2.162 ratio	    2304 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-better/payload=medium/op=compress-18         	   65097	      9248 ns/op	 221.67 MB/s	         2.162 ratio	    2304 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-better/payload=medium/op=compress-18         	   64190	      9259 ns/op	 221.40 MB/s	         2.162 ratio	    2304 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-better/payload=medium/op=decompress-18       	  174277	      3514 ns/op	 583.39 MB/s	         2.162 ratio	    2304 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-better/payload=medium/op=decompress-18       	  174446	      3457 ns/op	 592.93 MB/s	         2.162 ratio	    2304 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-better/payload=medium/op=decompress-18       	  174427	      3443 ns/op	 595.33 MB/s	         2.162 ratio	    2304 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-better/payload=medium/op=decompress-18       	  175221	      3444 ns/op	 595.29 MB/s	         2.162 ratio	    2304 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-better/payload=medium/op=decompress-18       	  174735	      3433 ns/op	 597.14 MB/s	         2.162 ratio	    2304 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-better/payload=medium/op=decompress-18       	  173367	      3476 ns/op	 589.71 MB/s	         2.162 ratio	    2304 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-better/payload=large/op=compress-18          	    4160	    143868 ns/op	 452.68 MB/s	         5.199 ratio	   66108 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-better/payload=large/op=compress-18          	    3896	    141912 ns/op	 458.92 MB/s	         5.199 ratio	   65536 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-better/payload=large/op=compress-18          	    4156	    141705 ns/op	 459.59 MB/s	         5.199 ratio	   65536 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-better/payload=large/op=compress-18          	    4184	    141404 ns/op	 460.57 MB/s	         5.199 ratio	   65536 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-better/payload=large/op=compress-18          	    4144	    143487 ns/op	 453.88 MB/s	         5.199 ratio	   65536 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-better/payload=large/op=compress-18          	    4128	    143624 ns/op	 453.45 MB/s	         5.199 ratio	   65536 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-better/payload=large/op=decompress-18        	   22246	     26752 ns/op	2434.46 MB/s	         5.199 ratio	   65554 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-better/payload=large/op=decompress-18        	   22352	     26709 ns/op	2438.36 MB/s	         5.199 ratio	   65539 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-better/payload=large/op=decompress-18        	   22168	     26737 ns/op	2435.76 MB/s	         5.199 ratio	   65540 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-better/payload=large/op=decompress-18        	   22310	     26684 ns/op	2440.66 MB/s	         5.199 ratio	   65540 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-better/payload=large/op=decompress-18        	   22323	     26717 ns/op	2437.64 MB/s	         5.199 ratio	   65537 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-better/payload=large/op=decompress-18        	   22278	     26801 ns/op	2430.01 MB/s	         5.199 ratio	   65538 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-better/payload=random/op=compress-18         	  136004	      4396 ns/op	 931.71 MB/s	         0.9966 ratio	    9472 B/op	       2 allocs/op
+BenchmarkCodec/codec=zstd-better/payload=random/op=compress-18         	  139323	      4397 ns/op	 931.49 MB/s	         0.9966 ratio	    9472 B/op	       2 allocs/op
+BenchmarkCodec/codec=zstd-better/payload=random/op=compress-18         	  135673	      4412 ns/op	 928.28 MB/s	         0.9966 ratio	    9472 B/op	       2 allocs/op
+BenchmarkCodec/codec=zstd-better/payload=random/op=compress-18         	  138840	      4403 ns/op	 930.28 MB/s	         0.9966 ratio	    9472 B/op	       2 allocs/op
+BenchmarkCodec/codec=zstd-better/payload=random/op=compress-18         	  138631	      4432 ns/op	 924.20 MB/s	         0.9966 ratio	    9472 B/op	       2 allocs/op
+BenchmarkCodec/codec=zstd-better/payload=random/op=compress-18         	  139495	      4413 ns/op	 928.07 MB/s	         0.9966 ratio	    9472 B/op	       2 allocs/op
+BenchmarkCodec/codec=zstd-better/payload=random/op=decompress-18       	 1684924	       354.6 ns/op	11551.96 MB/s	         0.9966 ratio	    4864 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-better/payload=random/op=decompress-18       	 1684906	       354.6 ns/op	11550.14 MB/s	         0.9966 ratio	    4864 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-better/payload=random/op=decompress-18       	 1689034	       354.5 ns/op	11554.30 MB/s	         0.9966 ratio	    4864 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-better/payload=random/op=decompress-18       	 1688007	       354.1 ns/op	11568.86 MB/s	         0.9966 ratio	    4864 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-better/payload=random/op=decompress-18       	 1684736	       354.8 ns/op	11543.78 MB/s	         0.9966 ratio	    4864 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-better/payload=random/op=decompress-18       	 1686284	       354.8 ns/op	11544.89 MB/s	         0.9966 ratio	    4864 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-best/payload=small/op=compress-18            	   57374	      9167 ns/op	  37.42 MB/s	         1.015 ratio	    5417 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-best/payload=small/op=compress-18            	   68799	      8855 ns/op	  38.73 MB/s	         1.015 ratio	     352 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-best/payload=small/op=compress-18            	   68870	      8867 ns/op	  38.68 MB/s	         1.015 ratio	     352 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-best/payload=small/op=compress-18            	   62472	      8992 ns/op	  38.14 MB/s	         1.015 ratio	     352 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-best/payload=small/op=compress-18            	   67633	      9027 ns/op	  38.00 MB/s	         1.015 ratio	     352 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-best/payload=small/op=compress-18            	   67432	      9049 ns/op	  37.91 MB/s	         1.015 ratio	     352 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-best/payload=small/op=decompress-18          	  308508	      1965 ns/op	 174.51 MB/s	         1.015 ratio	     384 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-best/payload=small/op=decompress-18          	  305534	      1950 ns/op	 175.86 MB/s	         1.015 ratio	     384 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-best/payload=small/op=decompress-18          	  310279	      1948 ns/op	 176.08 MB/s	         1.015 ratio	     384 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-best/payload=small/op=decompress-18          	  306721	      1947 ns/op	 176.13 MB/s	         1.015 ratio	     384 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-best/payload=small/op=decompress-18          	  306654	      1950 ns/op	 175.90 MB/s	         1.015 ratio	     384 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-best/payload=small/op=decompress-18          	  308085	      1951 ns/op	 175.85 MB/s	         1.015 ratio	     384 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-best/payload=medium/op=compress-18           	   23656	     25433 ns/op	  80.60 MB/s	         2.174 ratio	    2311 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-best/payload=medium/op=compress-18           	   23719	     25391 ns/op	  80.74 MB/s	         2.174 ratio	    2304 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-best/payload=medium/op=compress-18           	   23682	     25432 ns/op	  80.61 MB/s	         2.174 ratio	    2304 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-best/payload=medium/op=compress-18           	   22873	     25492 ns/op	  80.42 MB/s	         2.174 ratio	    2304 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-best/payload=medium/op=compress-18           	   22912	     25521 ns/op	  80.33 MB/s	         2.174 ratio	    2304 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-best/payload=medium/op=compress-18           	   22905	     25462 ns/op	  80.51 MB/s	         2.174 ratio	    2304 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-best/payload=medium/op=decompress-18         	  176889	      3485 ns/op	 588.25 MB/s	         2.174 ratio	    2304 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-best/payload=medium/op=decompress-18         	  177253	      3416 ns/op	 600.18 MB/s	         2.174 ratio	    2304 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-best/payload=medium/op=decompress-18         	  177520	      3397 ns/op	 603.51 MB/s	         2.174 ratio	    2304 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-best/payload=medium/op=decompress-18         	  177729	      3387 ns/op	 605.19 MB/s	         2.174 ratio	    2304 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-best/payload=medium/op=decompress-18         	  177436	      3383 ns/op	 606.05 MB/s	         2.174 ratio	    2304 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-best/payload=medium/op=decompress-18         	  177231	      3384 ns/op	 605.75 MB/s	         2.174 ratio	    2304 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-best/payload=large/op=compress-18            	     862	    659975 ns/op	  98.68 MB/s	         5.385 ratio	   68194 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-best/payload=large/op=compress-18            	     919	    656542 ns/op	  99.20 MB/s	         5.385 ratio	   65536 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-best/payload=large/op=compress-18            	     928	    646804 ns/op	 100.69 MB/s	         5.385 ratio	   65536 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-best/payload=large/op=compress-18            	     924	    647962 ns/op	 100.51 MB/s	         5.385 ratio	   65536 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-best/payload=large/op=compress-18            	     889	    673863 ns/op	  96.65 MB/s	         5.385 ratio	   65536 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-best/payload=large/op=compress-18            	     921	    658982 ns/op	  98.83 MB/s	         5.385 ratio	   65536 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-best/payload=large/op=decompress-18          	   22036	     27663 ns/op	2354.29 MB/s	         5.385 ratio	   65552 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-best/payload=large/op=decompress-18          	   23100	     26283 ns/op	2477.89 MB/s	         5.385 ratio	   65536 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-best/payload=large/op=decompress-18          	   23133	     26298 ns/op	2476.42 MB/s	         5.385 ratio	   65536 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-best/payload=large/op=decompress-18          	   23022	     26484 ns/op	2459.06 MB/s	         5.385 ratio	   65537 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-best/payload=large/op=decompress-18          	   23024	     26326 ns/op	2473.87 MB/s	         5.385 ratio	   65536 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-best/payload=large/op=decompress-18          	   23133	     26232 ns/op	2482.72 MB/s	         5.385 ratio	   65536 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-best/payload=random/op=compress-18           	   32209	     18636 ns/op	 219.79 MB/s	         0.9966 ratio	    9472 B/op	       2 allocs/op
+BenchmarkCodec/codec=zstd-best/payload=random/op=compress-18           	   32607	     18515 ns/op	 221.23 MB/s	         0.9966 ratio	    9472 B/op	       2 allocs/op
+BenchmarkCodec/codec=zstd-best/payload=random/op=compress-18           	   32620	     18504 ns/op	 221.36 MB/s	         0.9966 ratio	    9472 B/op	       2 allocs/op
+BenchmarkCodec/codec=zstd-best/payload=random/op=compress-18           	   32559	     18571 ns/op	 220.56 MB/s	         0.9966 ratio	    9472 B/op	       2 allocs/op
+BenchmarkCodec/codec=zstd-best/payload=random/op=compress-18           	   32437	     18554 ns/op	 220.76 MB/s	         0.9966 ratio	    9472 B/op	       2 allocs/op
+BenchmarkCodec/codec=zstd-best/payload=random/op=compress-18           	   32580	     18518 ns/op	 221.19 MB/s	         0.9966 ratio	    9472 B/op	       2 allocs/op
+BenchmarkCodec/codec=zstd-best/payload=random/op=decompress-18         	 1543078	       376.5 ns/op	10880.14 MB/s	         0.9966 ratio	    4864 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-best/payload=random/op=decompress-18         	 1633977	       361.4 ns/op	11332.62 MB/s	         0.9966 ratio	    4864 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-best/payload=random/op=decompress-18         	 1694406	       353.6 ns/op	11585.03 MB/s	         0.9966 ratio	    4864 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-best/payload=random/op=decompress-18         	 1621694	       366.2 ns/op	11186.58 MB/s	         0.9966 ratio	    4864 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-best/payload=random/op=decompress-18         	 1686369	       354.3 ns/op	11559.41 MB/s	         0.9966 ratio	    4864 B/op	       1 allocs/op
+BenchmarkCodec/codec=zstd-best/payload=random/op=decompress-18         	 1700133	       353.2 ns/op	11595.97 MB/s	         0.9966 ratio	    4864 B/op	       1 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=none/payload=medium/op=set-18 	  187213	      2939 ns/op	      2054 stored-B	    8608 B/op	      13 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=none/payload=medium/op=set-18 	  206186	      2912 ns/op	      2054 stored-B	    8608 B/op	      13 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=none/payload=medium/op=set-18 	  204289	      2897 ns/op	      2054 stored-B	    8608 B/op	      13 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=none/payload=medium/op=set-18 	  207062	      2909 ns/op	      2054 stored-B	    8608 B/op	      13 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=none/payload=medium/op=set-18 	  207678	      2918 ns/op	      2054 stored-B	    8608 B/op	      13 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=none/payload=medium/op=set-18 	  204624	      2908 ns/op	      2054 stored-B	    8608 B/op	      13 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=none/payload=medium/op=get-18 	  129046	      4641 ns/op	      2054 stored-B	    6422 B/op	      74 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=none/payload=medium/op=get-18 	  128652	      4753 ns/op	      2054 stored-B	    6422 B/op	      74 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=none/payload=medium/op=get-18 	  128944	      4676 ns/op	      2054 stored-B	    6422 B/op	      74 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=none/payload=medium/op=get-18 	  129651	      4655 ns/op	      2054 stored-B	    6422 B/op	      74 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=none/payload=medium/op=get-18 	  128734	      4679 ns/op	      2054 stored-B	    6422 B/op	      74 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=none/payload=medium/op=get-18 	  128359	      4667 ns/op	      2054 stored-B	    6422 B/op	      74 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=lz4/payload=medium/op=set-18         	  121004	      4864 ns/op	      1162 stored-B	   10956 B/op	      16 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=lz4/payload=medium/op=set-18         	  125742	      4844 ns/op	      1162 stored-B	   10914 B/op	      16 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=lz4/payload=medium/op=set-18         	  124153	      4845 ns/op	      1162 stored-B	   10922 B/op	      16 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=lz4/payload=medium/op=set-18         	  124020	      4847 ns/op	      1162 stored-B	   10940 B/op	      16 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=lz4/payload=medium/op=set-18         	  124492	      4831 ns/op	      1162 stored-B	   10888 B/op	      16 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=lz4/payload=medium/op=set-18         	  124592	      4836 ns/op	      1162 stored-B	   10908 B/op	      16 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=lz4/payload=medium/op=get-18         	  115492	      5250 ns/op	      1162 stored-B	    8037 B/op	      77 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=lz4/payload=medium/op=get-18         	  114970	      5220 ns/op	      1162 stored-B	    8039 B/op	      77 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=lz4/payload=medium/op=get-18         	  114349	      5238 ns/op	      1162 stored-B	    8037 B/op	      77 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=lz4/payload=medium/op=get-18         	  115476	      5232 ns/op	      1162 stored-B	    8028 B/op	      77 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=lz4/payload=medium/op=get-18         	  114673	      5242 ns/op	      1162 stored-B	    8037 B/op	      77 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=lz4/payload=medium/op=get-18         	  114130	      5242 ns/op	      1162 stored-B	    8032 B/op	      77 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=s2/payload=medium/op=set-18   	  142948	      4187 ns/op	      1177 stored-B	   11009 B/op	      15 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=s2/payload=medium/op=set-18   	  143138	      4213 ns/op	      1177 stored-B	   11011 B/op	      15 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=s2/payload=medium/op=set-18   	  145332	      4179 ns/op	      1177 stored-B	   11011 B/op	      15 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=s2/payload=medium/op=set-18   	  141140	      4204 ns/op	      1177 stored-B	   11011 B/op	      15 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=s2/payload=medium/op=set-18   	  143275	      4200 ns/op	      1177 stored-B	   11012 B/op	      15 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=s2/payload=medium/op=set-18   	  143774	      4198 ns/op	      1177 stored-B	   11012 B/op	      15 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=s2/payload=medium/op=get-18   	  117727	      5098 ns/op	      1177 stored-B	    7703 B/op	      75 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=s2/payload=medium/op=get-18   	  117144	      5099 ns/op	      1177 stored-B	    7703 B/op	      75 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=s2/payload=medium/op=get-18   	  117307	      5115 ns/op	      1177 stored-B	    7703 B/op	      75 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=s2/payload=medium/op=get-18   	  116982	      5095 ns/op	      1177 stored-B	    7703 B/op	      75 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=s2/payload=medium/op=get-18   	  118584	      5109 ns/op	      1177 stored-B	    7703 B/op	      75 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=s2/payload=medium/op=get-18   	  117493	      5101 ns/op	      1177 stored-B	    7703 B/op	      75 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=zstd-default/payload=medium/op=set-18         	   52719	     11170 ns/op	       961.0 stored-B	   11075 B/op	      15 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=zstd-default/payload=medium/op=set-18         	   53313	     11151 ns/op	       961.0 stored-B	   10969 B/op	      15 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=zstd-default/payload=medium/op=set-18         	   53496	     11139 ns/op	       961.0 stored-B	   10969 B/op	      15 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=zstd-default/payload=medium/op=set-18         	   53731	     11097 ns/op	       961.0 stored-B	   10969 B/op	      15 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=zstd-default/payload=medium/op=set-18         	   53559	     11103 ns/op	       961.0 stored-B	   10969 B/op	      15 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=zstd-default/payload=medium/op=set-18         	   53836	     11106 ns/op	       961.0 stored-B	   10969 B/op	      15 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=zstd-default/payload=medium/op=get-18         	   73003	      8134 ns/op	       961.0 stored-B	    7445 B/op	      75 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=zstd-default/payload=medium/op=get-18         	   73356	      8192 ns/op	       961.0 stored-B	    7443 B/op	      75 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=zstd-default/payload=medium/op=get-18         	   73480	      8115 ns/op	       961.0 stored-B	    7442 B/op	      75 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=zstd-default/payload=medium/op=get-18         	   73951	      8135 ns/op	       961.0 stored-B	    7443 B/op	      75 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=zstd-default/payload=medium/op=get-18         	   72770	      8141 ns/op	       961.0 stored-B	    7443 B/op	      75 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=zstd-default/payload=medium/op=get-18         	   73521	      8157 ns/op	       961.0 stored-B	    7443 B/op	      75 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=gzip-default/payload=medium/op=set-18         	   34596	     17376 ns/op	       954.0 stored-B	   11134 B/op	      18 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=gzip-default/payload=medium/op=set-18         	   34456	     17339 ns/op	       954.0 stored-B	   10855 B/op	      18 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=gzip-default/payload=medium/op=set-18         	   34599	     17373 ns/op	       954.0 stored-B	   10885 B/op	      18 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=gzip-default/payload=medium/op=set-18         	   34502	     17305 ns/op	       954.0 stored-B	   10854 B/op	      18 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=gzip-default/payload=medium/op=set-18         	   34609	     17283 ns/op	       954.0 stored-B	   10916 B/op	      18 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=gzip-default/payload=medium/op=set-18         	   34785	     17238 ns/op	       954.0 stored-B	   10946 B/op	      18 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=gzip-default/payload=medium/op=get-18         	   47769	     12467 ns/op	       954.0 stored-B	    8335 B/op	     101 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=gzip-default/payload=medium/op=get-18         	   47986	     12563 ns/op	       954.0 stored-B	    8333 B/op	     101 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=gzip-default/payload=medium/op=get-18         	   47601	     12497 ns/op	       954.0 stored-B	    8331 B/op	     101 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=gzip-default/payload=medium/op=get-18         	   48099	     12460 ns/op	       954.0 stored-B	    8329 B/op	     101 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=gzip-default/payload=medium/op=get-18         	   48174	     12518 ns/op	       954.0 stored-B	    8333 B/op	     101 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=gzip-default/payload=medium/op=get-18         	   47566	     12608 ns/op	       954.0 stored-B	    8335 B/op	     101 allocs/op
+BenchmarkTypedCache/format=json/codec=none/payload=medium/op=set-18                    	  183234	      3208 ns/op	      2303 stored-B	    5337 B/op	      11 allocs/op
+BenchmarkTypedCache/format=json/codec=none/payload=medium/op=set-18                    	  187519	      3188 ns/op	      2303 stored-B	    5336 B/op	      11 allocs/op
+BenchmarkTypedCache/format=json/codec=none/payload=medium/op=set-18                    	  186651	      3180 ns/op	      2303 stored-B	    5336 B/op	      11 allocs/op
+BenchmarkTypedCache/format=json/codec=none/payload=medium/op=set-18                    	  183890	      3183 ns/op	      2303 stored-B	    5337 B/op	      11 allocs/op
+BenchmarkTypedCache/format=json/codec=none/payload=medium/op=set-18                    	  188846	      3177 ns/op	      2303 stored-B	    5336 B/op	      11 allocs/op
+BenchmarkTypedCache/format=json/codec=none/payload=medium/op=set-18                    	  186594	      3189 ns/op	      2303 stored-B	    5336 B/op	      11 allocs/op
+BenchmarkTypedCache/format=json/codec=none/payload=medium/op=get-18                    	  103176	      5758 ns/op	      2303 stored-B	    6928 B/op	      38 allocs/op
+BenchmarkTypedCache/format=json/codec=none/payload=medium/op=get-18                    	  104124	      5749 ns/op	      2303 stored-B	    6928 B/op	      38 allocs/op
+BenchmarkTypedCache/format=json/codec=none/payload=medium/op=get-18                    	  102900	      5746 ns/op	      2303 stored-B	    6928 B/op	      38 allocs/op
+BenchmarkTypedCache/format=json/codec=none/payload=medium/op=get-18                    	  104258	      5727 ns/op	      2303 stored-B	    6928 B/op	      38 allocs/op
+BenchmarkTypedCache/format=json/codec=none/payload=medium/op=get-18                    	  103664	      5722 ns/op	      2303 stored-B	    6929 B/op	      38 allocs/op
+BenchmarkTypedCache/format=json/codec=none/payload=medium/op=get-18                    	  104835	      5720 ns/op	      2303 stored-B	    6928 B/op	      38 allocs/op
+BenchmarkTypedCache/format=json/codec=lz4/payload=medium/op=set-18            	  115506	      5079 ns/op	      1214 stored-B	    4420 B/op	      12 allocs/op
+BenchmarkTypedCache/format=json/codec=lz4/payload=medium/op=set-18            	  116524	      5062 ns/op	      1214 stored-B	    4407 B/op	      12 allocs/op
+BenchmarkTypedCache/format=json/codec=lz4/payload=medium/op=set-18            	  117909	      5055 ns/op	      1214 stored-B	    4418 B/op	      12 allocs/op
+BenchmarkTypedCache/format=json/codec=lz4/payload=medium/op=set-18            	  118819	      5057 ns/op	      1214 stored-B	    4407 B/op	      12 allocs/op
+BenchmarkTypedCache/format=json/codec=lz4/payload=medium/op=set-18            	  119674	      5060 ns/op	      1214 stored-B	    4407 B/op	      12 allocs/op
+BenchmarkTypedCache/format=json/codec=lz4/payload=medium/op=set-18            	  118218	      5105 ns/op	      1214 stored-B	    4411 B/op	      12 allocs/op
+BenchmarkTypedCache/format=json/codec=lz4/payload=medium/op=get-18            	   94644	      6266 ns/op	      1214 stored-B	    8345 B/op	      41 allocs/op
+BenchmarkTypedCache/format=json/codec=lz4/payload=medium/op=get-18            	   93566	      6270 ns/op	      1214 stored-B	    8344 B/op	      41 allocs/op
+BenchmarkTypedCache/format=json/codec=lz4/payload=medium/op=get-18            	   95875	      6231 ns/op	      1214 stored-B	    8347 B/op	      41 allocs/op
+BenchmarkTypedCache/format=json/codec=lz4/payload=medium/op=get-18            	   95704	      6226 ns/op	      1214 stored-B	    8337 B/op	      41 allocs/op
+BenchmarkTypedCache/format=json/codec=lz4/payload=medium/op=get-18            	   96306	      6228 ns/op	      1214 stored-B	    8346 B/op	      41 allocs/op
+BenchmarkTypedCache/format=json/codec=lz4/payload=medium/op=get-18            	   95419	      6254 ns/op	      1214 stored-B	    8344 B/op	      41 allocs/op
+BenchmarkTypedCache/format=json/codec=s2/payload=medium/op=set-18                      	  132415	      4457 ns/op	      1214 stored-B	    5723 B/op	      11 allocs/op
+BenchmarkTypedCache/format=json/codec=s2/payload=medium/op=set-18                      	  133761	      4449 ns/op	      1214 stored-B	    5724 B/op	      11 allocs/op
+BenchmarkTypedCache/format=json/codec=s2/payload=medium/op=set-18                      	  132318	      4479 ns/op	      1214 stored-B	    5723 B/op	      11 allocs/op
+BenchmarkTypedCache/format=json/codec=s2/payload=medium/op=set-18                      	  133328	      4444 ns/op	      1214 stored-B	    5723 B/op	      11 allocs/op
+BenchmarkTypedCache/format=json/codec=s2/payload=medium/op=set-18                      	  130458	      4471 ns/op	      1214 stored-B	    5723 B/op	      11 allocs/op
+BenchmarkTypedCache/format=json/codec=s2/payload=medium/op=set-18                      	  133692	      4464 ns/op	      1214 stored-B	    5723 B/op	      11 allocs/op
+BenchmarkTypedCache/format=json/codec=s2/payload=medium/op=get-18                      	   95472	      6238 ns/op	      1214 stored-B	    8209 B/op	      39 allocs/op
+BenchmarkTypedCache/format=json/codec=s2/payload=medium/op=get-18                      	   95539	      6234 ns/op	      1214 stored-B	    8209 B/op	      39 allocs/op
+BenchmarkTypedCache/format=json/codec=s2/payload=medium/op=get-18                      	   95524	      6222 ns/op	      1214 stored-B	    8209 B/op	      39 allocs/op
+BenchmarkTypedCache/format=json/codec=s2/payload=medium/op=get-18                      	   95534	      6230 ns/op	      1214 stored-B	    8209 B/op	      39 allocs/op
+BenchmarkTypedCache/format=json/codec=s2/payload=medium/op=get-18                      	   96042	      6229 ns/op	      1214 stored-B	    8209 B/op	      39 allocs/op
+BenchmarkTypedCache/format=json/codec=s2/payload=medium/op=get-18                      	   95787	      6229 ns/op	      1214 stored-B	    8209 B/op	      39 allocs/op
+BenchmarkTypedCache/format=json/codec=zstd-default/payload=medium/op=set-18            	   58402	     10228 ns/op	       890.0 stored-B	    5338 B/op	      11 allocs/op
+BenchmarkTypedCache/format=json/codec=zstd-default/payload=medium/op=set-18            	   58753	     10312 ns/op	       890.0 stored-B	    5338 B/op	      11 allocs/op
+BenchmarkTypedCache/format=json/codec=zstd-default/payload=medium/op=set-18            	   58297	     10281 ns/op	       890.0 stored-B	    5338 B/op	      11 allocs/op
+BenchmarkTypedCache/format=json/codec=zstd-default/payload=medium/op=set-18            	   57957	     10260 ns/op	       890.0 stored-B	    5337 B/op	      11 allocs/op
+BenchmarkTypedCache/format=json/codec=zstd-default/payload=medium/op=set-18            	   58404	     10282 ns/op	       890.0 stored-B	    5338 B/op	      11 allocs/op
+BenchmarkTypedCache/format=json/codec=zstd-default/payload=medium/op=set-18            	   58548	     10264 ns/op	       890.0 stored-B	    5338 B/op	      11 allocs/op
+BenchmarkTypedCache/format=json/codec=zstd-default/payload=medium/op=get-18            	   66387	      9022 ns/op	       890.0 stored-B	    8212 B/op	      39 allocs/op
+BenchmarkTypedCache/format=json/codec=zstd-default/payload=medium/op=get-18            	   66784	      9002 ns/op	       890.0 stored-B	    8213 B/op	      39 allocs/op
+BenchmarkTypedCache/format=json/codec=zstd-default/payload=medium/op=get-18            	   65798	      9024 ns/op	       890.0 stored-B	    8212 B/op	      39 allocs/op
+BenchmarkTypedCache/format=json/codec=zstd-default/payload=medium/op=get-18            	   66296	      9004 ns/op	       890.0 stored-B	    8212 B/op	      39 allocs/op
+BenchmarkTypedCache/format=json/codec=zstd-default/payload=medium/op=get-18            	   66504	      9004 ns/op	       890.0 stored-B	    8212 B/op	      39 allocs/op
+BenchmarkTypedCache/format=json/codec=zstd-default/payload=medium/op=get-18            	   66626	      8988 ns/op	       890.0 stored-B	    8213 B/op	      39 allocs/op
+BenchmarkTypedCache/format=json/codec=gzip-default/payload=medium/op=set-18            	   42720	     14144 ns/op	       862.0 stored-B	    5249 B/op	      14 allocs/op
+BenchmarkTypedCache/format=json/codec=gzip-default/payload=medium/op=set-18            	   41878	     14326 ns/op	       862.0 stored-B	    5253 B/op	      14 allocs/op
+BenchmarkTypedCache/format=json/codec=gzip-default/payload=medium/op=set-18            	   41979	     14158 ns/op	       862.0 stored-B	    5226 B/op	      14 allocs/op
+BenchmarkTypedCache/format=json/codec=gzip-default/payload=medium/op=set-18            	   42806	     14007 ns/op	       862.0 stored-B	    5273 B/op	      14 allocs/op
+BenchmarkTypedCache/format=json/codec=gzip-default/payload=medium/op=set-18            	   42819	     13969 ns/op	       862.0 stored-B	    5249 B/op	      14 allocs/op
+BenchmarkTypedCache/format=json/codec=gzip-default/payload=medium/op=set-18            	   42630	     14087 ns/op	       862.0 stored-B	    5301 B/op	      14 allocs/op
+BenchmarkTypedCache/format=json/codec=gzip-default/payload=medium/op=get-18            	   45216	     13213 ns/op	       862.0 stored-B	    8014 B/op	      45 allocs/op
+BenchmarkTypedCache/format=json/codec=gzip-default/payload=medium/op=get-18            	   45482	     13147 ns/op	       862.0 stored-B	    8018 B/op	      45 allocs/op
+BenchmarkTypedCache/format=json/codec=gzip-default/payload=medium/op=get-18            	   45355	     13157 ns/op	       862.0 stored-B	    8015 B/op	      45 allocs/op
+BenchmarkTypedCache/format=json/codec=gzip-default/payload=medium/op=get-18            	   45135	     13182 ns/op	       862.0 stored-B	    8017 B/op	      45 allocs/op
+BenchmarkTypedCache/format=json/codec=gzip-default/payload=medium/op=get-18            	   45447	     13145 ns/op	       862.0 stored-B	    8016 B/op	      45 allocs/op
+BenchmarkTypedCache/format=json/codec=gzip-default/payload=medium/op=get-18            	   45201	     13154 ns/op	       862.0 stored-B	    8012 B/op	      45 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=none/payload=medium/op=set-18                	  394471	      1453 ns/op	      1366 stored-B	    3288 B/op	      19 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=none/payload=medium/op=set-18                	  409381	      1457 ns/op	      1366 stored-B	    3288 B/op	      19 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=none/payload=medium/op=set-18                	  403797	      1459 ns/op	      1366 stored-B	    3288 B/op	      19 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=none/payload=medium/op=set-18                	  404668	      1459 ns/op	      1366 stored-B	    3288 B/op	      19 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=none/payload=medium/op=set-18                	  397864	      1457 ns/op	      1366 stored-B	    3288 B/op	      19 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=none/payload=medium/op=set-18                	  390094	      1457 ns/op	      1366 stored-B	    3288 B/op	      19 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=none/payload=medium/op=get-18                	  256010	      2322 ns/op	      1366 stored-B	    6216 B/op	     111 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=none/payload=medium/op=get-18                	  256904	      2318 ns/op	      1366 stored-B	    6216 B/op	     111 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=none/payload=medium/op=get-18                	  256934	      2329 ns/op	      1366 stored-B	    6216 B/op	     111 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=none/payload=medium/op=get-18                	  255247	      2327 ns/op	      1366 stored-B	    6216 B/op	     111 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=none/payload=medium/op=get-18                	  262430	      2326 ns/op	      1366 stored-B	    6216 B/op	     111 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=none/payload=medium/op=get-18                	  256369	      2328 ns/op	      1366 stored-B	    6216 B/op	     111 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=lz4/payload=medium/op=set-18        	  201058	      2972 ns/op	      1029 stored-B	    5057 B/op	      21 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=lz4/payload=medium/op=set-18        	  203194	      2970 ns/op	      1029 stored-B	    5061 B/op	      21 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=lz4/payload=medium/op=set-18        	  196590	      2991 ns/op	      1029 stored-B	    5059 B/op	      21 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=lz4/payload=medium/op=set-18        	  201662	      2978 ns/op	      1029 stored-B	    5052 B/op	      21 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=lz4/payload=medium/op=set-18        	  199879	      2975 ns/op	      1029 stored-B	    5049 B/op	      21 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=lz4/payload=medium/op=set-18        	  197037	      2990 ns/op	      1029 stored-B	    5052 B/op	      21 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=lz4/payload=medium/op=get-18        	  217732	      2715 ns/op	      1029 stored-B	    7493 B/op	     114 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=lz4/payload=medium/op=get-18        	  223375	      2714 ns/op	      1029 stored-B	    7498 B/op	     114 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=lz4/payload=medium/op=get-18        	  220633	      2732 ns/op	      1029 stored-B	    7495 B/op	     114 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=lz4/payload=medium/op=get-18        	  214724	      2734 ns/op	      1029 stored-B	    7493 B/op	     114 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=lz4/payload=medium/op=get-18        	  219992	      2719 ns/op	      1029 stored-B	    7496 B/op	     114 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=lz4/payload=medium/op=get-18        	  220876	      2735 ns/op	      1029 stored-B	    7496 B/op	     114 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=s2/payload=medium/op=set-18                  	  259653	      2338 ns/op	       963.0 stored-B	    3288 B/op	      19 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=s2/payload=medium/op=set-18                  	  258910	      2336 ns/op	       963.0 stored-B	    3289 B/op	      19 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=s2/payload=medium/op=set-18                  	  255444	      2336 ns/op	       963.0 stored-B	    3289 B/op	      19 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=s2/payload=medium/op=set-18                  	  257462	      2338 ns/op	       963.0 stored-B	    3289 B/op	      19 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=s2/payload=medium/op=set-18                  	  253843	      2340 ns/op	       963.0 stored-B	    3289 B/op	      19 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=s2/payload=medium/op=set-18                  	  255064	      2336 ns/op	       963.0 stored-B	    3288 B/op	      19 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=s2/payload=medium/op=get-18                  	  237039	      2527 ns/op	       963.0 stored-B	    7240 B/op	     112 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=s2/payload=medium/op=get-18                  	  238612	      2534 ns/op	       963.0 stored-B	    7240 B/op	     112 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=s2/payload=medium/op=get-18                  	  235722	      2529 ns/op	       963.0 stored-B	    7240 B/op	     112 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=s2/payload=medium/op=get-18                  	  238326	      2538 ns/op	       963.0 stored-B	    7240 B/op	     112 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=s2/payload=medium/op=get-18                  	  234243	      2545 ns/op	       963.0 stored-B	    7240 B/op	     112 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=s2/payload=medium/op=get-18                  	  237916	      2534 ns/op	       963.0 stored-B	    7240 B/op	     112 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=zstd-default/payload=medium/op=set-18        	   66091	      9036 ns/op	       864.0 stored-B	    3288 B/op	      19 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=zstd-default/payload=medium/op=set-18        	   66242	      9053 ns/op	       864.0 stored-B	    3288 B/op	      19 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=zstd-default/payload=medium/op=set-18        	   66500	      9049 ns/op	       864.0 stored-B	    3288 B/op	      19 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=zstd-default/payload=medium/op=set-18        	   66348	      9030 ns/op	       864.0 stored-B	    3288 B/op	      19 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=zstd-default/payload=medium/op=set-18        	   66297	      9042 ns/op	       864.0 stored-B	    3288 B/op	      19 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=zstd-default/payload=medium/op=set-18        	   66601	      9041 ns/op	       864.0 stored-B	    3288 B/op	      19 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=zstd-default/payload=medium/op=get-18        	  106552	      5603 ns/op	       864.0 stored-B	    7114 B/op	     112 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=zstd-default/payload=medium/op=get-18        	  106743	      5591 ns/op	       864.0 stored-B	    7114 B/op	     112 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=zstd-default/payload=medium/op=get-18        	  106344	      5590 ns/op	       864.0 stored-B	    7114 B/op	     112 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=zstd-default/payload=medium/op=get-18        	  105993	      5603 ns/op	       864.0 stored-B	    7114 B/op	     112 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=zstd-default/payload=medium/op=get-18        	  106312	      5587 ns/op	       864.0 stored-B	    7114 B/op	     112 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=zstd-default/payload=medium/op=get-18        	  106498	      5585 ns/op	       864.0 stored-B	    7114 B/op	     112 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=gzip-default/payload=medium/op=set-18        	   41960	     14317 ns/op	       861.0 stored-B	    4021 B/op	      22 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=gzip-default/payload=medium/op=set-18        	   41727	     14376 ns/op	       861.0 stored-B	    3970 B/op	      22 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=gzip-default/payload=medium/op=set-18        	   41941	     14367 ns/op	       861.0 stored-B	    3970 B/op	      22 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=gzip-default/payload=medium/op=set-18        	   41402	     14372 ns/op	       861.0 stored-B	    4074 B/op	      22 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=gzip-default/payload=medium/op=set-18        	   42223	     14359 ns/op	       861.0 stored-B	    4020 B/op	      22 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=gzip-default/payload=medium/op=set-18        	   41725	     14440 ns/op	       861.0 stored-B	    4021 B/op	      22 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=gzip-default/payload=medium/op=get-18        	   60997	      9725 ns/op	       861.0 stored-B	    8096 B/op	     136 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=gzip-default/payload=medium/op=get-18        	   61196	      9726 ns/op	       861.0 stored-B	    8098 B/op	     136 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=gzip-default/payload=medium/op=get-18        	   61357	      9791 ns/op	       861.0 stored-B	    8098 B/op	     136 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=gzip-default/payload=medium/op=get-18        	   60766	      9754 ns/op	       861.0 stored-B	    8094 B/op	     136 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=gzip-default/payload=medium/op=get-18        	   61276	      9731 ns/op	       861.0 stored-B	    8099 B/op	     136 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=gzip-default/payload=medium/op=get-18        	   61486	      9770 ns/op	       861.0 stored-B	    8096 B/op	     136 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=none/payload=large/op=set-18                  	    9040	     66510 ns/op	     65130 stored-B	  131492 B/op	      17 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=none/payload=large/op=set-18                  	    9045	     66370 ns/op	     65130 stored-B	  131492 B/op	      17 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=none/payload=large/op=set-18                  	    9050	     66367 ns/op	     65130 stored-B	  131492 B/op	      17 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=none/payload=large/op=set-18                  	    9136	     66296 ns/op	     65130 stored-B	  131492 B/op	      17 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=none/payload=large/op=set-18                  	    9117	     66472 ns/op	     65130 stored-B	  131492 B/op	      17 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=none/payload=large/op=set-18                  	    8998	     66465 ns/op	     65130 stored-B	  131492 B/op	      17 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=none/payload=large/op=get-18                  	    4612	    128846 ns/op	     65130 stored-B	  184665 B/op	    1632 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=none/payload=large/op=get-18                  	    4828	    127836 ns/op	     65130 stored-B	  184665 B/op	    1632 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=none/payload=large/op=get-18                  	    4701	    128035 ns/op	     65130 stored-B	  184665 B/op	    1632 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=none/payload=large/op=get-18                  	    4754	    128178 ns/op	     65130 stored-B	  184665 B/op	    1632 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=none/payload=large/op=get-18                  	    4740	    128177 ns/op	     65130 stored-B	  184665 B/op	    1632 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=none/payload=large/op=get-18                  	    4749	    128347 ns/op	     65130 stored-B	  184665 B/op	    1632 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=lz4/payload=large/op=set-18          	    5275	    111007 ns/op	     18536 stored-B	  152287 B/op	      20 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=lz4/payload=large/op=set-18          	    5470	    111172 ns/op	     18536 stored-B	  152109 B/op	      20 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=lz4/payload=large/op=set-18          	    5402	    111128 ns/op	     18536 stored-B	  152201 B/op	      20 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=lz4/payload=large/op=set-18          	    5460	    111044 ns/op	     18536 stored-B	  152196 B/op	      20 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=lz4/payload=large/op=set-18          	    5481	    111608 ns/op	     18536 stored-B	  152129 B/op	      20 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=lz4/payload=large/op=set-18          	    5403	    111457 ns/op	     18536 stored-B	  152075 B/op	      20 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=lz4/payload=large/op=get-18          	    4267	    141802 ns/op	     18536 stored-B	  204537 B/op	    1635 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=lz4/payload=large/op=get-18          	    4256	    141504 ns/op	     18536 stored-B	  204649 B/op	    1635 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=lz4/payload=large/op=get-18          	    4306	    141155 ns/op	     18536 stored-B	  204670 B/op	    1635 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=lz4/payload=large/op=get-18          	    4358	    141730 ns/op	     18536 stored-B	  204599 B/op	    1635 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=lz4/payload=large/op=get-18          	    4323	    141707 ns/op	     18536 stored-B	  204620 B/op	    1635 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=lz4/payload=large/op=get-18          	    4182	    142052 ns/op	     18536 stored-B	  204551 B/op	    1635 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=s2/payload=large/op=set-18                    	    5773	    101856 ns/op	     19511 stored-B	  197706 B/op	      19 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=s2/payload=large/op=set-18                    	    6013	    100858 ns/op	     19511 stored-B	  197672 B/op	      19 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=s2/payload=large/op=set-18                    	    5949	    101248 ns/op	     19511 stored-B	  197777 B/op	      19 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=s2/payload=large/op=set-18                    	    6000	    101463 ns/op	     19511 stored-B	  197760 B/op	      19 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=s2/payload=large/op=set-18                    	    5944	    101424 ns/op	     19511 stored-B	  197723 B/op	      19 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=s2/payload=large/op=set-18                    	    6014	    101359 ns/op	     19511 stored-B	  197694 B/op	      19 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=s2/payload=large/op=get-18                    	    4388	    137833 ns/op	     19511 stored-B	  205147 B/op	    1633 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=s2/payload=large/op=get-18                    	    4418	    139224 ns/op	     19511 stored-B	  205147 B/op	    1633 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=s2/payload=large/op=get-18                    	    4390	    137936 ns/op	     19511 stored-B	  205147 B/op	    1633 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=s2/payload=large/op=get-18                    	    4300	    139430 ns/op	     19511 stored-B	  205147 B/op	    1633 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=s2/payload=large/op=get-18                    	    4424	    137819 ns/op	     19511 stored-B	  205147 B/op	    1633 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=s2/payload=large/op=get-18                    	    4440	    138245 ns/op	     19511 stored-B	  205147 B/op	    1633 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=zstd-default/payload=large/op=set-18          	    3172	    171769 ns/op	     13407 stored-B	  197842 B/op	      19 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=zstd-default/payload=large/op=set-18          	    3472	    172090 ns/op	     13407 stored-B	  197097 B/op	      19 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=zstd-default/payload=large/op=set-18          	    3476	    171195 ns/op	     13407 stored-B	  197097 B/op	      19 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=zstd-default/payload=large/op=set-18          	    3336	    172492 ns/op	     13407 stored-B	  197097 B/op	      19 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=zstd-default/payload=large/op=set-18          	    3465	    170949 ns/op	     13407 stored-B	  197097 B/op	      19 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=zstd-default/payload=large/op=set-18          	    3481	    172469 ns/op	     13407 stored-B	  197097 B/op	      19 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=zstd-default/payload=large/op=get-18          	    3811	    157883 ns/op	     13407 stored-B	  198357 B/op	    1633 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=zstd-default/payload=large/op=get-18          	    3847	    158535 ns/op	     13407 stored-B	  198269 B/op	    1633 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=zstd-default/payload=large/op=get-18          	    3801	    157473 ns/op	     13407 stored-B	  198268 B/op	    1633 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=zstd-default/payload=large/op=get-18          	    3842	    158416 ns/op	     13407 stored-B	  198280 B/op	    1633 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=zstd-default/payload=large/op=get-18          	    3829	    157274 ns/op	     13407 stored-B	  198269 B/op	    1633 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=zstd-default/payload=large/op=get-18          	    3861	    158361 ns/op	     13407 stored-B	  198270 B/op	    1633 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=gzip-default/payload=large/op=set-18          	    2638	    220436 ns/op	     12888 stored-B	  175092 B/op	      26 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=gzip-default/payload=large/op=set-18          	    2767	    218589 ns/op	     12888 stored-B	  175291 B/op	      26 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=gzip-default/payload=large/op=set-18          	    2758	    218285 ns/op	     12888 stored-B	  174525 B/op	      26 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=gzip-default/payload=large/op=set-18          	    2731	    218444 ns/op	     12888 stored-B	  176136 B/op	      26 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=gzip-default/payload=large/op=set-18          	    2740	    218152 ns/op	     12888 stored-B	  174941 B/op	      26 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=gzip-default/payload=large/op=set-18          	    2750	    218171 ns/op	     12888 stored-B	  176100 B/op	      26 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=gzip-default/payload=large/op=get-18          	    2569	    229197 ns/op	     12888 stored-B	  202833 B/op	    1685 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=gzip-default/payload=large/op=get-18          	    2634	    228588 ns/op	     12888 stored-B	  202812 B/op	    1685 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=gzip-default/payload=large/op=get-18          	    2656	    228093 ns/op	     12888 stored-B	  202811 B/op	    1685 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=gzip-default/payload=large/op=get-18          	    2658	    228652 ns/op	     12888 stored-B	  202843 B/op	    1685 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=gzip-default/payload=large/op=get-18          	    2647	    228137 ns/op	     12888 stored-B	  202889 B/op	    1685 allocs/op
+BenchmarkTypedCache/format=msgpack/codec=gzip-default/payload=large/op=get-18          	    2654	    228077 ns/op	     12888 stored-B	  202889 B/op	    1685 allocs/op
+BenchmarkTypedCache/format=json/codec=none/payload=large/op=set-18                     	    6336	     94940 ns/op	     71071 stored-B	  148241 B/op	      11 allocs/op
+BenchmarkTypedCache/format=json/codec=none/payload=large/op=set-18                     	    6439	     94671 ns/op	     71071 stored-B	  148240 B/op	      11 allocs/op
+BenchmarkTypedCache/format=json/codec=none/payload=large/op=set-18                     	    6466	     94559 ns/op	     71071 stored-B	  148240 B/op	      11 allocs/op
+BenchmarkTypedCache/format=json/codec=none/payload=large/op=set-18                     	    6505	     94512 ns/op	     71071 stored-B	  148196 B/op	      11 allocs/op
+BenchmarkTypedCache/format=json/codec=none/payload=large/op=set-18                     	    6466	     94767 ns/op	     71071 stored-B	  148285 B/op	      11 allocs/op
+BenchmarkTypedCache/format=json/codec=none/payload=large/op=set-18                     	    6502	     94662 ns/op	     71071 stored-B	  148240 B/op	      11 allocs/op
+BenchmarkTypedCache/format=json/codec=none/payload=large/op=get-18                     	    3458	    170927 ns/op	     71071 stored-B	  228751 B/op	    1480 allocs/op
+BenchmarkTypedCache/format=json/codec=none/payload=large/op=get-18                     	    3532	    170698 ns/op	     71071 stored-B	  228749 B/op	    1480 allocs/op
+BenchmarkTypedCache/format=json/codec=none/payload=large/op=get-18                     	    3534	    170339 ns/op	     71071 stored-B	  228756 B/op	    1480 allocs/op
+BenchmarkTypedCache/format=json/codec=none/payload=large/op=get-18                     	    3524	    170446 ns/op	     71071 stored-B	  228751 B/op	    1480 allocs/op
+BenchmarkTypedCache/format=json/codec=none/payload=large/op=get-18                     	    3514	    170602 ns/op	     71071 stored-B	  228749 B/op	    1480 allocs/op
+BenchmarkTypedCache/format=json/codec=none/payload=large/op=get-18                     	    3555	    169934 ns/op	     71071 stored-B	  228749 B/op	    1480 allocs/op
+BenchmarkTypedCache/format=json/codec=lz4/payload=large/op=set-18             	    4275	    139214 ns/op	     19667 stored-B	  135389 B/op	      13 allocs/op
+BenchmarkTypedCache/format=json/codec=lz4/payload=large/op=set-18             	    4288	    138531 ns/op	     19667 stored-B	  135207 B/op	      13 allocs/op
+BenchmarkTypedCache/format=json/codec=lz4/payload=large/op=set-18             	    4381	    138824 ns/op	     19667 stored-B	  135357 B/op	      13 allocs/op
+BenchmarkTypedCache/format=json/codec=lz4/payload=large/op=set-18             	    4443	    138652 ns/op	     19667 stored-B	  136039 B/op	      13 allocs/op
+BenchmarkTypedCache/format=json/codec=lz4/payload=large/op=set-18             	    4404	    138541 ns/op	     19667 stored-B	  135807 B/op	      13 allocs/op
+BenchmarkTypedCache/format=json/codec=lz4/payload=large/op=set-18             	    4366	    138720 ns/op	     19667 stored-B	  135740 B/op	      13 allocs/op
+BenchmarkTypedCache/format=json/codec=lz4/payload=large/op=get-18             	    3193	    185823 ns/op	     19667 stored-B	  373416 B/op	    1484 allocs/op
+BenchmarkTypedCache/format=json/codec=lz4/payload=large/op=get-18             	    3272	    184636 ns/op	     19667 stored-B	  373371 B/op	    1484 allocs/op
+BenchmarkTypedCache/format=json/codec=lz4/payload=large/op=get-18             	    3274	    184790 ns/op	     19667 stored-B	  373385 B/op	    1484 allocs/op
+BenchmarkTypedCache/format=json/codec=lz4/payload=large/op=get-18             	    3260	    184760 ns/op	     19667 stored-B	  373412 B/op	    1484 allocs/op
+BenchmarkTypedCache/format=json/codec=lz4/payload=large/op=get-18             	    3270	    185018 ns/op	     19667 stored-B	  373335 B/op	    1484 allocs/op
+BenchmarkTypedCache/format=json/codec=lz4/payload=large/op=get-18             	    3252	    185204 ns/op	     19667 stored-B	  373458 B/op	    1484 allocs/op
+BenchmarkTypedCache/format=json/codec=s2/payload=large/op=set-18                       	    4633	    128828 ns/op	     20131 stored-B	  149484 B/op	      11 allocs/op
+BenchmarkTypedCache/format=json/codec=s2/payload=large/op=set-18                       	    4642	    128482 ns/op	     20131 stored-B	  149395 B/op	      11 allocs/op
+BenchmarkTypedCache/format=json/codec=s2/payload=large/op=set-18                       	    4611	    127969 ns/op	     20131 stored-B	  149175 B/op	      11 allocs/op
+BenchmarkTypedCache/format=json/codec=s2/payload=large/op=set-18                       	    4771	    127710 ns/op	     20131 stored-B	  149506 B/op	      11 allocs/op
+BenchmarkTypedCache/format=json/codec=s2/payload=large/op=set-18                       	    4808	    127736 ns/op	     20131 stored-B	  149419 B/op	      11 allocs/op
+BenchmarkTypedCache/format=json/codec=s2/payload=large/op=set-18                       	    4764	    130145 ns/op	     20131 stored-B	  149319 B/op	      11 allocs/op
+BenchmarkTypedCache/format=json/codec=s2/payload=large/op=get-18                       	    3337	    182981 ns/op	     20131 stored-B	  249232 B/op	    1481 allocs/op
+BenchmarkTypedCache/format=json/codec=s2/payload=large/op=get-18                       	    3364	    180190 ns/op	     20131 stored-B	  249231 B/op	    1481 allocs/op
+BenchmarkTypedCache/format=json/codec=s2/payload=large/op=get-18                       	    3346	    179918 ns/op	     20131 stored-B	  249237 B/op	    1481 allocs/op
+BenchmarkTypedCache/format=json/codec=s2/payload=large/op=get-18                       	    3308	    179991 ns/op	     20131 stored-B	  249232 B/op	    1481 allocs/op
+BenchmarkTypedCache/format=json/codec=s2/payload=large/op=get-18                       	    3393	    179673 ns/op	     20131 stored-B	  249231 B/op	    1481 allocs/op
+BenchmarkTypedCache/format=json/codec=s2/payload=large/op=get-18                       	    3332	    179384 ns/op	     20131 stored-B	  249232 B/op	    1481 allocs/op
+BenchmarkTypedCache/format=json/codec=zstd-default/payload=large/op=set-18             	    2853	    196937 ns/op	     12375 stored-B	  149936 B/op	      11 allocs/op
+BenchmarkTypedCache/format=json/codec=zstd-default/payload=large/op=set-18             	    3003	    196755 ns/op	     12375 stored-B	  149339 B/op	      11 allocs/op
+BenchmarkTypedCache/format=json/codec=zstd-default/payload=large/op=set-18             	    2989	    196698 ns/op	     12375 stored-B	  149440 B/op	      11 allocs/op
+BenchmarkTypedCache/format=json/codec=zstd-default/payload=large/op=set-18             	    2982	    195799 ns/op	     12375 stored-B	  149443 B/op	      11 allocs/op
+BenchmarkTypedCache/format=json/codec=zstd-default/payload=large/op=set-18             	    2988	    196154 ns/op	     12375 stored-B	  149632 B/op	      11 allocs/op
+BenchmarkTypedCache/format=json/codec=zstd-default/payload=large/op=set-18             	    2986	    196548 ns/op	     12375 stored-B	  149633 B/op	      11 allocs/op
+BenchmarkTypedCache/format=json/codec=zstd-default/payload=large/op=get-18             	    2976	    199475 ns/op	     12375 stored-B	  242484 B/op	    1481 allocs/op
+BenchmarkTypedCache/format=json/codec=zstd-default/payload=large/op=get-18             	    2962	    200387 ns/op	     12375 stored-B	  242373 B/op	    1481 allocs/op
+BenchmarkTypedCache/format=json/codec=zstd-default/payload=large/op=get-18             	    3014	    199785 ns/op	     12375 stored-B	  242380 B/op	    1481 allocs/op
+BenchmarkTypedCache/format=json/codec=zstd-default/payload=large/op=get-18             	    2965	    199826 ns/op	     12375 stored-B	  242390 B/op	    1481 allocs/op
+BenchmarkTypedCache/format=json/codec=zstd-default/payload=large/op=get-18             	    2992	    200219 ns/op	     12375 stored-B	  242383 B/op	    1481 allocs/op
+BenchmarkTypedCache/format=json/codec=zstd-default/payload=large/op=get-18             	    2964	    199942 ns/op	     12375 stored-B	  242373 B/op	    1481 allocs/op
+BenchmarkTypedCache/format=json/codec=gzip-default/payload=large/op=set-18             	    2344	    243868 ns/op	     11749 stored-B	  115903 B/op	      18 allocs/op
+BenchmarkTypedCache/format=json/codec=gzip-default/payload=large/op=set-18             	    2485	    241267 ns/op	     11749 stored-B	  117407 B/op	      18 allocs/op
+BenchmarkTypedCache/format=json/codec=gzip-default/payload=large/op=set-18             	    2505	    240870 ns/op	     11749 stored-B	  117177 B/op	      18 allocs/op
+BenchmarkTypedCache/format=json/codec=gzip-default/payload=large/op=set-18             	    2498	    240780 ns/op	     11749 stored-B	  117072 B/op	      18 allocs/op
+BenchmarkTypedCache/format=json/codec=gzip-default/payload=large/op=set-18             	    2510	    240509 ns/op	     11749 stored-B	  116628 B/op	      18 allocs/op
+BenchmarkTypedCache/format=json/codec=gzip-default/payload=large/op=set-18             	    2508	    240148 ns/op	     11749 stored-B	  117917 B/op	      18 allocs/op
+BenchmarkTypedCache/format=json/codec=gzip-default/payload=large/op=get-18             	    2172	    270917 ns/op	     11749 stored-B	  243554 B/op	    1505 allocs/op
+BenchmarkTypedCache/format=json/codec=gzip-default/payload=large/op=get-18             	    2205	    269234 ns/op	     11749 stored-B	  243558 B/op	    1505 allocs/op
+BenchmarkTypedCache/format=json/codec=gzip-default/payload=large/op=get-18             	    2210	    268859 ns/op	     11749 stored-B	  243530 B/op	    1505 allocs/op
+BenchmarkTypedCache/format=json/codec=gzip-default/payload=large/op=get-18             	    2209	    268861 ns/op	     11749 stored-B	  243480 B/op	    1505 allocs/op
+BenchmarkTypedCache/format=json/codec=gzip-default/payload=large/op=get-18             	    2224	    268961 ns/op	     11749 stored-B	  243491 B/op	    1505 allocs/op
+BenchmarkTypedCache/format=json/codec=gzip-default/payload=large/op=get-18             	    2230	    268109 ns/op	     11749 stored-B	  243530 B/op	    1505 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=none/payload=large/op=set-18                 	   17889	     33445 ns/op	     42626 stored-B	   98776 B/op	      19 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=none/payload=large/op=set-18                 	   17949	     33267 ns/op	     42626 stored-B	   98776 B/op	      19 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=none/payload=large/op=set-18                 	   18073	     33192 ns/op	     42626 stored-B	   98776 B/op	      19 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=none/payload=large/op=set-18                 	   18058	     33217 ns/op	     42626 stored-B	   98776 B/op	      19 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=none/payload=large/op=set-18                 	   18097	     33089 ns/op	     42626 stored-B	   98776 B/op	      19 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=none/payload=large/op=set-18                 	   18183	     33024 ns/op	     42626 stored-B	   98776 B/op	      19 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=none/payload=large/op=get-18                 	   10000	     55285 ns/op	     42626 stored-B	  180896 B/op	    2453 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=none/payload=large/op=get-18                 	   10000	     55352 ns/op	     42626 stored-B	  180896 B/op	    2453 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=none/payload=large/op=get-18                 	   10000	     55516 ns/op	     42626 stored-B	  180896 B/op	    2453 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=none/payload=large/op=get-18                 	   10000	     55283 ns/op	     42626 stored-B	  180896 B/op	    2453 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=none/payload=large/op=get-18                 	   10000	     55458 ns/op	     42626 stored-B	  180896 B/op	    2453 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=none/payload=large/op=get-18                 	   10000	     55383 ns/op	     42626 stored-B	  180896 B/op	    2453 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=lz4/payload=large/op=set-18         	    8815	     68419 ns/op	     17900 stored-B	   68817 B/op	      20 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=lz4/payload=large/op=set-18         	    8787	     68490 ns/op	     17900 stored-B	   68701 B/op	      20 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=lz4/payload=large/op=set-18         	    8926	     68692 ns/op	     17900 stored-B	   68747 B/op	      20 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=lz4/payload=large/op=set-18         	    8790	     68662 ns/op	     17900 stored-B	   68726 B/op	      20 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=lz4/payload=large/op=set-18         	    8706	     68469 ns/op	     17900 stored-B	   68723 B/op	      20 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=lz4/payload=large/op=set-18         	    8680	     68667 ns/op	     17900 stored-B	   68630 B/op	      20 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=lz4/payload=large/op=get-18         	    9184	     64002 ns/op	     17900 stored-B	  199993 B/op	    2456 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=lz4/payload=large/op=get-18         	    9720	     64124 ns/op	     17900 stored-B	  200025 B/op	    2456 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=lz4/payload=large/op=get-18         	    9442	     64943 ns/op	     17900 stored-B	  199972 B/op	    2456 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=lz4/payload=large/op=get-18         	    9655	     64081 ns/op	     17900 stored-B	  200091 B/op	    2456 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=lz4/payload=large/op=get-18         	    9344	     64492 ns/op	     17900 stored-B	  200055 B/op	    2456 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=lz4/payload=large/op=get-18         	    9661	     64272 ns/op	     17900 stored-B	  199974 B/op	    2456 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=s2/payload=large/op=set-18                   	    9793	     59468 ns/op	     17867 stored-B	   98951 B/op	      19 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=s2/payload=large/op=set-18                   	   10000	     59375 ns/op	     17867 stored-B	   98987 B/op	      19 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=s2/payload=large/op=set-18                   	   10000	     59461 ns/op	     17867 stored-B	   98974 B/op	      19 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=s2/payload=large/op=set-18                   	   10000	     59573 ns/op	     17867 stored-B	   98934 B/op	      19 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=s2/payload=large/op=set-18                   	   10000	     59548 ns/op	     17867 stored-B	   98967 B/op	      19 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=s2/payload=large/op=set-18                   	   10000	     59470 ns/op	     17867 stored-B	   98915 B/op	      19 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=s2/payload=large/op=get-18                   	    9340	     63293 ns/op	     17867 stored-B	  199328 B/op	    2454 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=s2/payload=large/op=get-18                   	    9806	     63641 ns/op	     17867 stored-B	  199328 B/op	    2454 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=s2/payload=large/op=get-18                   	    9717	     63509 ns/op	     17867 stored-B	  199328 B/op	    2454 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=s2/payload=large/op=get-18                   	    9572	     63427 ns/op	     17867 stored-B	  199328 B/op	    2454 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=s2/payload=large/op=get-18                   	    9679	     63534 ns/op	     17867 stored-B	  199328 B/op	    2454 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=s2/payload=large/op=get-18                   	   10000	     63340 ns/op	     17867 stored-B	  199328 B/op	    2454 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=zstd-default/payload=large/op=set-18         	    4156	    128939 ns/op	     12583 stored-B	   98776 B/op	      19 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=zstd-default/payload=large/op=set-18         	    4548	    128325 ns/op	     12583 stored-B	   98776 B/op	      19 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=zstd-default/payload=large/op=set-18         	    4527	    128926 ns/op	     12583 stored-B	   98776 B/op	      19 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=zstd-default/payload=large/op=set-18         	    4526	    128837 ns/op	     12583 stored-B	   98776 B/op	      19 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=zstd-default/payload=large/op=set-18         	    4436	    128852 ns/op	     12583 stored-B	   98776 B/op	      19 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=zstd-default/payload=large/op=set-18         	    4548	    128715 ns/op	     12583 stored-B	   98776 B/op	      19 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=zstd-default/payload=large/op=get-18         	    6990	     82270 ns/op	     12583 stored-B	  194508 B/op	    2454 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=zstd-default/payload=large/op=get-18         	    7197	     82320 ns/op	     12583 stored-B	  194506 B/op	    2454 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=zstd-default/payload=large/op=get-18         	    7363	     82402 ns/op	     12583 stored-B	  194508 B/op	    2454 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=zstd-default/payload=large/op=get-18         	    7556	     82138 ns/op	     12583 stored-B	  194516 B/op	    2454 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=zstd-default/payload=large/op=get-18         	    7536	     82158 ns/op	     12583 stored-B	  194509 B/op	    2454 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=zstd-default/payload=large/op=get-18         	    7442	     82262 ns/op	     12583 stored-B	  194503 B/op	    2454 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=gzip-default/payload=large/op=set-18         	    3555	    157110 ns/op	     12811 stored-B	   90282 B/op	      26 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=gzip-default/payload=large/op=set-18         	    3870	    154996 ns/op	     12811 stored-B	   90183 B/op	      26 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=gzip-default/payload=large/op=set-18         	    3890	    155083 ns/op	     12811 stored-B	   90178 B/op	      26 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=gzip-default/payload=large/op=set-18         	    3878	    155099 ns/op	     12811 stored-B	   90736 B/op	      26 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=gzip-default/payload=large/op=set-18         	    3831	    155168 ns/op	     12811 stored-B	   89633 B/op	      26 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=gzip-default/payload=large/op=set-18         	    3865	    155054 ns/op	     12811 stored-B	   89907 B/op	      26 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=gzip-default/payload=large/op=get-18         	    3820	    151571 ns/op	     12811 stored-B	  198722 B/op	    2503 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=gzip-default/payload=large/op=get-18         	    4018	    151128 ns/op	     12811 stored-B	  198756 B/op	    2503 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=gzip-default/payload=large/op=get-18         	    3981	    151028 ns/op	     12811 stored-B	  198778 B/op	    2503 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=gzip-default/payload=large/op=get-18         	    4016	    151385 ns/op	     12811 stored-B	  198715 B/op	    2503 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=gzip-default/payload=large/op=get-18         	    3853	    151806 ns/op	     12811 stored-B	  198754 B/op	    2503 allocs/op
+BenchmarkTypedCache/format=protobuf/codec=gzip-default/payload=large/op=get-18         	    4021	    151053 ns/op	     12811 stored-B	  198745 B/op	    2503 allocs/op
+PASS
+ok  	github.com/jkratz55/redis-cache/v2/internal/benchmarks	652.551s

@@ -33,7 +33,7 @@ func main() {
 	}()
 
 	rdb := cache.NewTyped[Person](client,
-		cache.Serialization(cache.JsonSerializer{}),
+		cache.Serialization(&cache.JsonSerializer{}),
 		cache.Compression(lz4.NewCodec()),
 		cache.BatchMultiGets(500))
 
@@ -58,7 +58,7 @@ func main() {
 	fmt.Println("deleted")
 
 	keys := make([]string, 0)
-	for i := 0; i < 10000; i++ {
+	for i := range 10000 {
 		keys = append(keys, fmt.Sprintf("key%d", i))
 	}
 
@@ -79,6 +79,7 @@ func main() {
 		panic("ohhhhh snap")
 	}
 	fmt.Println(time.Since(start).Milliseconds())
-	fmt.Println(results)
-	fmt.Println(len(results))
+	values := results.Values()
+	fmt.Println(values)
+	fmt.Println(len(values))
 }

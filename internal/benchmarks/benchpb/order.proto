@@ -1,0 +1,36 @@
+syntax = "proto3";
+
+package benchpb;
+
+option go_package = "github.com/jkratz55/redis-cache/v2/internal/benchmarks/benchpb";
+
+// Order mirrors benchmarks.Order, so every serializer encodes the same data.
+message Order {
+  int64 id = 1;
+  string customer_id = 2;
+  string status = 3;
+  int64 created_at = 4;
+  Address shipping_address = 5;
+  repeated LineItem items = 6;
+  repeated string tags = 7;
+  map<string, string> attributes = 8;
+  double total = 9;
+  string notes = 10;
+}
+
+// LineItem mirrors benchmarks.LineItem.
+message LineItem {
+  string sku = 1;
+  string name = 2;
+  int32 quantity = 3;
+  double unit_price = 4;
+}
+
+// Address mirrors benchmarks.Address.
+message Address {
+  string line1 = 1;
+  string city = 2;
+  string state = 3;
+  string postal_code = 4;
+  string country = 5;
+}

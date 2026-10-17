@@ -3,7 +3,9 @@ package cache
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -18,7 +20,7 @@ type FailoverOpts struct {
 	// and secondary RedisClient.
 	//
 	// CheckInterval must be greater than time.Second. Values lower than time.Second will be rounded
-	// up to time.Second.
+	// up to time.Second. NewFailoverClient panics if CheckInterval is negative.
 	//
 	// Default is 5 seconds.
 	CheckInterval time.Duration
@@ -26,25 +28,30 @@ type FailoverOpts struct {
 	// CheckTimeout is the timeout for the health check.
 	//
 	// CheckTimeout must be less than CheckInterval. If CheckTimeout is greater than or equal to CheckInterval,
-	// it will be adjusted to be less than CheckInterval.
+	// it will be adjusted to half of CheckInterval. NewFailoverClient panics if CheckTimeout is negative.
 	//
 	// Default is 1 second.
 	CheckTimeout time.Duration
 
 	// FailureThreshold is the number of consecutive failures that must occur before FailoverClient
-	// will failover to the secondary RedisClient.
+	// will failover to the secondary RedisClient. FailoverClient only fails over if the secondary
+	// RedisClient passed its last health check. NewFailoverClient panics if FailureThreshold is negative.
 	//
 	// Default is 3.
 	FailureThreshold int
 
 	// SuccessThreshold is the number of consecutive successes that must occur before FailoverClient
 	// will return to the primary RedisClient after failing over to the secondary RedisClient.
+	// NewFailoverClient panics if SuccessThreshold is negative.
 	//
 	// Default is 2.
 	SuccessThreshold int
 
 	// OnFailover is a callback invoked when FailoverClient detects the primary RedisClient is not
 	// available and is falling back to the secondary RedisClient.
+	//
+	// Callbacks are invoked from the monitoring goroutine and must not block. A panic in a callback
+	// is recovered and ignored. No callbacks are invoked after Close returns.
 	//
 	// Default is a no-op.
 	OnFailover func()
@@ -60,6 +67,32 @@ type FailoverOpts struct {
 	//
 	// Default is a no-op.
 	OnCheckFailure func(client string, err error)
+
+	// HealthCheck checks the health of the primary or secondary RedisClient. A non-nil error counts
+	// as a failed health check. ctx is canceled once CheckTimeout has elapsed.
+	//
+	// The default sends PING, which only verifies Redis is reachable. A Redis that answers PING but
+	// rejects writes, for example because it reached its memory limit or became a read-only replica,
+	// passes it. A HealthCheck that writes a key detects these cases as well:
+	//
+	//	func(ctx context.Context, client cache.RedisClient) error {
+	//		return client.Set(ctx, "health:canary", "ok", time.Minute).Err()
+	//	}
+	//
+	// HealthCheck is invoked from the monitoring goroutine for both clients concurrently. A panic in
+	// HealthCheck is recovered and counts as a failed health check.
+	//
+	// HealthCheck must return once ctx is done. A check that doesn't return within CheckTimeout plus
+	// a grace period of 100ms counts as failed, and no new check of that client starts until it
+	// returns, so a check that hangs can't stop the monitoring or delay Close.
+	//
+	// Default sends PING.
+	HealthCheck func(ctx context.Context, client RedisClient) error
+}
+
+// pingHealthCheck is the default HealthCheck.
+func pingHealthCheck(ctx context.Context, client RedisClient) error {
+	return client.Ping(ctx).Err()
 }
 
 // FailoverOptions returns a new FailoverOpts with default values.
@@ -72,15 +105,55 @@ func FailoverOptions() *FailoverOpts {
 		OnFailover:       func() {},
 		OnRecovered:      func() {},
 		OnCheckFailure:   func(client string, err error) {},
+		HealthCheck:      pingHealthCheck,
+	}
+}
+
+// minFailoverCheckInterval is the smallest CheckInterval allowed. Values below are
+// rounded up to it.
+const minFailoverCheckInterval = time.Second
+
+// healthCheckGrace is how long the monitor waits for a health check after its
+// CheckTimeout elapsed before counting it as failed.
+const healthCheckGrace = 100 * time.Millisecond
+
+var (
+	// errHealthCheckRunning is reported for a client whose previous health check
+	// hasn't returned yet, in which case no new check is started.
+	errHealthCheckRunning = errors.New("health check: the previous check hasn't returned")
+
+	// errFailoverClosed is the result of a health check abandoned by Close.
+	errFailoverClosed = errors.New("failover client closed")
+)
+
+// validate panics if any of the durations or thresholds are negative.
+func (f *FailoverOpts) validate() {
+	if f.CheckInterval < 0 {
+		panic(fmt.Errorf("invalid FailoverOpts: negative CheckInterval %s", f.CheckInterval))
+	}
+	if f.CheckTimeout < 0 {
+		panic(fmt.Errorf("invalid FailoverOpts: negative CheckTimeout %s", f.CheckTimeout))
+	}
+	if f.FailureThreshold < 0 {
+		panic(fmt.Errorf("invalid FailoverOpts: negative FailureThreshold %d", f.FailureThreshold))
+	}
+	if f.SuccessThreshold < 0 {
+		panic(fmt.Errorf("invalid FailoverOpts: negative SuccessThreshold %d", f.SuccessThreshold))
 	}
 }
 
 func (f *FailoverOpts) init() {
+	f.normalize(minFailoverCheckInterval)
+}
+
+// normalize applies defaults to zero values and clamps CheckInterval to minInterval
+// and CheckTimeout to less than CheckInterval.
+func (f *FailoverOpts) normalize(minInterval time.Duration) {
 	if f.CheckInterval <= 0 {
 		f.CheckInterval = 5 * time.Second
 	}
-	if f.CheckInterval < time.Second {
-		f.CheckInterval = time.Second
+	if f.CheckInterval < minInterval {
+		f.CheckInterval = minInterval
 	}
 
 	if f.CheckTimeout <= 0 {
@@ -104,6 +177,9 @@ func (f *FailoverOpts) init() {
 	}
 	if f.OnCheckFailure == nil {
 		f.OnCheckFailure = func(client string, err error) {}
+	}
+	if f.HealthCheck == nil {
+		f.HealthCheck = pingHealthCheck
 	}
 }
 
@@ -175,8 +251,25 @@ func (f *FailoverOpts) SetOnCheckFailure(fn func(client string, err error)) *Fai
 	return f
 }
 
+// SetHealthCheck sets the function checking the health of the primary and secondary RedisClient.
+// See FailoverOpts.HealthCheck.
+//
+// Default sends PING.
+func (f *FailoverOpts) SetHealthCheck(fn func(ctx context.Context, client RedisClient) error) *FailoverOpts {
+	f.HealthCheck = fn
+	return f
+}
+
 // FailoverClient is an implementation of RedisClient that will automatically failover to a secondary
 // RedisClient if the primary RedisClient is not available.
+//
+// FailoverClient expects the primary and secondary Redis to replicate each other's writes in both
+// directions (active-active replication), such as Redis Enterprise Active-Active databases. Every
+// command is only sent to the active RedisClient, FailoverClient doesn't copy writes, deletes or
+// expirations to the other one. If the primary and secondary aren't replicated, writes made while
+// failed over never reach the primary, so after recovering FailoverClient serves the values the
+// primary held before the outage, which can be stale and may never expire. The same applies to the
+// secondary on the next failover.
 //
 // FailoverClient is safe for concurrent use by multiple goroutines.
 //
@@ -189,17 +282,39 @@ func (f *FailoverOpts) SetOnCheckFailure(fn func(client string, err error)) *Fai
 // two consecutive health checks, it will be considered healthy and FailoverClient will return to
 // the primary RedisClient.
 //
-// Note: The active RedisClient is intentionally not protected by a mutex to avoid adding a lock
-// in the hot path. That means it is possible for goroutines to get different Redis clients during
-// transitions between primary and secondary clients.
+// The active RedisClient is swapped atomically, so no lock is taken in the hot path. Operations
+// that are in flight while FailoverClient switches between the primary and secondary RedisClient
+// complete on the client they started on.
+//
+// FailoverClient takes ownership of the primary and secondary RedisClient: Close closes both of them.
 type FailoverClient struct {
-	active     RedisClient
-	primary    RedisClient
-	secondary  RedisClient
-	config     *FailoverOpts
-	closeChan  chan struct{}
-	failedOver bool
-	closeOnce  sync.Once
+	// active is either primaryRef or secondaryRef. It is the only state describing
+	// which client is active, so IsPrimary, IsSecondary and Active always agree.
+	active       atomic.Pointer[clientRef]
+	primary      RedisClient
+	secondary    RedisClient
+	primaryRef   *clientRef
+	secondaryRef *clientRef
+	config       *FailoverOpts
+	closeChan    chan struct{}
+	done         chan struct{}
+
+	// primaryChecking and secondaryChecking are set while a health check of the
+	// client runs, so a check that hangs isn't started again.
+	primaryChecking   atomic.Bool
+	secondaryChecking atomic.Bool
+
+	// mu guards closed and inCallback, which ensure no callback starts after Close
+	// and that Close doesn't wait for a callback that is running, which may be the
+	// caller of Close.
+	mu         sync.Mutex
+	closed     bool
+	inCallback bool
+}
+
+// clientRef wraps a RedisClient so it can be stored in an atomic.Pointer.
+type clientRef struct {
+	RedisClient
 }
 
 // NewFailoverClient returns a new FailoverClient that will automatically failover to a secondary
@@ -207,8 +322,18 @@ type FailoverClient struct {
 //
 // FailoverOpts can be provided to customize the default behavior of FailoverClient.
 //
+// The primary and secondary Redis are expected to replicate each other's writes, see FailoverClient.
+// The FailoverClient takes ownership of primary and secondary, and closes them when it is closed.
+//
 // Providing a nil RedisClient for either primary or secondary arguments will result in a panic.
+// NewFailoverClient also panics if any duration or threshold in FailoverOpts is negative.
 func NewFailoverClient(primary, secondary RedisClient, opt ...*FailoverOpts) *FailoverClient {
+	return newFailoverClient(primary, secondary, minFailoverCheckInterval, opt...)
+}
+
+// newFailoverClient is NewFailoverClient with a configurable minimum CheckInterval,
+// which allows tests to use short intervals.
+func newFailoverClient(primary, secondary RedisClient, minInterval time.Duration, opt ...*FailoverOpts) *FailoverClient {
 
 	if primary == nil {
 		panic("primary RedisClient cannot be nil")
@@ -218,9 +343,11 @@ func NewFailoverClient(primary, secondary RedisClient, opt ...*FailoverOpts) *Fa
 	}
 
 	failoverOpts := FailoverOptions()
-	failoverOpts.init()
 
 	for _, o := range opt {
+		if o == nil {
+			continue
+		}
 		if o.CheckInterval != 0 {
 			failoverOpts.CheckInterval = o.CheckInterval
 		}
@@ -242,31 +369,67 @@ func NewFailoverClient(primary, secondary RedisClient, opt ...*FailoverOpts) *Fa
 		if o.OnCheckFailure != nil {
 			failoverOpts.OnCheckFailure = o.OnCheckFailure
 		}
+		if o.HealthCheck != nil {
+			failoverOpts.HealthCheck = o.HealthCheck
+		}
 	}
 
+	failoverOpts.validate()
+	failoverOpts.normalize(minInterval)
+
 	failoverClient := &FailoverClient{
-		active:    primary,
-		primary:   primary,
-		secondary: secondary,
-		config:    failoverOpts,
-		closeChan: make(chan struct{}, 1),
+		primary:      primary,
+		secondary:    secondary,
+		primaryRef:   &clientRef{RedisClient: primary},
+		secondaryRef: &clientRef{RedisClient: secondary},
+		config:       failoverOpts,
+		closeChan:    make(chan struct{}),
+		done:         make(chan struct{}),
 	}
+	failoverClient.active.Store(failoverClient.primaryRef)
 
 	go failoverClient.monitorClients()
 
 	return failoverClient
 }
 
+// current returns the active RedisClient.
+func (f *FailoverClient) current() RedisClient {
+	return f.active.Load().RedisClient
+}
+
+// safeCall invokes fn and recovers any panic so a misbehaving callback can't crash
+// the goroutine it runs in, such as the monitor goroutine, and with it the process.
+func safeCall(fn func()) {
+	defer func() {
+		_ = recover()
+	}()
+	fn()
+}
+
+// callback invokes the callback fn unless Close has been called.
+func (f *FailoverClient) callback(fn func()) {
+	f.mu.Lock()
+	if f.closed {
+		f.mu.Unlock()
+		return
+	}
+	f.inCallback = true
+	f.mu.Unlock()
+
+	defer func() {
+		f.mu.Lock()
+		f.inCallback = false
+		f.mu.Unlock()
+	}()
+	safeCall(fn)
+}
+
 func (f *FailoverClient) monitorClients() {
+	defer close(f.done)
+
 	ticker := time.NewTicker(f.config.CheckInterval)
 	defer ticker.Stop()
-
-	pingFn := func(client RedisClient, timeout time.Duration) error {
-		ctx, cancel := context.WithTimeout(context.Background(), timeout)
-		defer cancel()
-
-		return client.Ping(ctx).Err()
-	}
 
 	var (
 		failures  int64
@@ -276,47 +439,41 @@ func (f *FailoverClient) monitorClients() {
 	for {
 		select {
 		case <-ticker.C:
-			var (
-				wg           sync.WaitGroup
-				primaryErr   error
-				secondaryErr error
-			)
-			wg.Add(2)
-			go func() {
-				primaryErr = pingFn(f.primary, f.config.CheckTimeout)
-				wg.Done()
-			}()
-			go func() {
-				secondaryErr = pingFn(f.secondary, f.config.CheckTimeout)
-				wg.Done()
-			}()
-			wg.Wait()
+			primaryErr, secondaryErr := f.checkClients()
+
+			// Don't act on the results or invoke callbacks once Close has been called.
+			select {
+			case <-f.closeChan:
+				return
+			default:
+			}
 
 			if primaryErr != nil {
 				failures++
 				successes = 0
-				f.config.OnCheckFailure("primary", primaryErr)
+				f.callback(func() { f.config.OnCheckFailure("primary", primaryErr) })
 			} else {
 				failures = 0
 				successes++
 			}
 
-			if failures >= int64(f.config.FailureThreshold) && !f.failedOver {
-				f.failedOver = true
-				f.active = f.secondary
-				f.config.OnFailover()
+			failedOver := f.IsSecondary()
+			// Only failover if the secondary is healthy, otherwise stay on the primary and
+			// keep counting failures so failover happens once the secondary is healthy.
+			if failures >= int64(f.config.FailureThreshold) && !failedOver && secondaryErr == nil {
+				f.active.Store(f.secondaryRef)
+				f.callback(f.config.OnFailover)
 				failures = 0
 				successes = 0
-			} else if successes >= int64(f.config.SuccessThreshold) && f.failedOver {
-				f.failedOver = false
-				f.active = f.primary
-				f.config.OnRecovered()
+			} else if successes >= int64(f.config.SuccessThreshold) && failedOver {
+				f.active.Store(f.primaryRef)
+				f.callback(f.config.OnRecovered)
 				failures = 0
 				successes = 0
 			}
 
 			if secondaryErr != nil {
-				f.config.OnCheckFailure("secondary", secondaryErr)
+				f.callback(func() { f.config.OnCheckFailure("secondary", secondaryErr) })
 			}
 
 		case <-f.closeChan:
@@ -325,99 +482,202 @@ func (f *FailoverClient) monitorClients() {
 	}
 }
 
+// checkClients runs the health checks of the primary and secondary RedisClient
+// concurrently and waits for them at most CheckTimeout plus healthCheckGrace, or
+// until Close is called. A check that doesn't return in time, for example because
+// it ignores its context, counts as failed.
+func (f *FailoverClient) checkClients() (primaryErr, secondaryErr error) {
+	primary := f.startCheck(f.primary, &f.primaryChecking)
+	secondary := f.startCheck(f.secondary, &f.secondaryChecking)
+
+	wait := f.config.CheckTimeout + healthCheckGrace
+	ctx, cancel := context.WithTimeout(context.Background(), wait)
+	defer cancel()
+	return f.awaitCheck(ctx, primary, wait), f.awaitCheck(ctx, secondary, wait)
+}
+
+// startCheck runs the health check of client in a new goroutine and returns the
+// channel its result is sent to. If the previous check of client hasn't returned
+// yet, no check is started and errHealthCheckRunning is sent instead, so a check
+// that never returns leaks a single goroutine.
+func (f *FailoverClient) startCheck(client RedisClient, checking *atomic.Bool) <-chan error {
+	result := make(chan error, 1)
+	if !checking.CompareAndSwap(false, true) {
+		result <- errHealthCheckRunning
+		return result
+	}
+	go func() {
+		defer checking.Store(false)
+		result <- f.healthCheck(client)
+	}()
+	return result
+}
+
+// awaitCheck returns the result of a health check, or an error if ctx is done or
+// Close is called first.
+func (f *FailoverClient) awaitCheck(ctx context.Context, result <-chan error, wait time.Duration) error {
+	select {
+	case err := <-result:
+		return err
+	case <-ctx.Done():
+		return fmt.Errorf("health check didn't return within %s: %w", wait, context.DeadlineExceeded)
+	case <-f.closeChan:
+		return errFailoverClosed
+	}
+}
+
+// healthCheck runs HealthCheck on client with a timeout of CheckTimeout.
+func (f *FailoverClient) healthCheck(client RedisClient) (err error) {
+	ctx, cancel := context.WithTimeout(context.Background(), f.config.CheckTimeout)
+	defer cancel()
+
+	// The check runs in a goroutine started by the monitor, so a panic in a
+	// custom HealthCheck would crash the process.
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("health check panic: %v", r)
+		}
+	}()
+	return f.config.HealthCheck(ctx, client)
+}
+
+// Get calls Get on the active RedisClient.
 func (f *FailoverClient) Get(ctx context.Context, key string) *redis.StringCmd {
-	return f.active.Get(ctx, key)
+	return f.current().Get(ctx, key)
 }
 
+// GetEx calls GetEx on the active RedisClient.
 func (f *FailoverClient) GetEx(ctx context.Context, key string, expiration time.Duration) *redis.StringCmd {
-	return f.active.GetEx(ctx, key, expiration)
+	return f.current().GetEx(ctx, key, expiration)
 }
 
+// GetDel calls GetDel on the active RedisClient.
 func (f *FailoverClient) GetDel(ctx context.Context, key string) *redis.StringCmd {
-	return f.active.GetDel(ctx, key)
+	return f.current().GetDel(ctx, key)
 }
 
+// MGet calls MGet on the active RedisClient.
 func (f *FailoverClient) MGet(ctx context.Context, keys ...string) *redis.SliceCmd {
-	return f.active.MGet(ctx, keys...)
+	return f.current().MGet(ctx, keys...)
 }
 
+// Set calls Set on the active RedisClient.
 func (f *FailoverClient) Set(ctx context.Context, key string, val any, ttl time.Duration) *redis.StatusCmd {
-	return f.active.Set(ctx, key, val, ttl)
+	return f.current().Set(ctx, key, val, ttl)
 }
 
+// SetNX calls SetNX on the active RedisClient.
 func (f *FailoverClient) SetNX(ctx context.Context, key string, value any, expiration time.Duration) *redis.BoolCmd {
-	return f.active.SetNX(ctx, key, value, expiration)
+	return f.current().SetNX(ctx, key, value, expiration)
 }
 
+// SetXX calls SetXX on the active RedisClient.
 func (f *FailoverClient) SetXX(ctx context.Context, key string, value any, expiration time.Duration) *redis.BoolCmd {
-	return f.active.SetXX(ctx, key, value, expiration)
+	return f.current().SetXX(ctx, key, value, expiration)
 }
 
+// MSet calls MSet on the active RedisClient.
 func (f *FailoverClient) MSet(ctx context.Context, values ...any) *redis.StatusCmd {
-	return f.active.MSet(ctx, values...)
+	return f.current().MSet(ctx, values...)
 }
 
+// Del calls Del on the active RedisClient.
 func (f *FailoverClient) Del(ctx context.Context, keys ...string) *redis.IntCmd {
-	return f.active.Del(ctx, keys...)
+	return f.current().Del(ctx, keys...)
 }
 
+// Watch calls Watch on the active RedisClient.
 func (f *FailoverClient) Watch(ctx context.Context, fn func(*redis.Tx) error, keys ...string) error {
-	return f.active.Watch(ctx, fn, keys...)
+	return f.current().Watch(ctx, fn, keys...)
 }
 
+// Scan calls Scan on the active RedisClient.
 func (f *FailoverClient) Scan(ctx context.Context, cursor uint64, match string, count int64) *redis.ScanCmd {
-	return f.active.Scan(ctx, cursor, match, count)
+	return f.current().Scan(ctx, cursor, match, count)
 }
 
+// FlushDB calls FlushDB on the active RedisClient.
 func (f *FailoverClient) FlushDB(ctx context.Context) *redis.StatusCmd {
-	return f.active.FlushDB(ctx)
+	return f.current().FlushDB(ctx)
 }
 
+// FlushDBAsync calls FlushDBAsync on the active RedisClient.
 func (f *FailoverClient) FlushDBAsync(ctx context.Context) *redis.StatusCmd {
-	return f.active.FlushDBAsync(ctx)
+	return f.current().FlushDBAsync(ctx)
 }
 
+// Ping calls Ping on the active RedisClient.
 func (f *FailoverClient) Ping(ctx context.Context) *redis.StatusCmd {
-	return f.active.Ping(ctx)
+	return f.current().Ping(ctx)
 }
 
+// TTL calls TTL on the active RedisClient.
 func (f *FailoverClient) TTL(ctx context.Context, key string) *redis.DurationCmd {
-	return f.active.TTL(ctx, key)
+	return f.current().TTL(ctx, key)
 }
 
+// PTTL calls PTTL on the active RedisClient.
+func (f *FailoverClient) PTTL(ctx context.Context, key string) *redis.DurationCmd {
+	return f.current().PTTL(ctx, key)
+}
+
+// Expire calls Expire on the active RedisClient.
 func (f *FailoverClient) Expire(ctx context.Context, key string, expiration time.Duration) *redis.BoolCmd {
-	return f.active.Expire(ctx, key, expiration)
+	return f.current().Expire(ctx, key, expiration)
 }
 
+// PExpire calls PExpire on the active RedisClient.
+func (f *FailoverClient) PExpire(ctx context.Context, key string, expiration time.Duration) *redis.BoolCmd {
+	return f.current().PExpire(ctx, key, expiration)
+}
+
+// Persist calls Persist on the active RedisClient.
+func (f *FailoverClient) Persist(ctx context.Context, key string) *redis.BoolCmd {
+	return f.current().Persist(ctx, key)
+}
+
+// Pipeline calls Pipeline on the active RedisClient.
 func (f *FailoverClient) Pipeline() redis.Pipeliner {
-	return f.active.Pipeline()
+	return f.current().Pipeline()
 }
 
 // Close stops the failover client from monitoring the primary and secondary Redis clients
-// and closes the underlying Redis clients.
+// and closes the underlying Redis clients, which FailoverClient owns. Don't use the primary or
+// secondary RedisClient once Close has been called. No callbacks are invoked after Close is called.
+// Close waits for the monitoring goroutine to stop, unless a callback is running, so a
+// callback can call Close. In that case the running callback may still be running when
+// Close returns. Close doesn't wait for health checks in progress: a HealthCheck that ignores
+// its context may still be running when Close returns.
 //
 // Close is a no-op if Close has already been called.
 func (f *FailoverClient) Close() error {
-	var err error
-	f.closeOnce.Do(func() {
-		f.closeChan <- struct{}{}
-		close(f.closeChan)
-		err = errors.Join(f.primary.Close(), f.secondary.Close())
-	})
-	return err
+	f.mu.Lock()
+	if f.closed {
+		f.mu.Unlock()
+		return nil
+	}
+	f.closed = true
+	wait := !f.inCallback
+	f.mu.Unlock()
+
+	close(f.closeChan)
+	if wait {
+		<-f.done
+	}
+	return errors.Join(f.primary.Close(), f.secondary.Close())
 }
 
 // IsPrimary returns true if the failover client is currently using the primary Redis client.
 func (f *FailoverClient) IsPrimary() bool {
-	return !f.failedOver
+	return f.active.Load() == f.primaryRef
 }
 
 // IsSecondary returns true if the failover client is currently using the secondary Redis client.
 func (f *FailoverClient) IsSecondary() bool {
-	return f.failedOver
+	return f.active.Load() == f.secondaryRef
 }
 
 // Active returns the active RedisClient.
 func (f *FailoverClient) Active() RedisClient {
-	return f.active
+	return f.current()
 }

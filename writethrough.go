@@ -2,6 +2,8 @@ package cache
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"time"
 )
 
@@ -12,7 +14,8 @@ type WriteThroughWriter[T any] func(ctx context.Context, key string, val T) erro
 type WriteThroughOptions struct {
 
 	// CacheWriteTimeout specifies the maximum duration to wait for the cache write operation to
-	// complete.
+	// complete. It also bounds deleting the key when updating it fails, so WriteThrough never
+	// waits longer than CacheWriteTimeout for Redis, even while Redis is unavailable.
 	//
 	// Default is 500ms.
 	CacheWriteTimeout time.Duration
@@ -32,6 +35,9 @@ type WriteThroughOptions struct {
 	//
 	// OnAsyncUpdateCompleted is useful when UpdateCacheAsync is true, and you want to be notified when
 	// the cache update has completed, and if it succeeded or failed.
+	//
+	// OnAsyncUpdateCompleted is invoked from a goroutine started by WriteThrough. A panic in
+	// OnAsyncUpdateCompleted is recovered and ignored, so it can't crash the process.
 	//
 	// Default is a no-op.
 	OnAsyncUpdateCompleted func(key string, err error)
@@ -55,14 +61,26 @@ func (o *WriteThroughOptions) init() {
 // by exceeding CacheWriteTimeout.
 //
 // When UpdateCacheAsync is true, WriteThrough will return immediately and the cache update will be
-// performed asynchronously. The OnAsyncUpdateCompleted callback will be invoked when the cache update
-// completes. If no callback is provided, OnAsyncUpdateCompleted and the cache update becomes a
-// fire-and-forget operation.
+// performed asynchronously. The asynchronous update keeps the values of ctx, such as trace information,
+// but isn't canceled when ctx is canceled. The OnAsyncUpdateCompleted callback will be invoked when the
+// cache update completes. If no callback is provided, OnAsyncUpdateCompleted and the cache update becomes
+// a fire-and-forget operation.
 //
 // When WriteThrough encounters an error it returns *WriteThroughError, which wraps the original error
 // and indicates whether the source of truth was updated. This is useful, especially when UpdateCacheAsync
 // is false, to determine if the cache update succeeded or failed. In some cases, even though the function
 // returns an error due to the cache update failing, the application may simply elect to ignore the error.
+//
+// Keeping the cache consistent with the source of truth is best effort:
+//
+//   - If the cache update fails after the source of truth was updated, WriteThrough deletes the key so
+//     the previous value isn't served anymore and the next read loads the new value. The delete gets
+//     the time left of CacheWriteTimeout and can fail as well, for example if Redis is unavailable, in
+//     which case the previous value stays cached and the returned error wraps both errors.
+//   - Concurrent writes of the same key can update the source of truth and the cache in a different
+//     order, leaving an older value cached. UpdateCacheAsync makes this more likely.
+//
+// Set a TTL so a stale value eventually expires.
 func WriteThrough[T any](
 	ctx context.Context,
 	rdb *Cache,
@@ -83,11 +101,11 @@ func WriteThrough[T any](
 	}
 
 	if opts.UpdateCacheAsync {
+		// Keep the context values, such as tracing information, but don't cancel
+		// the update when the caller's context is canceled.
+		asyncCtx := context.WithoutCancel(ctx)
 		go func() {
-			redisCtx, redisCancel := context.WithTimeout(context.Background(), opts.CacheWriteTimeout)
-			defer redisCancel()
-
-			err := rdb.Set(redisCtx, key, val, opts.TTL)
+			err := writeThroughUpdate(asyncCtx, rdb, key, val, opts)
 			if err != nil {
 				err = &WriteThroughError{
 					Key:           key,
@@ -95,15 +113,14 @@ func WriteThrough[T any](
 					error:         err,
 				}
 			}
-			opts.OnAsyncUpdateCompleted(key, err)
+			// A panic in the callback would crash the process since this goroutine
+			// was started by the library.
+			safeCall(func() { opts.OnAsyncUpdateCompleted(key, err) })
 		}()
 		return nil
 	}
 
-	redisCtx, redisCancel := context.WithTimeout(ctx, opts.CacheWriteTimeout)
-	defer redisCancel()
-
-	err = rdb.Set(redisCtx, key, val, opts.TTL)
+	err = writeThroughUpdate(ctx, rdb, key, val, opts)
 	if err != nil {
 		return &WriteThroughError{
 			Key:           key,
@@ -115,6 +132,40 @@ func WriteThrough[T any](
 	return nil
 }
 
+// writeThroughUpdate sets the cached value of key to val. If that fails, the key is
+// deleted so the value cached before the source of truth was updated isn't served
+// anymore. The delete is best effort, if it fails too both errors are returned.
+//
+// The update and the delete share opts.CacheWriteTimeout, so a Redis that is down
+// or slow delays the caller once, not twice.
+func writeThroughUpdate[T any](
+	ctx context.Context,
+	rdb *Cache,
+	key string,
+	val T,
+	opts WriteThroughOptions) error {
+
+	deadline := time.Now().Add(opts.CacheWriteTimeout)
+	redisCtx, redisCancel := context.WithDeadline(ctx, deadline)
+	defer redisCancel()
+
+	err := rdb.Set(redisCtx, key, val, opts.TTL)
+	if err == nil {
+		return nil
+	}
+
+	// The delete isn't canceled with ctx, since the update may have failed because
+	// ctx was canceled. It gets the time left until the deadline, so if the update
+	// timed out the delete fails right away instead of waiting for Redis again.
+	delCtx, delCancel := context.WithDeadline(context.WithoutCancel(ctx), deadline)
+	defer delCancel()
+
+	if delErr := rdb.Delete(delCtx, key); delErr != nil {
+		return errors.Join(err, fmt.Errorf("invalidate cached value: %w", delErr))
+	}
+	return err
+}
+
 // WriteThroughError wraps an error returned by WriteThrough and indicates whether the source of truth
 // was updated.
 type WriteThroughError struct {
@@ -123,10 +174,12 @@ type WriteThroughError struct {
 	error
 }
 
+// Error returns the message of the underlying error.
 func (e *WriteThroughError) Error() string {
 	return e.error.Error()
 }
 
+// Unwrap returns the underlying error.
 func (e *WriteThroughError) Unwrap() error {
 	return e.error
 }
