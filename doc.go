@@ -13,12 +13,14 @@
 // previously cached values remain readable.
 //
 // The configured Serializer and CompressionCodec, MessagePackSerializer,
-// JsonSerializer, and no compression are always available for reading. Additional
+// JsonSerializer, and no compression are always available for reading. Other
+// built-in compression codecs must be registered with DecodeCompression; the
+// compression/all package provides an option to register all of them. Additional
 // formats can be registered for reading only with DecodeSerializers and
 // DecodeCompression. Values written with an unregistered format return an error
-// wrapping ErrUnsupportedFormat. Values without a header, written by older
-// versions of the library, are decoded with the configured Serializer and
-// CompressionCodec.
+// wrapping ErrUnsupportedFormat that names built-in formats and suggests the
+// registration option. Values without a header, written by older versions of the
+// library, are decoded with the configured Serializer and CompressionCodec.
 //
 // # Format IDs
 //

@@ -41,6 +41,22 @@ const (
 	CodecZstd   uint8 = 6
 )
 
+var serializerNames = map[uint8]string{
+	SerializerMsgPack:  "msgpack",
+	SerializerJSON:     "json",
+	SerializerProtobuf: "protobuf",
+}
+
+var codecNames = map[uint8]string{
+	CodecNone:   "none",
+	CodecFlate:  "flate",
+	CodecGzip:   "gzip",
+	CodecLZ4:    "lz4",
+	CodecS2:     "s2",
+	CodecSnappy: "snappy",
+	CodecZstd:   "zstd",
+}
+
 // MinCustomFormatID is the lowest format ID available to custom Serializer and
 // CompressionCodec implementations.
 const MinCustomFormatID uint8 = 128
@@ -177,7 +193,8 @@ type formats struct {
 // implementations claim the same ID.
 //
 // The configured serializer and codec, the built-in msgpack and JSON serializers,
-// and the no-op codec are always available for reading.
+// and the no-op codec are always available for reading. Other built-in codecs must
+// be registered with DecodeCompression to read values written with them.
 func newFormats(s Serializer, c CompressionCodec, extraS []Serializer, extraC []CompressionCodec) *formats {
 	if isNil(s) {
 		panic(errors.New("nil Serializer"))
@@ -417,13 +434,22 @@ func zeroDst(dst any) {
 func (f *formats) decodeHeadered(data []byte, dst any) error {
 	serializer := f.serializers[data[2]]
 	if serializer == nil {
-		return fmt.Errorf("%w: serializer id %d", ErrUnsupportedFormat, data[2])
+		return fmt.Errorf("%w: serializer id %d%s: register it with cache.DecodeSerializers",
+			ErrUnsupportedFormat, data[2], formatName(serializerNames, data[2]))
 	}
 	codec := f.codecs[data[3]]
 	if codec == nil {
-		return fmt.Errorf("%w: codec id %d", ErrUnsupportedFormat, data[3])
+		return fmt.Errorf("%w: codec id %d%s: register it with cache.DecodeCompression",
+			ErrUnsupportedFormat, data[3], formatName(codecNames, data[3]))
 	}
 	return decodeWith(serializer, codec, data[headerSize:], dst)
+}
+
+func formatName(names map[uint8]string, id uint8) string {
+	if name := names[id]; name != "" {
+		return " (" + name + ")"
+	}
+	return ""
 }
 
 func decodeWith(s Serializer, c CompressionCodec, data []byte, dst any) error {

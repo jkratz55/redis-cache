@@ -67,6 +67,7 @@ This document serves as the operational manual and architectural guide for AI ag
 │   ├── proto.go          # Protobuf without a schema, like protoc --decode_raw
 │   └── render.go         # Text and JSON output
 ├── compression/          # Compression codec implementations
+│   ├── all/              # Registers all built-in codecs for decoding
 │   ├── internal/limit/   # Decompressed size limits shared by the codecs
 │   ├── flate/            # Deflate/Flate codec
 │   ├── gzip/             # Gzip codec
@@ -136,6 +137,8 @@ type CompressionCodec interface {
 Available implementations are located under `compression/<algorithm>/`: `flate.NewCodec(level, opts...)`, `gzip.NewCodec(level, opts...)`, `lz4.NewCodec(opts...)`, `s2.NewCodec(opts...)`, `snappy.NewCodec(opts...)`, and `zstd.NewCodec(level, opts...)`, which also returns an error. Every built-in codec:
 - Accepts `WithMaxDecodedSize(n)`. There is no limit by default; values exceeding a limit fail with an error wrapping `cache.ErrMaxDecodedSizeExceeded`. Streaming codecs enforce the limit while decompressing through `compression/internal/limit`, block codecs (S2, Snappy) check the declared size before allocating.
 - Implements the optional `CompressAppender` interface (`AppendCompress`), so values are compressed directly after the format header without a copy.
+
+The configured codec and no compression are available for reading without registration; other built-in codecs must be registered with `cache.DecodeCompression`. The `compression/all` package provides `all.NewCodecs(opts...)` and `Codecs.DecodeCompression()` to register all six built-in codecs for reading. `DecodeCompression` does not change the codec used for writes, and `Codecs.Close()` releases the zstd resources.
 
 The lz4 codec writes 64 KiB blocks: LZ4's default 4 MiB blocks make every compression and decompression after a garbage collection allocate more than 8 MiB. The gzip codec sizes its buffer from the trailer's declared size, bounded to 8 times the compressed size and 1 MiB, since the trailer is only verified at the end. Size hints taken from a value must always be bounded like this.
 

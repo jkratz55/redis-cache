@@ -28,7 +28,7 @@ Every value written by `Cache` and `TypedCache` is prefixed with a fixed 4-byte 
 
 When a value is read, the serializer and compression codec are selected by the IDs in the header rather than the instance's configuration. This means you can change `Serialization(...)` and/or `Compression(...)` without flushing Redis: entries written with the previous configuration remain readable until they expire. Reading the header costs a couple of byte comparisons and array lookups and doesn't allocate.
 
-The configured serializer and codec, the built-in MessagePack and JSON serializers, and no compression are always readable. Any other format you need to keep reading must be registered for decoding only:
+The configured serializer and codec, the built-in MessagePack and JSON serializers, and no compression are always readable. Other formats must be registered for decoding only. For example, register an individual codec with `cache.DecodeCompression` to keep reading gzip values:
 
 ```go
 // Previously: cache.Serialization(&cache.JsonSerializer{}), cache.Compression(gzip.NewCodec(6))
@@ -40,6 +40,26 @@ c := cache.New(client,
 ```
 
 If a value was written with a serializer or codec that isn't registered, reads return an error wrapping `cache.ErrUnsupportedFormat`. Values without a header (written by v1.x and v2.0.0 release candidates) are decoded with the configured serializer and codec.
+
+The error names built-in formats and suggests the registration option, for example `unsupported format: codec id 5 (snappy): register it with cache.DecodeCompression`. Custom format IDs are shown without a name.
+
+To read values written with any built-in codec, use `compression/all`. `all.NewCodecs` creates every built-in codec; defer `Close` to release the zstd resources. The returned option registers the codecs for reading only, so the codec passed to `cache.Compression` remains the one used for writes. It also works with `cacheotel` wrappers:
+
+```go
+codecs, err := all.NewCodecs()
+if err != nil {
+    panic(err)
+}
+defer codecs.Close()
+
+reader := cache.New(client,
+    cache.Serialization(cacheotel.NewInstrumentedSerializer(&cache.JsonSerializer{})),
+    cache.Compression(cacheotel.NewInstrumentedCompressionCodec(lz4.NewCodec())),
+    codecs.DecodeCompression(),
+)
+```
+
+Import `github.com/jkratz55/redis-cache/v2/compression/all` for `all`, along with `cacheotel` and `compression/lz4` for this example.
 
 > **Rolling deployments:** older versions of the library can't read values with the header. Upgrade every service reading from a shared Redis before, or together with, the services writing to it.
 

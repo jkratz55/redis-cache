@@ -228,13 +228,52 @@ func TestFormats_UnsupportedSerializer(t *testing.T) {
 	var actual string
 	err = reader.Decode(data, &actual)
 	if assert.ErrorIs(t, err, cache.ErrUnsupportedFormat) {
-		assert.Contains(t, err.Error(), "serializer id 200")
+		assert.Equal(t, "unsupported format: serializer id 200: register it with cache.DecodeSerializers", err.Error())
 	}
 
 	reader = cache.NewFormatsForTest(&cache.MessagePackSerializer{}, cache.NopCodecForTest(),
 		[]cache.Serializer{customSerializer{}}, nil)
 	assert.NoError(t, reader.Decode(data, &actual))
 	assert.Equal(t, "hello", actual)
+}
+
+func TestFormats_UnsupportedBuiltinSerializer(t *testing.T) {
+	writer := cache.NewFormatsForTest(cacheproto.ProtobufSerializer{}, cache.NopCodecForTest(), nil, nil)
+	data, err := writer.Encode(wrapperspb.String("hello"))
+	assert.NoError(t, err)
+
+	reader := cache.NewFormatsForTest(&cache.MessagePackSerializer{}, cache.NopCodecForTest(), nil, nil)
+	var actual wrapperspb.StringValue
+	err = reader.Decode(data, &actual)
+	if assert.ErrorIs(t, err, cache.ErrUnsupportedFormat) {
+		assert.Equal(t, "unsupported format: serializer id 3 (protobuf): register it with cache.DecodeSerializers", err.Error())
+	}
+}
+
+func TestFormats_UnsupportedBuiltinCodec(t *testing.T) {
+	writer := cache.NewFormatsForTest(&cache.MessagePackSerializer{}, snappy.NewCodec(), nil, nil)
+	data, err := writer.Encode("hello")
+	assert.NoError(t, err)
+
+	reader := cache.NewFormatsForTest(&cache.MessagePackSerializer{}, cache.NopCodecForTest(), nil, nil)
+	var actual string
+	err = reader.Decode(data, &actual)
+	if assert.ErrorIs(t, err, cache.ErrUnsupportedFormat) {
+		assert.Equal(t, "unsupported format: codec id 5 (snappy): register it with cache.DecodeCompression", err.Error())
+	}
+}
+
+func TestFormats_UnsupportedCustomCodec(t *testing.T) {
+	writer := cache.NewFormatsForTest(&cache.MessagePackSerializer{}, xorCodec{}, nil, nil)
+	data, err := writer.Encode("hello")
+	assert.NoError(t, err)
+
+	reader := cache.NewFormatsForTest(&cache.MessagePackSerializer{}, cache.NopCodecForTest(), nil, nil)
+	var actual string
+	err = reader.Decode(data, &actual)
+	if assert.ErrorIs(t, err, cache.ErrUnsupportedFormat) {
+		assert.Equal(t, "unsupported format: codec id 201: register it with cache.DecodeCompression", err.Error())
+	}
 }
 
 func TestFormats_LegacyShortValue(t *testing.T) {

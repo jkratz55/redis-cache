@@ -73,7 +73,9 @@ func DecodeSerializers(s ...Serializer) Option {
 // CompressionCodec to be changed while existing entries remain readable.
 //
 // The configured CompressionCodec and no compression are always available for
-// reading and don't need to be registered.
+// reading and don't need to be registered. Other built-in codecs must be
+// registered to read values written with them. To register every built-in codec,
+// use compression/all.
 //
 // Every CompressionCodec must have a unique format ID, otherwise New and NewTyped
 // will panic. Providing nil will immediately panic.
