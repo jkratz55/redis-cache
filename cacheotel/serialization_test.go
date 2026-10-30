@@ -10,8 +10,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/vmihailenco/msgpack/v5"
 	"go.opentelemetry.io/otel/attribute"
+	"google.golang.org/protobuf/types/known/wrapperspb"
 
 	cache "github.com/jkratz55/redis-cache/v2"
+	"github.com/jkratz55/redis-cache/v2/cacheproto"
 )
 
 type noIDSerializer struct{}
@@ -181,4 +183,129 @@ func TestInstrumentedSerializer_AppendMarshalFallback(t *testing.T) {
 	duration := collect(t, reader)["cache.serialization.duration"]
 	assert.Equal(t, uint64(1), histogramCount(t, duration, attribute.String("cache.serializer", "json"),
 		attribute.String("operation", "marshal"), attribute.Bool("success", true)))
+}
+
+func TestInstrumentSerializers_Wrapping(t *testing.T) {
+	msgpackSerializer := &cache.MessagePackSerializer{}
+	jsonSerializer := &cache.JsonSerializer{}
+	list := []cache.Serializer{msgpackSerializer, jsonSerializer, cacheproto.ProtobufSerializer{}}
+	input := append([]cache.Serializer(nil), list...)
+
+	wrapped := InstrumentSerializers(list)
+	if !assert.Len(t, wrapped, 3) {
+		return
+	}
+	for i, serializer := range wrapped {
+		instrumented, ok := serializer.(*InstrumentedSerializer)
+		if !assert.True(t, ok, "serializer %d is %T", i, serializer) {
+			continue
+		}
+		assert.Equal(t, list[i], instrumented.Unwrap())
+		wantID, _ := cache.FormatIDOf(list[i])
+		assert.Equal(t, wantID, instrumented.FormatID())
+	}
+	assert.Same(t, msgpackSerializer, wrapped[0].(*InstrumentedSerializer).Unwrap())
+	assert.Same(t, jsonSerializer, wrapped[1].(*InstrumentedSerializer).Unwrap())
+	assert.Equal(t, cache.SerializerProtobuf, wrapped[2].(*InstrumentedSerializer).FormatID())
+
+	// The input isn't modified.
+	assert.Equal(t, input, list)
+	assert.Same(t, msgpackSerializer, list[0])
+	assert.Same(t, jsonSerializer, list[1])
+}
+
+func TestInstrumentSerializers_Empty(t *testing.T) {
+	for _, serializers := range [][]cache.Serializer{nil, {}} {
+		wrapped := InstrumentSerializers(serializers)
+		assert.NotNil(t, wrapped)
+		assert.Empty(t, wrapped)
+	}
+}
+
+func TestInstrumentSerializers_Panics(t *testing.T) {
+	assert.PanicsWithError(t, "nil Serializer", func() {
+		InstrumentSerializers([]cache.Serializer{&cache.JsonSerializer{}, nil})
+	})
+	assert.PanicsWithError(t, "nil Serializer", func() {
+		InstrumentSerializers([]cache.Serializer{(*cache.JsonSerializer)(nil)})
+	})
+	assert.PanicsWithError(t,
+		"serializer cacheotel.noIDSerializer has no format id: implement FormatID() uint8 returning an id in the range 128-255 or wrap it with cache.SerializerWithID",
+		func() {
+			InstrumentSerializers([]cache.Serializer{noIDSerializer{}})
+		})
+}
+
+// TestInstrumentSerializers_DecodeSerializers reads values written with MessagePack
+// and Protobuf using a JSON cache that registers the instrumented serializers, and
+// verifies their unmarshal operations are recorded. The MessagePack read shows the
+// instrumented serializer replaces the built-in default.
+func TestInstrumentSerializers_DecodeSerializers(t *testing.T) {
+	ctx := context.Background()
+	client := redis.NewClient(&redis.Options{Addr: miniredis.RunT(t).Addr()})
+	defer client.Close()
+
+	msgpackWriter := cache.New(client, cache.Serialization(&cache.MessagePackSerializer{}))
+	assert.NoError(t, msgpackWriter.Set(ctx, "msgpack", "value", 0))
+	protoWriter := cache.New(client, cache.Serialization(cacheproto.ProtobufSerializer{}))
+	assert.NoError(t, protoWriter.Set(ctx, "protobuf", wrapperspb.String("value"), 0))
+
+	mp, reader := newTestMeterProvider(t)
+	name := attribute.String("cache.name", "users")
+	c := cache.New(client,
+		cache.Serialization(NewInstrumentedSerializer(&cache.JsonSerializer{})),
+		cache.DecodeSerializers(InstrumentSerializers([]cache.Serializer{
+			&cache.MessagePackSerializer{},
+			cacheproto.ProtobufSerializer{},
+		}, WithMeterProvider(mp), WithAttributes(name))...))
+
+	var s string
+	assert.NoError(t, c.Get(ctx, "msgpack", &s))
+	assert.Equal(t, "value", s)
+	msg := &wrapperspb.StringValue{}
+	assert.NoError(t, c.Get(ctx, "protobuf", msg))
+	assert.Equal(t, "value", msg.GetValue())
+
+	duration := collect(t, reader)["cache.serialization.duration"]
+	for _, serializer := range []string{"msgpack", "protobuf"} {
+		assert.Equal(t, uint64(1), histogramCount(t, duration, name, attribute.String("cache.serializer", serializer),
+			attribute.String("operation", "unmarshal"), attribute.Bool("success", true)), serializer)
+	}
+}
+
+// TestInstrumentSerializers_ConfiguredSerializer verifies the instrumented serializers
+// can be registered next to a configured instrumented serializer of the same type.
+func TestInstrumentSerializers_ConfiguredSerializer(t *testing.T) {
+	ctx := context.Background()
+	client := redis.NewClient(&redis.Options{Addr: miniredis.RunT(t).Addr()})
+	defer client.Close()
+
+	opts := []cache.Option{
+		cache.Serialization(NewInstrumentedSerializer(&cache.JsonSerializer{})),
+		cache.DecodeSerializers(InstrumentSerializers([]cache.Serializer{
+			&cache.MessagePackSerializer{},
+			&cache.JsonSerializer{},
+			cacheproto.ProtobufSerializer{},
+		})...),
+	}
+
+	var c *cache.Cache
+	assert.NotPanics(t, func() { c = cache.New(client, opts...) })
+	var typed *cache.TypedCache[string]
+	assert.NotPanics(t, func() { typed = cache.NewTyped[string](client, opts...) })
+	if c == nil || typed == nil {
+		return
+	}
+
+	assert.NoError(t, c.Set(ctx, "cache", "value", 0))
+	assert.NoError(t, typed.Set(ctx, "typed", "value", 0))
+	for _, key := range []string{"cache", "typed"} {
+		raw, err := client.Get(ctx, key).Bytes()
+		if assert.NoError(t, err) && assert.GreaterOrEqual(t, len(raw), 4) {
+			assert.Equal(t, cache.SerializerJSON, raw[2])
+		}
+		s, err := typed.Get(ctx, key)
+		assert.NoError(t, err)
+		assert.Equal(t, "value", s)
+	}
 }

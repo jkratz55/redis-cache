@@ -160,6 +160,8 @@ Wraps `Serializer` and `CompressionCodec` instances (`NewInstrumentedSerializer`
 
 `InstrumentCodecs(codecs, opts...)` wraps a list of codecs, such as `all.Codecs.List()`, with the same instruments, returning `[]cache.CompressionCodec` for `cache.DecodeCompression(...)`. It shares the helpers of `NewInstrumentedCompressionCodec` and panics in the same cases. `cacheotel` must not import `compression/*` outside tests.
 
+`InstrumentSerializers(serializers, opts...)` does the same for serializers, returning `[]cache.Serializer` for `cache.DecodeSerializers(...)`. It shares the helpers of `NewInstrumentedSerializer` and panics in the same cases. Registering instrumented MessagePack or JSON serializers replaces the uninstrumented defaults used for reading, so their unmarshals are recorded. `cacheotel` must not import `cacheproto` outside tests.
+
 `NewHooks` returns `cache.Hooks` recording `cache.lookups`, `cache.value.size`, `cache.value.serialized_size`, `cache.decode.errors`, and `cache.singleflight.calls` with the context of the cache operation. `ObserveFailoverClient` registers the `cache.failover.active` gauge. `WithAttributes` adds attributes, such as a cache name, to every measurement. Attribute sets are computed once at construction so recording doesn't allocate.
 
 The wrappers forward the format ID of the component they wrap, so values they write are readable by uninstrumented instances.

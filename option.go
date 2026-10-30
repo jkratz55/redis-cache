@@ -54,6 +54,10 @@ func Compression(codec CompressionCodec) Option {
 //
 // The configured Serializer and the built-in MessagePackSerializer and
 // JsonSerializer are always available for reading and don't need to be registered.
+// Registering a MessagePack or JSON serializer, such as an instrumented one,
+// replaces the built-in default used for reading values in that format. To record
+// unmarshal metrics for every format an instance reads, register the serializers
+// wrapped with cacheotel.InstrumentSerializers.
 //
 // Every Serializer must have a unique format ID, otherwise New and NewTyped will
 // panic. Providing nil will immediately panic.

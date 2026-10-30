@@ -36,6 +36,57 @@ type InstrumentedSerializer struct {
 // panics. Custom Serializer implementations can be assigned a format ID by
 // implementing cache.FormatIdentifier or by wrapping them with cache.SerializerWithID.
 func NewInstrumentedSerializer(serializer cache.Serializer, opts ...SerializerOption) *InstrumentedSerializer {
+	conf, dur, errs := newSerializationInstruments(opts)
+	return newInstrumentedSerializer(serializer, conf, dur, errs)
+}
+
+// InstrumentSerializers wraps every serializer in serializers with an
+// InstrumentedSerializer configured with opts, and returns them in the same order.
+// The result can be passed to cache.DecodeSerializers:
+//
+//	cache.DecodeSerializers(cacheotel.InstrumentSerializers([]cache.Serializer{
+//		&cache.MessagePackSerializer{}, cacheproto.ProtobufSerializer{},
+//	})...)
+//
+// Registering instrumented MessagePack or JSON serializers replaces the built-in
+// defaults used for reading, so their unmarshal operations are recorded too.
+// The wrappers record the same metrics as the ones returned by
+// NewInstrumentedSerializer. serializers isn't modified, and nil or empty
+// serializers return an empty slice. Don't pass serializers that are already
+// instrumented, otherwise their operations are recorded twice.
+// InstrumentSerializers panics in the same cases as NewInstrumentedSerializer.
+func InstrumentSerializers(serializers []cache.Serializer, opts ...SerializerOption) []cache.Serializer {
+	conf, dur, errs := newSerializationInstruments(opts)
+	wrapped := make([]cache.Serializer, len(serializers))
+	for i, serializer := range serializers {
+		wrapped[i] = newInstrumentedSerializer(serializer, conf, dur, errs)
+	}
+	return wrapped
+}
+
+// newSerializationInstruments applies opts and creates the instruments shared by
+// the InstrumentedSerializer instances configured with them.
+func newSerializationInstruments(opts []SerializerOption) (*commonConfig, metric.Float64Histogram, metric.Int64Counter) {
+	conf := newCommonConfig()
+	for _, opt := range opts {
+		opt.applySerializer(conf)
+	}
+
+	meter := conf.meterProvider.Meter(scope)
+	dur, _ := meter.Float64Histogram("cache.serialization.duration",
+		metric.WithDescription("Duration of serialization operations"),
+		metric.WithUnit("s"),
+		metric.WithExplicitBucketBoundaries(conf.durationBoundaries...))
+	errs, _ := meter.Int64Counter("cache.serialization.errors",
+		metric.WithDescription("Number of serialization errors"))
+	return conf, dur, errs
+}
+
+// newInstrumentedSerializer validates serializer and wraps it. It panics if
+// serializer is nil or doesn't have a format ID.
+func newInstrumentedSerializer(serializer cache.Serializer, conf *commonConfig,
+	dur metric.Float64Histogram, errs metric.Int64Counter) *InstrumentedSerializer {
+
 	if isNil(serializer) {
 		panic(fmt.Errorf("nil Serializer"))
 	}
@@ -45,25 +96,12 @@ func NewInstrumentedSerializer(serializer cache.Serializer, opts ...SerializerOp
 			serializer, cache.MinCustomFormatID))
 	}
 
-	conf := newCommonConfig()
-	for _, opt := range opts {
-		opt.applySerializer(conf)
-	}
-
-	meter := conf.meterProvider.Meter(scope)
-	duration, _ := meter.Float64Histogram("cache.serialization.duration",
-		metric.WithDescription("Duration of serialization operations"),
-		metric.WithUnit("s"),
-		metric.WithExplicitBucketBoundaries(conf.durationBoundaries...))
-	errs, _ := meter.Int64Counter("cache.serialization.errors",
-		metric.WithDescription("Number of serialization errors"))
-
 	component := attribute.String("cache.serializer", serializerName(id))
 	return &InstrumentedSerializer{
 		serializer: serializer,
 		id:         id,
-		marshal:    newOperationMetrics(conf, duration, errs, component, "marshal"),
-		unmarshal:  newOperationMetrics(conf, duration, errs, component, "unmarshal"),
+		marshal:    newOperationMetrics(conf, dur, errs, component, "marshal"),
+		unmarshal:  newOperationMetrics(conf, dur, errs, component, "unmarshal"),
 	}
 }
 

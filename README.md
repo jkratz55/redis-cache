@@ -73,6 +73,20 @@ reader := cache.New(client,
 
 Import `github.com/jkratz55/redis-cache/v2/compression/all` for `all`, along with `cacheotel` and `compression/lz4` for these examples.
 
+Serializers work the same way with `cacheotel.InstrumentSerializers`. MessagePack and JSON are always readable, but by default with uninstrumented serializers, so their unmarshal operations aren't recorded. Registering instrumented MessagePack or JSON serializers with `cache.DecodeSerializers` replaces those defaults. Other serializers, such as Protobuf, must be registered to be read in any case:
+
+```go
+reader := cache.New(client,
+    cache.Serialization(cacheotel.NewInstrumentedSerializer(&cache.JsonSerializer{})),
+    cache.DecodeSerializers(cacheotel.InstrumentSerializers([]cache.Serializer{
+        &cache.MessagePackSerializer{},
+        cacheproto.ProtobufSerializer{},
+    })...),
+)
+```
+
+`InstrumentSerializers` accepts the same options as `NewInstrumentedSerializer` and works with any list of serializers. As with codecs, don't pass serializers that are already instrumented. If the list contains the type of the configured serializer, the configured instance is used to read that format. Import `github.com/jkratz55/redis-cache/v2/cacheproto` for `cacheproto` in this example.
+
 > **Rolling deployments:** older versions of the library can't read values with the header. Upgrade every service reading from a shared Redis before, or together with, the services writing to it.
 
 ### Format IDs
