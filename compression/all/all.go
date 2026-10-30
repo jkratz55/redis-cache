@@ -70,7 +70,10 @@ func NewCodecs(opts ...Option) (*Codecs, error) {
 }
 
 // List returns the codecs in the order flate, gzip, lz4, s2, snappy, zstd.
-// The returned slice can be used to wrap the codecs, for example with cacheotel.
+// The returned slice can be used to wrap the codecs, for example with
+// cacheotel.InstrumentCodecs to record decompression metrics:
+//
+//	cache.DecodeCompression(cacheotel.InstrumentCodecs(codecs.List())...)
 func (c *Codecs) List() []cache.CompressionCodec {
 	return []cache.CompressionCodec{c.flate, c.gzip, c.lz4, c.s2, c.snappy, c.zstd}
 }

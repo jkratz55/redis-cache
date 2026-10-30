@@ -38,15 +38,33 @@ type InstrumentedCompressionCodec struct {
 // assigned a format ID by implementing cache.FormatIdentifier or by wrapping them with
 // cache.CodecWithID.
 func NewInstrumentedCompressionCodec(codec cache.CompressionCodec, opts ...CompressionOption) *InstrumentedCompressionCodec {
-	if isNil(codec) {
-		panic(fmt.Errorf("nil CompressionCodec"))
-	}
-	id, ok := cache.FormatIDOf(codec)
-	if !ok {
-		panic(fmt.Errorf("CompressionCodec %T has no format id: implement FormatID() uint8 returning an id in the range %d-255 or wrap it with cache.CodecWithID",
-			codec, cache.MinCustomFormatID))
-	}
+	conf, dur, errs := newCompressionInstruments(opts)
+	return newInstrumentedCompressionCodec(codec, conf, dur, errs)
+}
 
+// InstrumentCodecs wraps every codec in codecs with an InstrumentedCompressionCodec
+// configured with opts, and returns them in the same order. The result can be passed
+// to cache.DecodeCompression, for example with the codecs of compression/all:
+//
+//	cache.DecodeCompression(cacheotel.InstrumentCodecs(codecs.List())...)
+//
+// The wrappers record the same metrics as the ones returned by
+// NewInstrumentedCompressionCodec. codecs isn't modified, and nil or empty codecs
+// return an empty slice. Don't pass codecs that are already instrumented, otherwise
+// their operations are recorded twice. InstrumentCodecs panics in the same cases as
+// NewInstrumentedCompressionCodec.
+func InstrumentCodecs(codecs []cache.CompressionCodec, opts ...CompressionOption) []cache.CompressionCodec {
+	conf, dur, errs := newCompressionInstruments(opts)
+	wrapped := make([]cache.CompressionCodec, len(codecs))
+	for i, codec := range codecs {
+		wrapped[i] = newInstrumentedCompressionCodec(codec, conf, dur, errs)
+	}
+	return wrapped
+}
+
+// newCompressionInstruments applies opts and creates the instruments shared by
+// the InstrumentedCompressionCodec instances configured with them.
+func newCompressionInstruments(opts []CompressionOption) (*commonConfig, metric.Float64Histogram, metric.Int64Counter) {
 	conf := newCommonConfig()
 	for _, opt := range opts {
 		opt.applyCompression(conf)
@@ -59,6 +77,22 @@ func NewInstrumentedCompressionCodec(codec cache.CompressionCodec, opts ...Compr
 		metric.WithExplicitBucketBoundaries(conf.durationBoundaries...))
 	errs, _ := meter.Int64Counter("cache.compression.errors",
 		metric.WithDescription("Number of compression errors"))
+	return conf, dur, errs
+}
+
+// newInstrumentedCompressionCodec validates codec and wraps it. It panics if codec
+// is nil or doesn't have a format ID.
+func newInstrumentedCompressionCodec(codec cache.CompressionCodec, conf *commonConfig,
+	dur metric.Float64Histogram, errs metric.Int64Counter) *InstrumentedCompressionCodec {
+
+	if isNil(codec) {
+		panic(fmt.Errorf("nil CompressionCodec"))
+	}
+	id, ok := cache.FormatIDOf(codec)
+	if !ok {
+		panic(fmt.Errorf("CompressionCodec %T has no format id: implement FormatID() uint8 returning an id in the range %d-255 or wrap it with cache.CodecWithID",
+			codec, cache.MinCustomFormatID))
+	}
 
 	component := attribute.String("cache.codec", codecName(id))
 	return &InstrumentedCompressionCodec{

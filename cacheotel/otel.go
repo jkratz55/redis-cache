@@ -2,6 +2,8 @@
 //
 // NewInstrumentedSerializer and NewInstrumentedCompressionCodec wrap a Serializer
 // and a CompressionCodec to record how long serialization and compression take.
+// InstrumentCodecs wraps a list of codecs, such as the codecs of compression/all
+// registered for reading with cache.DecodeCompression.
 // NewHooks records cache hits and misses, the size of cached values, decode errors
 // and single-flight loads, and ObserveFailoverClient reports which client of a
 // FailoverClient is active. Metrics and tracing for the Redis commands themselves

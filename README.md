@@ -59,7 +59,19 @@ reader := cache.New(client,
 )
 ```
 
-Import `github.com/jkratz55/redis-cache/v2/compression/all` for `all`, along with `cacheotel` and `compression/lz4` for this example.
+To also record decompression metrics for the decode-only codecs, wrap them with `cacheotel.InstrumentCodecs` and register them with `cache.DecodeCompression` instead of `codecs.DecodeCompression()`:
+
+```go
+reader := cache.New(client,
+    cache.Serialization(cacheotel.NewInstrumentedSerializer(&cache.JsonSerializer{})),
+    cache.Compression(cacheotel.NewInstrumentedCompressionCodec(lz4.NewCodec())),
+    cache.DecodeCompression(cacheotel.InstrumentCodecs(codecs.List())...),
+)
+```
+
+`InstrumentCodecs` accepts the same options as `NewInstrumentedCompressionCodec` and works with any list of codecs. Don't pass codecs that are already instrumented, otherwise their operations are recorded twice. The codecs still belong to `codecs`, so keep calling `Close`.
+
+Import `github.com/jkratz55/redis-cache/v2/compression/all` for `all`, along with `cacheotel` and `compression/lz4` for these examples.
 
 > **Rolling deployments:** older versions of the library can't read values with the header. Upgrade every service reading from a shared Redis before, or together with, the services writing to it.
 

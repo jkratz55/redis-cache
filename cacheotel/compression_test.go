@@ -10,7 +10,10 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 
 	cache "github.com/jkratz55/redis-cache/v2"
+	"github.com/jkratz55/redis-cache/v2/compression/all"
 	"github.com/jkratz55/redis-cache/v2/compression/gzip"
+	"github.com/jkratz55/redis-cache/v2/compression/lz4"
+	"github.com/jkratz55/redis-cache/v2/compression/snappy"
 )
 
 type noIDCodec struct{}
@@ -144,4 +147,119 @@ func TestInstrumentedCompressionCodec_AppendCompressFallback(t *testing.T) {
 	duration := collect(t, reader)["cache.compression.duration"]
 	assert.Equal(t, uint64(1), histogramCount(t, duration, attribute.String("cache.codec", "201"),
 		attribute.String("operation", "compress"), attribute.Bool("success", true)))
+}
+
+func newAllCodecs(t *testing.T) *all.Codecs {
+	t.Helper()
+	codecs, err := all.NewCodecs()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { assert.NoError(t, codecs.Close()) })
+	return codecs
+}
+
+func TestInstrumentCodecs_Wrapping(t *testing.T) {
+	list := newAllCodecs(t).List()
+	input := append([]cache.CompressionCodec(nil), list...)
+
+	wrapped := InstrumentCodecs(list)
+	if !assert.Len(t, wrapped, len(list)) {
+		return
+	}
+	assert.Len(t, wrapped, 6)
+	for i, codec := range wrapped {
+		instrumented, ok := codec.(*InstrumentedCompressionCodec)
+		if !assert.True(t, ok, "codec %d is %T", i, codec) {
+			continue
+		}
+		assert.Same(t, list[i], instrumented.Unwrap())
+		wantID, _ := cache.FormatIDOf(list[i])
+		assert.Equal(t, wantID, instrumented.FormatID())
+	}
+
+	// The input isn't modified.
+	for i := range list {
+		assert.Same(t, input[i], list[i])
+	}
+}
+
+func TestInstrumentCodecs_Empty(t *testing.T) {
+	for _, codecs := range [][]cache.CompressionCodec{nil, {}} {
+		wrapped := InstrumentCodecs(codecs)
+		assert.NotNil(t, wrapped)
+		assert.Empty(t, wrapped)
+	}
+}
+
+func TestInstrumentCodecs_Panics(t *testing.T) {
+	assert.PanicsWithError(t, "nil CompressionCodec", func() {
+		InstrumentCodecs([]cache.CompressionCodec{gzip.NewCodec(6), nil})
+	})
+	assert.PanicsWithError(t, "nil CompressionCodec", func() {
+		InstrumentCodecs([]cache.CompressionCodec{(*gzip.Codec)(nil)})
+	})
+	assert.PanicsWithError(t,
+		"CompressionCodec cacheotel.noIDCodec has no format id: implement FormatID() uint8 returning an id in the range 128-255 or wrap it with cache.CodecWithID",
+		func() {
+			InstrumentCodecs([]cache.CompressionCodec{noIDCodec{}})
+		})
+}
+
+// TestInstrumentCodecs_DecodeCompression reads a value written with MessagePack and
+// Snappy using a JSON and LZ4 cache that registers the instrumented built-in codecs.
+func TestInstrumentCodecs_DecodeCompression(t *testing.T) {
+	ctx := context.Background()
+	client := redis.NewClient(&redis.Options{Addr: miniredis.RunT(t).Addr()})
+	defer client.Close()
+
+	writer := cache.New(client,
+		cache.Serialization(&cache.MessagePackSerializer{}),
+		cache.Compression(snappy.NewCodec()))
+	assert.NoError(t, writer.Set(ctx, "key", "value", 0))
+
+	mp, reader := newTestMeterProvider(t)
+	name := attribute.String("cache.name", "users")
+	c := cache.New(client,
+		cache.Serialization(NewInstrumentedSerializer(&cache.JsonSerializer{})),
+		cache.Compression(NewInstrumentedCompressionCodec(lz4.NewCodec())),
+		cache.DecodeCompression(InstrumentCodecs(newAllCodecs(t).List(), WithMeterProvider(mp), WithAttributes(name))...))
+
+	var s string
+	assert.NoError(t, c.Get(ctx, "key", &s))
+	assert.Equal(t, "value", s)
+
+	duration := collect(t, reader)["cache.compression.duration"]
+	assert.Equal(t, uint64(1), histogramCount(t, duration, name, attribute.String("cache.codec", "snappy"),
+		attribute.String("operation", "decompress"), attribute.Bool("success", true)))
+}
+
+// TestInstrumentCodecs_ConfiguredCodec verifies the instrumented built-in codecs can
+// be registered next to a configured instrumented codec of the same type.
+func TestInstrumentCodecs_ConfiguredCodec(t *testing.T) {
+	ctx := context.Background()
+	client := redis.NewClient(&redis.Options{Addr: miniredis.RunT(t).Addr()})
+	defer client.Close()
+
+	opts := []cache.Option{
+		cache.Compression(NewInstrumentedCompressionCodec(lz4.NewCodec())),
+		cache.DecodeCompression(InstrumentCodecs(newAllCodecs(t).List())...),
+	}
+
+	var c *cache.Cache
+	assert.NotPanics(t, func() { c = cache.New(client, opts...) })
+	var typed *cache.TypedCache[string]
+	assert.NotPanics(t, func() { typed = cache.NewTyped[string](client, opts...) })
+	if c == nil || typed == nil {
+		return
+	}
+
+	assert.NoError(t, c.Set(ctx, "cache", "value", 0))
+	assert.NoError(t, typed.Set(ctx, "typed", "value", 0))
+	for _, key := range []string{"cache", "typed"} {
+		raw, err := client.Get(ctx, key).Bytes()
+		if assert.NoError(t, err) && assert.GreaterOrEqual(t, len(raw), 4) {
+			assert.Equal(t, cache.CodecLZ4, raw[3])
+		}
+	}
 }
