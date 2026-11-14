@@ -7,23 +7,28 @@ import (
 var (
 	defaultBuckets         = prometheus.ExponentialBuckets(0.005, 2, 8)
 	defaultMgetKeysBuckets = []float64{50, 100, 200, 500, 1000, 2000, 4000, 8000, 16000}
+
+	// 64B, 256B, 1KiB, 4KiB, 16KiB, 64KiB, 256KiB, 1MiB, 4MiB, 16MiB
+	defaultCompressionSizeBuckets = prometheus.ExponentialBuckets(64, 4, 10)
 )
 
 type config struct {
-	namespace       string
-	subSystem       string
-	globalLabels    map[string]string
-	buckets         []float64
-	mgetKeysBuckets []float64
+	namespace              string
+	subSystem              string
+	globalLabels           map[string]string
+	buckets                []float64
+	mgetKeysBuckets        []float64
+	compressionSizeBuckets []float64
 }
 
 func newConfig() *config {
 	return &config{
-		namespace:       "redis",
-		subSystem:       "cache",
-		globalLabels:    make(map[string]string),
-		buckets:         defaultBuckets,
-		mgetKeysBuckets: defaultMgetKeysBuckets,
+		namespace:              "redis",
+		subSystem:              "cache",
+		globalLabels:           make(map[string]string),
+		buckets:                defaultBuckets,
+		mgetKeysBuckets:        defaultMgetKeysBuckets,
+		compressionSizeBuckets: defaultCompressionSizeBuckets,
 	}
 }
 
@@ -62,5 +67,14 @@ func WithBuckets(buckets []float64) Option {
 func WithMGETKeysBuckets(buckets []float64) Option {
 	return func(c *config) {
 		c.mgetKeysBuckets = buckets
+	}
+}
+
+// WithCompressionSizeBuckets overrides the default buckets used for the
+// Prometheus histogram tracking payload sizes (bytes) before and after
+// compression/decompression.
+func WithCompressionSizeBuckets(buckets []float64) Option {
+	return func(c *config) {
+		c.compressionSizeBuckets = buckets
 	}
 }

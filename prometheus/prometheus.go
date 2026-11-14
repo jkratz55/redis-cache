@@ -15,13 +15,21 @@ import (
 	cache "github.com/jkratz55/redis-cache"
 )
 
-var cacheLabels = []string{"operation"}
+var (
+	cacheLabels           = []string{"operation"}
+	compressionSizeLabels = []string{"operation", "stage"}
+)
 
 const (
 	operationMarshal    = "marshal"
 	operationUnmarshal  = "unmarshal"
 	operationCompress   = "compress"
 	operationDecompress = "decompress"
+)
+
+const (
+	stagePre  = "pre"
+	stagePost = "post"
 )
 
 // InstrumentMetrics enables instrumentation of a Cache using Prometheus.
@@ -82,6 +90,15 @@ func InstrumentMetrics(c *cache.Cache, opts ...Option) error {
 		ConstLabels: conf.globalLabels,
 	})
 
+	compressionSize := prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		Namespace:   conf.namespace,
+		Subsystem:   conf.subSystem,
+		Name:        "compression_payload_size_bytes",
+		Help:        "Size in bytes of payloads before (pre) and after (post) compression and decompression operations",
+		ConstLabels: conf.globalLabels,
+		Buckets:     conf.compressionSizeBuckets,
+	}, compressionSizeLabels)
+
 	statusCollector := newRedisStatusCollector(conf, c)
 
 	err := multierr.Combine(
@@ -91,6 +108,7 @@ func InstrumentMetrics(c *cache.Cache, opts ...Option) error {
 		prometheus.Register(compressionErrors),
 		prometheus.Register(bytesIn),
 		prometheus.Register(bytesOut),
+		prometheus.Register(compressionSize),
 		prometheus.Register(statusCollector))
 
 	if err != nil {
@@ -104,6 +122,7 @@ func InstrumentMetrics(c *cache.Cache, opts ...Option) error {
 		compressionErrors: compressionErrors,
 		bytesIn:           bytesIn,
 		bytesOut:          bytesOut,
+		compressionSize:   compressionSize,
 	})
 
 	return nil
@@ -116,6 +135,7 @@ type metricsHook struct {
 	compressionErrors *prometheus.CounterVec
 	bytesIn           prometheus.Counter
 	bytesOut          prometheus.Counter
+	compressionSize   *prometheus.HistogramVec
 }
 
 func (m *metricsHook) MarshalHook(next cache.Marshaller) cache.Marshaller {
@@ -158,6 +178,9 @@ func (m *metricsHook) UnmarshallHook(next cache.Unmarshaller) cache.Unmarshaller
 
 func (m *metricsHook) CompressHook(next cache.CompressionHook) cache.CompressionHook {
 	return func(data []byte) ([]byte, error) {
+		m.compressionSize.WithLabelValues(operationCompress, stagePre).
+			Observe(float64(len(data)))
+
 		start := time.Now()
 
 		compressed, err := next(data)
@@ -171,6 +194,9 @@ func (m *metricsHook) CompressHook(next cache.CompressionHook) cache.Compression
 
 		if err != nil {
 			m.compressionErrors.WithLabelValues(operationCompress).Inc()
+		} else {
+			m.compressionSize.WithLabelValues(operationCompress, stagePost).
+				Observe(float64(len(compressed)))
 		}
 
 		return compressed, err
@@ -179,6 +205,9 @@ func (m *metricsHook) CompressHook(next cache.CompressionHook) cache.Compression
 
 func (m *metricsHook) DecompressHook(next cache.CompressionHook) cache.CompressionHook {
 	return func(data []byte) ([]byte, error) {
+		m.compressionSize.WithLabelValues(operationDecompress, stagePre).
+			Observe(float64(len(data)))
+
 		start := time.Now()
 
 		uncompressed, err := next(data)
@@ -192,6 +221,9 @@ func (m *metricsHook) DecompressHook(next cache.CompressionHook) cache.Compressi
 
 		if err != nil {
 			m.compressionErrors.WithLabelValues(operationDecompress).Inc()
+		} else {
+			m.compressionSize.WithLabelValues(operationDecompress, stagePost).
+				Observe(float64(len(uncompressed)))
 		}
 
 		return uncompressed, err

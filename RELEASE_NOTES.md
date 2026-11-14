@@ -1,5 +1,9 @@
 # Release Notes
 
+## v1.10.0
+
+* Adds Prometheus histogram `compression_payload_size_bytes` tracking the size of payloads before (`stage="pre"`) and after (`stage="post"`) compression and decompression, labeled by `operation`. Buckets default to 64B through 16MiB and can be overridden with `WithCompressionSizeBuckets`
+
 ## v1.9.0
 
 * Updates go-redis client from v9.14 to 9.16

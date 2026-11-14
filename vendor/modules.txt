@@ -1,4 +1,4 @@
-# github.com/alicebob/miniredis/v2 v2.38.0
+# github.com/alicebob/miniredis/v2 v2.40.0
 ## explicit; go 1.17
 github.com/alicebob/miniredis/v2
 github.com/alicebob/miniredis/v2/fpconv
@@ -9,10 +9,9 @@ github.com/alicebob/miniredis/v2/metro
 github.com/alicebob/miniredis/v2/proto
 github.com/alicebob/miniredis/v2/server
 github.com/alicebob/miniredis/v2/size
-# github.com/andybalholm/brotli v1.2.2
+# github.com/andybalholm/brotli v1.3.0
 ## explicit; go 1.22
 github.com/andybalholm/brotli
-github.com/andybalholm/brotli/flate
 github.com/andybalholm/brotli/matchfinder
 # github.com/beorn7/perks v1.0.1
 ## explicit; go 1.11
@@ -20,9 +19,6 @@ github.com/beorn7/perks/quantile
 # github.com/cespare/xxhash/v2 v2.3.0
 ## explicit; go 1.11
 github.com/cespare/xxhash/v2
-# github.com/davecgh/go-spew v1.1.1
-## explicit
-github.com/davecgh/go-spew/spew
 # github.com/go-logr/logr v1.4.4
 ## explicit; go 1.18
 github.com/go-logr/logr
@@ -33,8 +29,8 @@ github.com/go-logr/stdr
 # github.com/google/uuid v1.6.0
 ## explicit
 github.com/google/uuid
-# github.com/klauspost/compress v1.19.1
-## explicit; go 1.24
+# github.com/klauspost/compress v1.20.4
+## explicit; go 1.25
 github.com/klauspost/compress/internal/le
 github.com/klauspost/compress/internal/race
 github.com/klauspost/compress/s2
@@ -42,41 +38,41 @@ github.com/klauspost/compress/snappy
 # github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822
 ## explicit
 github.com/munnerz/goautoneg
-# github.com/pierrec/lz4/v4 v4.1.28
-## explicit; go 1.17
+# github.com/pandatix/go-abnf v0.5.5
+## explicit; go 1.26.0
+github.com/pandatix/go-abnf
+# github.com/pierrec/lz4/v4 v4.1.33
+## explicit; go 1.22
 github.com/pierrec/lz4/v4
 github.com/pierrec/lz4/v4/internal/lz4block
 github.com/pierrec/lz4/v4/internal/lz4errors
 github.com/pierrec/lz4/v4/internal/lz4stream
 github.com/pierrec/lz4/v4/internal/xxh32
-# github.com/pmezard/go-difflib v1.0.0
-## explicit
-github.com/pmezard/go-difflib/difflib
-# github.com/prometheus/client_golang v1.24.1
-## explicit; go 1.25.0
+# github.com/prometheus/client_golang v1.25.0
+## explicit; go 1.26.0
 github.com/prometheus/client_golang/internal/github.com/golang/gddo/httputil
 github.com/prometheus/client_golang/internal/github.com/golang/gddo/httputil/header
 github.com/prometheus/client_golang/prometheus
 github.com/prometheus/client_golang/prometheus/internal
 github.com/prometheus/client_golang/prometheus/promhttp
 github.com/prometheus/client_golang/prometheus/promhttp/internal
-# github.com/prometheus/client_model v0.6.2
-## explicit; go 1.22.0
+# github.com/prometheus/client_model v0.6.3
+## explicit; go 1.23
 github.com/prometheus/client_model/go
-# github.com/prometheus/common v0.70.1
-## explicit; go 1.25.0
+# github.com/prometheus/common v0.74.0
+## explicit; go 1.26.0
 github.com/prometheus/common/expfmt
 github.com/prometheus/common/model
 # github.com/prometheus/otlptranslator v1.0.0
 ## explicit; go 1.23.0
 github.com/prometheus/otlptranslator
-# github.com/prometheus/procfs v0.21.1
-## explicit; go 1.25.0
+# github.com/prometheus/procfs v0.23.0
+## explicit; go 1.26.0
 github.com/prometheus/procfs
 github.com/prometheus/procfs/internal/fs
-github.com/prometheus/procfs/internal/util
-# github.com/redis/go-redis/v9 v9.22.0
-## explicit; go 1.24
+github.com/prometheus/procfs/internal/parsers
+# github.com/redis/go-redis/v9 v9.23.0
+## explicit; go 1.26.0
 github.com/redis/go-redis/v9
 github.com/redis/go-redis/v9/auth
 github.com/redis/go-redis/v9/internal
@@ -92,10 +88,12 @@ github.com/redis/go-redis/v9/internal/routing
 github.com/redis/go-redis/v9/internal/util
 github.com/redis/go-redis/v9/maintnotifications
 github.com/redis/go-redis/v9/push
-# github.com/stretchr/testify v1.11.1
+# github.com/stretchr/testify v1.12.1
 ## explicit; go 1.17
 github.com/stretchr/testify/assert
 github.com/stretchr/testify/assert/yaml
+github.com/stretchr/testify/internal/difflib
+github.com/stretchr/testify/internal/spew
 # github.com/vmihailenco/msgpack/v5 v5.4.1
 ## explicit; go 1.19
 github.com/vmihailenco/msgpack/v5
@@ -115,8 +113,8 @@ github.com/yuin/gopher-lua/pm
 ## explicit; go 1.24.0
 go.opentelemetry.io/auto/sdk
 go.opentelemetry.io/auto/sdk/internal/telemetry
-# go.opentelemetry.io/otel v1.45.0
-## explicit; go 1.25.0
+# go.opentelemetry.io/otel v1.47.0
+## explicit; go 1.26.0
 go.opentelemetry.io/otel
 go.opentelemetry.io/otel/attribute
 go.opentelemetry.io/otel/attribute/internal
@@ -127,59 +125,67 @@ go.opentelemetry.io/otel/internal/baggage
 go.opentelemetry.io/otel/internal/errorhandler
 go.opentelemetry.io/otel/internal/global
 go.opentelemetry.io/otel/propagation
+go.opentelemetry.io/otel/propagation/internal/hextable
 go.opentelemetry.io/otel/semconv/internal/metricpool
 go.opentelemetry.io/otel/semconv/v1.37.0
 go.opentelemetry.io/otel/semconv/v1.43.0
 go.opentelemetry.io/otel/semconv/v1.43.0/otelconv
-# go.opentelemetry.io/otel/exporters/prometheus v0.67.0
-## explicit; go 1.25.0
+# go.opentelemetry.io/otel/exporters/prometheus v0.69.0
+## explicit; go 1.26.0
 go.opentelemetry.io/otel/exporters/prometheus
 go.opentelemetry.io/otel/exporters/prometheus/internal
 go.opentelemetry.io/otel/exporters/prometheus/internal/counter
 go.opentelemetry.io/otel/exporters/prometheus/internal/observ
 go.opentelemetry.io/otel/exporters/prometheus/internal/x
-# go.opentelemetry.io/otel/metric v1.45.0
-## explicit; go 1.25.0
+# go.opentelemetry.io/otel/log v1.47.0
+## explicit; go 1.26.0
+go.opentelemetry.io/otel/log
+go.opentelemetry.io/otel/log/embedded
+# go.opentelemetry.io/otel/metric v1.47.0
+## explicit; go 1.26.0
 go.opentelemetry.io/otel/metric
 go.opentelemetry.io/otel/metric/embedded
 go.opentelemetry.io/otel/metric/noop
-# go.opentelemetry.io/otel/sdk v1.45.0
-## explicit; go 1.25.0
+# go.opentelemetry.io/otel/sdk v1.47.0
+## explicit; go 1.26.0
 go.opentelemetry.io/otel/sdk
 go.opentelemetry.io/otel/sdk/instrumentation
 go.opentelemetry.io/otel/sdk/internal/attrnorm
 go.opentelemetry.io/otel/sdk/internal/x
 go.opentelemetry.io/otel/sdk/resource
-# go.opentelemetry.io/otel/sdk/metric v1.45.0
-## explicit; go 1.25.0
+# go.opentelemetry.io/otel/sdk/metric v1.47.0
+## explicit; go 1.26.0
 go.opentelemetry.io/otel/sdk/metric
 go.opentelemetry.io/otel/sdk/metric/exemplar
 go.opentelemetry.io/otel/sdk/metric/internal
 go.opentelemetry.io/otel/sdk/metric/internal/aggregate
 go.opentelemetry.io/otel/sdk/metric/internal/attrnorm
+go.opentelemetry.io/otel/sdk/metric/internal/finish
 go.opentelemetry.io/otel/sdk/metric/internal/observ
 go.opentelemetry.io/otel/sdk/metric/internal/reservoir
-go.opentelemetry.io/otel/sdk/metric/internal/x
 go.opentelemetry.io/otel/sdk/metric/metricdata
-# go.opentelemetry.io/otel/trace v1.45.0
-## explicit; go 1.25.0
+# go.opentelemetry.io/otel/trace v1.47.0
+## explicit; go 1.26.0
 go.opentelemetry.io/otel/trace
 go.opentelemetry.io/otel/trace/embedded
 go.opentelemetry.io/otel/trace/internal/telemetry
 go.opentelemetry.io/otel/trace/noop
-# go.uber.org/atomic v1.11.0
+# go.uber.org/atomic v1.12.0
 ## explicit; go 1.18
 go.uber.org/atomic
 # go.uber.org/multierr v1.11.0
 ## explicit; go 1.19
 go.uber.org/multierr
-# golang.org/x/sys v0.47.0
-## explicit; go 1.25.0
+# go.yaml.in/yaml/v3 v3.0.5
+## explicit; go 1.16
+go.yaml.in/yaml/v3
+# golang.org/x/sys v0.50.0
+## explicit; go 1.26.0
 golang.org/x/sys/cpu
 golang.org/x/sys/unix
 golang.org/x/sys/windows
 golang.org/x/sys/windows/registry
-# google.golang.org/protobuf v1.36.11
+# google.golang.org/protobuf v1.36.12
 ## explicit; go 1.23
 google.golang.org/protobuf/encoding/protodelim
 google.golang.org/protobuf/encoding/prototext
@@ -210,6 +216,3 @@ google.golang.org/protobuf/reflect/protoregistry
 google.golang.org/protobuf/runtime/protoiface
 google.golang.org/protobuf/runtime/protoimpl
 google.golang.org/protobuf/types/known/timestamppb
-# gopkg.in/yaml.v3 v3.0.1
-## explicit
-gopkg.in/yaml.v3
