@@ -449,7 +449,7 @@ func TestMGetBatch(t *testing.T) {
 	expected := make(map[string]name)
 
 	keys := make([]string, 0, 10000)
-	for i := 0; i < 10000; i++ {
+	for i := range 10000 {
 		key := fmt.Sprintf("key%d", i)
 		keys = append(keys, key)
 		expected[key] = testVal
@@ -529,7 +529,7 @@ func TestMGetValuesBatch(t *testing.T) {
 	expected := make([]name, 0, 10000)
 	keys := make([]string, 0, 10000)
 
-	for i := 0; i < 10000; i++ {
+	for i := range 10000 {
 		key := fmt.Sprintf("key%d", i)
 		keys = append(keys, key)
 		expected = append(expected, testVal)
@@ -590,7 +590,7 @@ func TestCache_Keys(t *testing.T) {
 
 	rdb := New(client)
 
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		key := fmt.Sprintf("%d", i)
 		err := rdb.Set(context.Background(), key, key)
 		assert.NoError(t, err)

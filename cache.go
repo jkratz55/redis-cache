@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -68,6 +69,7 @@ type Cache struct {
 	unmarshaller Unmarshaller
 	codec        Codec
 	mgetBatch    int // zero-value indicates no batching
+	logger       *slog.Logger
 	hooksMixin
 }
 
@@ -84,6 +86,7 @@ func New(client RedisClient, opts ...Option) *Cache {
 		marshaller:   DefaultMarshaller(),
 		unmarshaller: DefaultUnmarshaller(),
 		codec:        nopCodec{},
+		logger:       nopLogger(),
 	}
 	for _, opt := range opts {
 		opt(cache)
@@ -127,6 +130,7 @@ func (c *Cache) Get(ctx context.Context, key string, v any) error {
 		}
 		return fmt.Errorf("redis: %w", err)
 	}
+	warnIfLargeKey(ctx, c.logger, key, len(data))
 	data, err = c.hooksMixin.current.decompress(data)
 	if err != nil {
 		return fmt.Errorf("decompress value: %w", err)
@@ -163,6 +167,7 @@ func (c *Cache) GetAndExpire(ctx context.Context, key string, v any, ttl time.Du
 		}
 		return fmt.Errorf("redis: %w", err)
 	}
+	warnIfLargeKey(ctx, c.logger, key, len(val))
 	data, err := c.hooksMixin.current.decompress(val)
 	if err != nil {
 		return fmt.Errorf("decompress value: %w", err)
@@ -492,6 +497,10 @@ func (c *Cache) setMGetBatch(i int) {
 	c.mgetBatch = i
 }
 
+func (c *Cache) setLogger(logger *slog.Logger) {
+	c.logger = logger
+}
+
 // DefaultMarshaller returns a Marshaller using msgpack to marshall
 // values.
 func DefaultMarshaller() Marshaller {
@@ -569,6 +578,7 @@ func MGet[R any](ctx context.Context, c *Cache, keys ...string) (MultiResult[R],
 		if !ok {
 			return nil, fmt.Errorf("unexpected value type from Redis: expected %T but got %T", str, res)
 		}
+		warnIfLargeKey(ctx, c.logger, keys[i], len(str))
 		data, err := c.hooksMixin.current.decompress([]byte(str))
 		if err != nil {
 			return nil, fmt.Errorf("decompress value: %w", err)
@@ -591,7 +601,7 @@ func mGetBatch[R any](ctx context.Context, c *Cache, keys ...string) (MultiResul
 
 	pipe := c.redis.Pipeline()
 	cmds := make([]*redis.SliceCmd, 0, len(chunks))
-	for i := 0; i < len(chunks); i++ {
+	for i := range chunks {
 		cmds = append(cmds, pipe.MGet(ctx, chunks[i]...))
 	}
 
@@ -616,6 +626,7 @@ func mGetBatch[R any](ctx context.Context, c *Cache, keys ...string) (MultiResul
 			if !ok {
 				return nil, fmt.Errorf("unexpected value type from Redis: expected %T but got %T", str, res)
 			}
+			warnIfLargeKey(ctx, c.logger, chunks[i][j], len(str))
 			data, err := c.hooksMixin.current.decompress([]byte(str))
 			if err != nil {
 				return nil, fmt.Errorf("decompress value: %w", err)
@@ -651,7 +662,7 @@ func MGetValues[T any](ctx context.Context, c *Cache, keys ...string) ([]T, erro
 	}
 
 	values := make([]T, 0, len(keys))
-	for i := 0; i < len(results); i++ {
+	for i := range results {
 		res := results[i]
 		if res == nil || res == redis.Nil {
 			// Some or all of the requested keys may not exist. Skip iterations
@@ -662,6 +673,7 @@ func MGetValues[T any](ctx context.Context, c *Cache, keys ...string) ([]T, erro
 		if !ok {
 			return nil, fmt.Errorf("unexpected value type from Redis: expected %T but got %T", str, res)
 		}
+		warnIfLargeKey(ctx, c.logger, keys[i], len(str))
 		data, err := c.hooksMixin.current.decompress([]byte(str))
 		if err != nil {
 			return nil, fmt.Errorf("decompress value: %w", err)
@@ -680,7 +692,7 @@ func mGetValuesBatch[T any](ctx context.Context, c *Cache, keys ...string) ([]T,
 	pipe := c.redis.Pipeline()
 	cmds := make([]*redis.SliceCmd, 0, len(chunks))
 
-	for i := 0; i < len(chunks); i++ {
+	for i := range chunks {
 		cmds = append(cmds, pipe.MGet(ctx, chunks[i]...))
 	}
 
@@ -695,7 +707,7 @@ func mGetValuesBatch[T any](ctx context.Context, c *Cache, keys ...string) ([]T,
 		if err != nil {
 			return nil, fmt.Errorf("redis: %w", err)
 		}
-		for j := 0; j < len(results); j++ {
+		for j := range results {
 			res := results[j]
 			if res == nil || res == redis.Nil {
 				// Some or all of the requested keys may not exist. Skip iterations
@@ -706,6 +718,7 @@ func mGetValuesBatch[T any](ctx context.Context, c *Cache, keys ...string) ([]T,
 			if !ok {
 				return nil, fmt.Errorf("unexpected value type from Redis: expected %T but got %T", str, res)
 			}
+			warnIfLargeKey(ctx, c.logger, chunks[i][j], len(str))
 			data, err := c.hooksMixin.current.decompress([]byte(str))
 			if err != nil {
 				return nil, fmt.Errorf("decompress value: %w", err)

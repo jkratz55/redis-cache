@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"math"
 	"time"
 
@@ -24,6 +25,7 @@ type TypedCache[T any] struct {
 	unmarshaller Unmarshaller
 	codec        Codec
 	mgetBatch    int // zero-value indicates no batching
+	logger       *slog.Logger
 	hooksMixin
 }
 
@@ -36,6 +38,7 @@ func NewTyped[T any](client RedisClient, opts ...Option) *TypedCache[T] {
 		marshaller:   DefaultMarshaller(),
 		unmarshaller: DefaultUnmarshaller(),
 		codec:        nopCodec{},
+		logger:       nopLogger(),
 	}
 
 	for _, opt := range opts {
@@ -65,6 +68,7 @@ func (c *TypedCache[T]) Get(ctx context.Context, key string) (T, error) {
 		}
 		return res, fmt.Errorf("redis: %w", err)
 	}
+	warnIfLargeKey(ctx, c.logger, key, len(data))
 	data, err = c.hooksMixin.current.decompress(data)
 	if err != nil {
 		return res, fmt.Errorf("decompress value: %w", err)
@@ -85,6 +89,7 @@ func (c *TypedCache[T]) GetAndExpire(ctx context.Context, key string, ttl time.D
 		}
 		return res, fmt.Errorf("redis: %w", err)
 	}
+	warnIfLargeKey(ctx, c.logger, key, len(data))
 	data, err = c.hooksMixin.current.decompress(data)
 	if err != nil {
 		return res, fmt.Errorf("decompress value: %w", err)
@@ -105,6 +110,7 @@ func (c *TypedCache[T]) GetAndDelete(ctx context.Context, key string) (T, error)
 		}
 		return res, fmt.Errorf("redis: %w", err)
 	}
+	warnIfLargeKey(ctx, c.logger, key, len(data))
 	data, err = c.hooksMixin.current.decompress(data)
 	if err != nil {
 		return res, fmt.Errorf("decompress value: %w", err)
@@ -124,7 +130,7 @@ func (c *TypedCache[T]) MGet(ctx context.Context, keys ...string) (MultiResult[T
 
 	pipe := c.redis.Pipeline()
 	cmds := make([]*redis.SliceCmd, 0, len(chunks))
-	for i := 0; i < len(chunks); i++ {
+	for i := range chunks {
 		cmds = append(cmds, pipe.MGet(ctx, chunks[i]...))
 	}
 
@@ -149,6 +155,7 @@ func (c *TypedCache[T]) MGet(ctx context.Context, keys ...string) (MultiResult[T
 			if !ok {
 				return nil, fmt.Errorf("unexpected value type from Redis: expected %T but got %T", str, res)
 			}
+			warnIfLargeKey(ctx, c.logger, chunks[i][j], len(str))
 			data, err := c.hooksMixin.current.decompress([]byte(str))
 			if err != nil {
 				return nil, fmt.Errorf("decompress value: %w", err)
@@ -322,4 +329,8 @@ func (c *TypedCache[T]) setCodec(codec Codec) {
 
 func (c *TypedCache[T]) setMGetBatch(i int) {
 	c.mgetBatch = i
+}
+
+func (c *TypedCache[T]) setLogger(logger *slog.Logger) {
+	c.logger = logger
 }

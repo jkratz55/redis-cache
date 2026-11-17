@@ -3,6 +3,7 @@ package cache
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 
 	"github.com/jkratz55/redis-cache/compression/brotli"
 	"github.com/jkratz55/redis-cache/compression/flate"
@@ -16,6 +17,7 @@ type configurable interface {
 	setUnmarshaller(Unmarshaller)
 	setCodec(Codec)
 	setMGetBatch(int)
+	setLogger(*slog.Logger)
 }
 
 // Option allows for the Cache behavior/configuration to be customized.
@@ -110,5 +112,19 @@ func Snappy() Option {
 func BatchMultiGets(batchSize int) Option {
 	return func(c configurable) {
 		c.setMGetBatch(batchSize)
+	}
+}
+
+// Logger configures the *slog.Logger used by the Cache. By default, a no-op
+// logger is used and nothing is logged.
+//
+// The logger is used to emit a warning when a get operation loads a value of 1Mb
+// or more from Redis (a large key). Providing a nil logger will immediately panic.
+func Logger(logger *slog.Logger) Option {
+	if logger == nil {
+		panic(fmt.Errorf("nil Logger not permitted, illegal use of api"))
+	}
+	return func(c configurable) {
+		c.setLogger(logger)
 	}
 }

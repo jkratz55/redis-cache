@@ -45,7 +45,7 @@ type CommandErrors []CommandError
 func (r CommandErrors) Error() string {
 	buff := bytes.NewBufferString("")
 
-	for i := 0; i < len(r); i++ {
+	for i := range r {
 		buff.WriteString(r[i].Error())
 		buff.WriteString("\n")
 	}

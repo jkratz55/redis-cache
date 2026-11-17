@@ -1,5 +1,7 @@
 package cache
 
+import "slices"
+
 // CompressionHook is a function type that is invoked prior to compressing or
 // decompressing data.
 type CompressionHook func(data []byte) ([]byte, error)
@@ -44,17 +46,17 @@ func (hs *hooksMixin) chain() {
 	hs.current.compress = hs.initial.compress
 	hs.current.decompress = hs.initial.decompress
 
-	for i := len(hs.hooks) - 1; i >= 0; i-- {
-		if wrapped := hs.hooks[i].MarshalHook(hs.current.marshal); wrapped != nil {
+	for _, v := range slices.Backward(hs.hooks) {
+		if wrapped := v.MarshalHook(hs.current.marshal); wrapped != nil {
 			hs.current.marshal = wrapped
 		}
-		if wrapped := hs.hooks[i].UnmarshallHook(hs.current.unmarshall); wrapped != nil {
+		if wrapped := v.UnmarshallHook(hs.current.unmarshall); wrapped != nil {
 			hs.current.unmarshall = wrapped
 		}
-		if wrapped := hs.hooks[i].CompressHook(hs.current.compress); wrapped != nil {
+		if wrapped := v.CompressHook(hs.current.compress); wrapped != nil {
 			hs.current.compress = wrapped
 		}
-		if wrapped := hs.hooks[i].DecompressHook(hs.current.decompress); wrapped != nil {
+		if wrapped := v.DecompressHook(hs.current.decompress); wrapped != nil {
 			hs.current.decompress = wrapped
 		}
 	}
